@@ -21,22 +21,17 @@ const AutoResizeTextarea: React.FC<{
   const adjustHeight = () => {
     const el = textareaRef.current;
     if (el) {
-      // 关键：先重置为 0，让容器塌陷，从而获取真实的 scrollHeight
       el.style.height = '0px';
       const scrollHeight = el.scrollHeight;
-      // 设置高度，确保没有多余空白
       el.style.height = `${scrollHeight}px`;
     }
   };
 
-  // 监听值变化实时调整
   useLayoutEffect(() => {
     adjustHeight();
   }, [value]);
 
-  // 处理初次挂载时的布局不稳定
   useEffect(() => {
-    // 使用 requestAnimationFrame 确保在浏览器完成初次渲染和布局后再计算
     const handle = requestAnimationFrame(() => {
       adjustHeight();
     });
@@ -121,7 +116,8 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
   };
 
   return (
-    <div className="bg-slate-900 p-6 rounded-lg h-full overflow-y-auto max-w-5xl mx-auto">
+    /* Removed max-w-5xl and mx-auto to fill horizontal space */
+    <div className="bg-slate-900 p-4 md:p-6 rounded-lg h-full overflow-y-auto w-full">
       <div className="flex justify-between items-center mb-6 sticky top-0 bg-slate-900 z-10 py-2 border-b border-slate-800">
         <h2 className="text-xl font-bold text-white">编辑模版</h2>
         <div className="space-x-2">

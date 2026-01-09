@@ -70,9 +70,9 @@ const App: React.FC = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // 设置相关 - 默认比例调大到 19 (16*1.2=19.2)
+  // 设置相关 - 默认比例调整为 8 (50% 模式)
   const [fontSize, setFontSize] = useState<FontSize>('text-sm');
-  const [uiScale, setUiScale] = useState<UiScale>(19);
+  const [uiScale, setUiScale] = useState<UiScale>(8);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -170,14 +170,14 @@ const App: React.FC = () => {
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, [isResizingSidebar]);
 
-  const createProject = (templateId: string) => {
+  const createProject = (templateId: string, name: string) => {
     const template = templates.find(t => t.id === templateId);
     if (!template) return;
     const now = Date.now();
     const defaultInputs: Record<string, string> = {};
     template.inputs.forEach(inp => { if (inp.defaultValue) defaultInputs[inp.id] = inp.defaultValue; });
     const newProject: Project = { 
-        id: `proj_${now}`, templateId, name: `新项目`, createdAt: now, lastModifiedAt: now, lastOpenedAt: now,
+        id: `proj_${now}`, templateId, name: name || `新项目`, createdAt: now, lastModifiedAt: now, lastOpenedAt: now,
         inputValues: defaultInputs, customInputs: [], stepOutputs: {}, stepOverrides: {} 
     };
     setProjects([...projects, newProject]);
@@ -336,14 +336,14 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden text-slate-200 font-sans ${fontSize} app-root`}>
-      {/* Top Header */}
-      <div className="flex items-center bg-slate-900 h-12 border-b border-slate-800 shrink-0 pr-4 z-30 relative shadow-sm">
-           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`w-12 h-full flex items-center justify-center text-slate-400 hover:text-white border-r border-slate-800 hover:bg-slate-800 transition-colors shrink-0 ${isSidebarOpen ? 'bg-slate-800 text-white' : ''}`}>
+      {/* Top Header - Height increased to h-14 for "expanded" look and added overflow-hidden to prevent vertical scroll */}
+      <div className="flex items-center bg-slate-900 h-14 border-b border-slate-800 shrink-0 pr-4 z-30 relative shadow-sm overflow-hidden">
+           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`w-14 h-full flex items-center justify-center text-slate-400 hover:text-white border-r border-slate-800 hover:bg-slate-800 transition-colors shrink-0 ${isSidebarOpen ? 'bg-slate-800 text-white' : ''}`}>
              <MenuIcon className="w-5 h-5" />
            </button>
            
-           <div className="px-4 font-bold text-slate-400 text-sm hidden sm:flex items-center gap-3">
-              <span>提示词拼接器 Pro</span>
+           <div className="px-5 font-bold text-slate-400 text-sm hidden sm:flex items-center gap-3 shrink-0">
+              <span className="tracking-tight">提示词拼接器 Pro</span>
               <button 
                 onClick={() => setIsSettingsOpen(true)}
                 className="p-1.5 text-slate-600 hover:text-blue-400 transition-colors"
@@ -353,13 +353,21 @@ const App: React.FC = () => {
               </button>
            </div>
 
-           <div className="flex-1 flex overflow-x-auto no-scrollbar items-end h-full px-3 gap-0.5">
+           {/* Tab container - Fixed vertical scroll issue with overflow-y-hidden */}
+           <div className="flex-1 flex overflow-x-auto overflow-y-hidden no-scrollbar items-end h-full px-3 gap-0.5">
              {openTabIds.map(id => {
                const p = projects.find(proj => proj.id === id);
                if (!p) return null;
                const isActive = activeTabId === id;
                return (
-                 <div key={id} onClick={() => openTab(id)} className={`group relative flex items-center gap-2 px-4 py-2 min-w-[120px] max-w-[200px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[90%] ${isActive ? 'bg-slate-950 border-slate-800 text-white z-10 border-b-slate-950' : 'bg-slate-900 border-transparent text-slate-500 border-b-slate-800'}`} style={{ marginBottom: '-1px' }}>
+                 <div 
+                   key={id} 
+                   onClick={() => openTab(id)} 
+                   onDoubleClick={(e) => closeTab(id, e)}
+                   className={`group relative flex items-center gap-2 px-4 py-2 min-w-[120px] max-w-[200px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[85%] ${isActive ? 'bg-slate-950 border-slate-800 text-white z-10 border-b-slate-950' : 'bg-slate-900 border-transparent text-slate-500 border-b-slate-800'}`} 
+                   style={{ marginBottom: '-1px' }}
+                   title="双击可关闭标签页"
+                 >
                    <span className="truncate flex-1">{p.name}</span>
                    <button onClick={(e) => closeTab(id, e)} className="p-1 rounded-full hover:bg-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                      <CloseIcon className="w-3 h-3" />
@@ -368,7 +376,8 @@ const App: React.FC = () => {
                );
              })}
            </div>
-           <button onClick={() => setIsLibraryOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow-lg shadow-blue-500/20 transition-all">文件库</button>
+           
+           <button onClick={() => setIsLibraryOpen(true)} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition-all shrink-0">文件库</button>
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">

@@ -3,6 +3,7 @@ import React, { useState, useLayoutEffect, useRef, useEffect } from 'react';
 import { Project, Template, TemplateStep } from '../types';
 import { PromptEditor } from './PromptEditor';
 import { Button } from './Button';
+import { FloatingToast, useToast } from './FloatingToast';
 
 interface ProjectRunnerProps {
   project: Project;
@@ -39,6 +40,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
 }) => {
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const [isResizingRight, setIsResizingRight] = useState(false);
+  const { toasts, showToast, removeToast } = useToast();
   
   const interpolate = (templateStr: string): string => {
     if (!templateStr) return "";
@@ -79,11 +81,16 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, [isResizingRight, onRightPanelWidthChange]);
 
+  const handleDoubleClickCopy = (content: string, e: React.MouseEvent) => {
+    navigator.clipboard.writeText(content);
+    showToast('复制成功', e.clientX, e.clientY);
+  };
+
   return (
     <div className={`flex h-full w-full ${fontSizeClass}`}>
       <div className="flex-1 flex flex-col min-w-0">
-         <div className="flex-1 overflow-y-auto p-8 space-y-8 pb-40 no-scrollbar">
-            <div className="max-w-5xl mx-auto space-y-8">
+         <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-40 no-scrollbar">
+            <div className="w-full space-y-8">
                 {template.steps.map((step, index) => {
                 const override = project.stepOverrides[step.id];
                 const rawContent = override?.content !== undefined ? override.content : (step.content || "");
@@ -146,11 +153,12 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                       <span className="text-[11px] font-mono text-slate-600 font-bold">&lt;{idx+1}&gt;</span>
                       <span className="text-xs font-black text-slate-500 uppercase truncate tracking-tight">{step.name}</span>
                     </div>
-                    <div className="text-slate-300 font-mono text-sm leading-relaxed whitespace-pre-wrap pl-4 py-2 border-l-2 border-slate-800 group-hover:border-blue-500/30 transition-colors relative">
+                    <div 
+                      onDoubleClick={(e) => handleDoubleClickCopy(content, e)}
+                      className="text-slate-300 font-mono text-sm leading-relaxed whitespace-pre-wrap pl-4 py-2 border-l-2 border-slate-800 group-hover:border-blue-500/30 transition-colors relative cursor-copy select-none active:bg-blue-500/5"
+                      title="双击复制内容"
+                    >
                         {content}
-                        <button onClick={() => {
-                          navigator.clipboard.writeText(content);
-                        }} className="absolute top-0 right-0 p-1.5 opacity-0 group-hover:opacity-100 text-[10px] text-blue-400 uppercase font-black bg-slate-900/90 rounded-md border border-slate-800 shadow-xl transition-all hover:scale-105 active:scale-95">复制</button>
                     </div>
                   </div>
                 );
@@ -158,6 +166,8 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
            </div>
          )}
       </div>
+
+      <FloatingToast toasts={toasts} onRemove={removeToast} />
     </div>
   );
 };
