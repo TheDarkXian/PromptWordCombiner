@@ -70,9 +70,9 @@ const App: React.FC = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // 设置相关 - 调整初始比例为 8 (50%)
+  // 设置相关 - 默认比例调大到 19 (16*1.2=19.2)
   const [fontSize, setFontSize] = useState<FontSize>('text-sm');
-  const [uiScale, setUiScale] = useState<UiScale>(8);
+  const [uiScale, setUiScale] = useState<UiScale>(19);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -336,13 +336,13 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden text-slate-200 font-sans ${fontSize} app-root`}>
-      {/* Top Header - Fixed vertical scrolling by adding overflow-hidden */}
-      <div className="flex items-center bg-slate-900 h-12 border-b border-slate-800 shrink-0 pr-4 z-30 relative shadow-sm overflow-hidden">
+      {/* Top Header */}
+      <div className="flex items-center bg-slate-900 h-12 border-b border-slate-800 shrink-0 pr-4 z-30 relative shadow-sm">
            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`w-12 h-full flex items-center justify-center text-slate-400 hover:text-white border-r border-slate-800 hover:bg-slate-800 transition-colors shrink-0 ${isSidebarOpen ? 'bg-slate-800 text-white' : ''}`}>
              <MenuIcon className="w-5 h-5" />
            </button>
            
-           <div className="px-4 font-bold text-slate-400 text-sm hidden sm:flex items-center gap-3 shrink-0">
+           <div className="px-4 font-bold text-slate-400 text-sm hidden sm:flex items-center gap-3">
               <span>提示词拼接器 Pro</span>
               <button 
                 onClick={() => setIsSettingsOpen(true)}
@@ -353,8 +353,7 @@ const App: React.FC = () => {
               </button>
            </div>
 
-           {/* Tab area - Added overflow-y-hidden to prevent vertical scrollbar */}
-           <div className="flex-1 flex overflow-x-auto overflow-y-hidden no-scrollbar items-end h-full px-3 gap-0.5">
+           <div className="flex-1 flex overflow-x-auto no-scrollbar items-end h-full px-3 gap-0.5">
              {openTabIds.map(id => {
                const p = projects.find(proj => proj.id === id);
                if (!p) return null;
@@ -369,7 +368,7 @@ const App: React.FC = () => {
                );
              })}
            </div>
-           <button onClick={() => setIsLibraryOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow-lg shadow-blue-500/20 transition-all shrink-0">文件库</button>
+           <button onClick={() => setIsLibraryOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow-lg shadow-blue-500/20 transition-all">文件库</button>
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">
