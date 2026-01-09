@@ -1,8 +1,9 @@
 
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { Project, Template } from '../types';
 import { Button } from './Button';
 import { CreateProjectModal } from './CreateProjectModal';
+import { HighlightEffect } from './HighlightEffect';
 
 interface FileLibraryProps {
   projects: Project[];
@@ -57,6 +58,9 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     templateId: null
   });
 
+  // Track the ID of the project created in THIS session for highlighting
+  const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+
   // Sorting logic
   const sortProjects = (projs: Project[]) => {
     return [...projs].sort((a, b) => {
@@ -65,6 +69,18 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
       return (b.lastModifiedAt || 0) - (a.lastModifiedAt || 0);
     });
   };
+
+  // Logic to detect newly added project and trigger highlight
+  useEffect(() => {
+    if (projects.length > 0) {
+      // If we just added a project, find the one with the latest createdAt timestamp
+      const latest = [...projects].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+      // Only highlight if it was created within the last 5 seconds (to avoid highlighting old projects on library open)
+      if (Date.now() - (latest.createdAt || 0) < 5000) {
+        setLastCreatedId(latest.id);
+      }
+    }
+  }, [projects.length]);
 
   // Grouping logic
   const groupedData = useMemo(() => {
@@ -94,7 +110,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
 
   const renderProjectCard = (p: Project) => {
     const template = templates.find(t => t.id === p.templateId);
-    return (
+    const cardContent = (
       <div key={p.id} onClick={() => onOpenProject(p.id)} className="group bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 rounded-xl p-4 cursor-pointer transition-all relative">
         <div className="mb-2">
             <h4 className="text-base font-bold text-slate-200 group-hover:text-white mb-1 truncate">{p.name}</h4>
@@ -115,6 +131,12 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
             <button onClick={(e) => { e.stopPropagation(); onDeleteProject(p.id); }} title="彻底删除" className="text-slate-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
         </div>
       </div>
+    );
+
+    return (
+      <HighlightEffect key={p.id} isActive={lastCreatedId === p.id}>
+        {cardContent}
+      </HighlightEffect>
     );
   };
 

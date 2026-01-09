@@ -181,7 +181,8 @@ const App: React.FC = () => {
         inputValues: defaultInputs, customInputs: [], stepOutputs: {}, stepOverrides: {} 
     };
     setProjects([...projects, newProject]);
-    openTab(newProject.id);
+    // 修改：新建项目后不再自动打开，让用户在库中手动点开
+    // openTab(newProject.id); 
   };
 
   const updateProjectTimestamp = (projectId: string, isModification: boolean = true) => {
