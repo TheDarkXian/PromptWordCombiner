@@ -9,6 +9,17 @@ import { FileLibrary } from './components/FileLibrary';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { ExportModal } from './components/ExportModal';
 import { SettingsModal } from './components/SettingsModal';
+import { 
+  MenuIcon, 
+  SettingsIcon, 
+  CloseIcon, 
+  VarsIcon, 
+  NavIcon, 
+  BuildIcon, 
+  ChevronDownIcon, 
+  DownloadIcon, 
+  ProjectEmptyIcon 
+} from './components/Icons';
 
 const STORAGE_PROJECTS = 'prompt-splicer-projects-v2';
 const STORAGE_TEMPLATES = 'prompt-splicer-templates-v2';
@@ -328,7 +339,7 @@ const App: React.FC = () => {
       {/* Top Header */}
       <div className="flex items-center bg-slate-900 h-12 border-b border-slate-800 shrink-0 pr-4 z-30 relative shadow-sm">
            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`w-12 h-full flex items-center justify-center text-slate-400 hover:text-white border-r border-slate-800 hover:bg-slate-800 transition-colors shrink-0 ${isSidebarOpen ? 'bg-slate-800 text-white' : ''}`}>
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5Zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5Zm0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5Z" /></svg>
+             <MenuIcon className="w-5 h-5" />
            </button>
            
            <div className="px-4 font-bold text-slate-400 text-sm hidden sm:flex items-center gap-3">
@@ -338,7 +349,7 @@ const App: React.FC = () => {
                 className="p-1.5 text-slate-600 hover:text-blue-400 transition-colors"
                 title="应用设置"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M6.955 1.45A.5.5 0 0 1 7.452 1h1.096a.5.5 0 0 1 .497.45l.17 1.699c.484.12.94.312 1.356.562l1.321-1.081a.5.5 0 0 1 .67.033l.775.775a.5.5 0 0 1 .033.67l-1.08 1.32c.25.417.44.873.561 1.357l1.699.17a.5.5 0 0 1 .45.497v1.096a.5.5 0 0 1-.45.497l-1.699.17c-.12.484-.312.94-.562 1.356l1.081 1.321a.5.5 0 0 1-.033.67l-.775.775a.5.5 0 0 1-.67.033l-1.32-1.08c-.417.25-.873.44-1.357.561l-.17 1.699a6.05 6.05 0 0 1-1.357-.561l-1.32 1.08a.5.5 0 0 1-.67-.033l-.775-.775a.5.5 0 0 1-.033-.67l1.08-1.32a6.05 6.05 0 0 1-.562-1.357l-1.699-.17A.5.5 0 0 1 1 8.548V7.452a.5.5 0 0 1 .45-.497l1.699-.17c.12-.484.312-.94.562-1.356L2.63 4.108a.5.5 0 0 1 .033-.67l.775-.775a.5.5 0 0 1 .67-.033l1.321 1.081c.417-.25.872-.44 1.356-.562l.17-1.699ZM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" clipRule="evenodd" /></svg>
+                <SettingsIcon className="w-4 h-4" />
               </button>
            </div>
 
@@ -350,7 +361,9 @@ const App: React.FC = () => {
                return (
                  <div key={id} onClick={() => openTab(id)} className={`group relative flex items-center gap-2 px-4 py-2 min-w-[120px] max-w-[200px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[90%] ${isActive ? 'bg-slate-950 border-slate-800 text-white z-10 border-b-slate-950' : 'bg-slate-900 border-transparent text-slate-500 border-b-slate-800'}`} style={{ marginBottom: '-1px' }}>
                    <span className="truncate flex-1">{p.name}</span>
-                   <button onClick={(e) => closeTab(id, e)} className="p-1 rounded-full hover:bg-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" /></svg></button>
+                   <button onClick={(e) => closeTab(id, e)} className="p-1 rounded-full hover:bg-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                     <CloseIcon className="w-3 h-3" />
+                   </button>
                  </div>
                );
              })}
@@ -364,9 +377,15 @@ const App: React.FC = () => {
           <div className="w-12 bg-slate-950 flex flex-col items-center py-6 border-r border-slate-800 gap-6 shrink-0">
              {activeProject && (
                <>
-                 <button onClick={() => setActiveSidebarTab('vars')} title="变量配置" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 2h2.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 1 .439 1.061V9.5A1.5 1.5 0 0 1 12 11H7a1.5 1.5 0 0 1-1.5-1.5v-6Z" /><path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v6A2.5 2.5 0 0 0 4.5 13h4a2.5 2.5 0 0 0 2.5-2.5v-.855a2.502 2.502 0 0 1-2.078-1.442l-1.332-2.664A1 1 0 0 0 6.696 5H4.5v9.5H12V11H7a2.5 2.5 0 0 1 2.5-2.5V4.5A2.5 2.5 0 0 0 7 2H4.5Z" /></svg></button>
-                 <button onClick={() => setActiveSidebarTab('nav')} title="步骤导航" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M2 3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3Zm8.25 2a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-.75.75h-4.5a.75.75 0 0 1-.75-.75v-4.5a.75.75 0 0 1 .75-.75h4.5Z" clipRule="evenodd" /></svg></button>
-                 <button onClick={() => setActiveSidebarTab('build')} title="导出烘焙" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M4 2a1.5 1.5 0 0 0-1.5 1.5v9A1.5 1.5 0 0 0 4 14h8a1.5 1.5 0 0 0 1.5-1.5V6.621a1.5 1.5 0 0 0-.44-1.06L9.94 2.439A1.5 1.5 0 0 0 8.878 2H4Zm1 5.75A.75.75 0 0 1 5.75 7h4.5a.75.75 0 0 1 0 1.5h-4.5A.75.75 0 0 1 5 7.75Zm0 3a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z" clipRule="evenodd" /></svg></button>
+                 <button onClick={() => setActiveSidebarTab('vars')} title="变量配置" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'}`}>
+                   <VarsIcon className="w-5 h-5" />
+                 </button>
+                 <button onClick={() => setActiveSidebarTab('nav')} title="步骤导航" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'}`}>
+                   <NavIcon className="w-5 h-5" />
+                 </button>
+                 <button onClick={() => setActiveSidebarTab('build')} title="导出烘焙" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'}`}>
+                   <BuildIcon className="w-5 h-5" />
+                 </button>
                </>
              )}
           </div>
@@ -379,7 +398,7 @@ const App: React.FC = () => {
                         <div className="space-y-3">
                             <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSidebarSections(s => ({...s, global: !s.global}))}>
                                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">全局变量</span>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`w-4 h-4 text-slate-600 transition-transform ${sidebarSections.global ? 'rotate-180' : ''}`}><path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" /></svg>
+                                <ChevronDownIcon className={`w-4 h-4 text-slate-600 transition-transform ${sidebarSections.global ? 'rotate-180' : ''}`} />
                             </div>
                             {sidebarSections.global && activeProjectTemplate.inputs.map((input, idx) => (
                             <div key={input.id}>
@@ -394,7 +413,7 @@ const App: React.FC = () => {
                         <div className="space-y-3 border-t border-slate-800 pt-4">
                             <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSidebarSections(s => ({...s, local: !s.local}))}>
                                 <span className="text-xs font-bold text-emerald-600 uppercase tracking-wider group-hover:text-emerald-400 transition-colors">本地变量</span>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`w-4 h-4 text-emerald-600/50 transition-transform ${sidebarSections.local ? 'rotate-180' : ''}`}><path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" /></svg>
+                                <ChevronDownIcon className={`w-4 h-4 text-emerald-600/50 transition-transform ${sidebarSections.local ? 'rotate-180' : ''}`} />
                             </div>
                             {sidebarSections.local && (
                             <>
@@ -442,7 +461,7 @@ const App: React.FC = () => {
                     {activeSidebarTab === 'build' && (
                         <div className="p-6 flex flex-col items-center justify-center text-center h-full">
                             <div className="w-16 h-16 bg-purple-900/30 text-purple-400 rounded-2xl flex items-center justify-center mb-4 shadow-xl shadow-purple-950/20">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-8 h-8"><path fillRule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v8.59l2.146-2.147a.5.5 0 0 1 .708.708l-3 3a.5.5 0 0 1-.708 0l-3-3a.5.5 0 1 1 .708-.708L7.5 11.09V2.5A.5.5 0 0 1 8 2Zm-5 11.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5Z" /></svg>
+                                <DownloadIcon className="w-8 h-8" />
                             </div>
                             <h4 className="text-sm font-bold text-white mb-2">提示词全量烘焙</h4>
                             <p className="text-xs text-slate-500 mb-6 px-4 leading-relaxed">将当前项目的所有步骤一键导出为格式化纯文本，方便直接粘贴使用。</p>
@@ -486,7 +505,7 @@ const App: React.FC = () => {
            ) : (
              <div className="w-full h-full flex items-center justify-center flex-col text-slate-700">
                <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mb-4 text-slate-800">
-                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-10 h-10"><path d="M5.5 3.5A1.5 1.5 0 0 1 7 2h2.879a1.5 1.5 0 0 1 1.06.44l2.122 2.12a1.5 1.5 0 0 1 .439 1.061V9.5A1.5 1.5 0 0 1 12 11H7a1.5 1.5 0 0 1-1.5-1.5v-6Z" /><path d="M4.5 2A2.5 2.5 0 0 0 2 4.5v6A2.5 2.5 0 0 0 4.5 13h4a2.5 2.5 0 0 0 2.5-2.5v-.855a2.502 2.502 0 0 1-2.078-1.442l-1.332-2.664A1 1 0 0 0 6.696 5H4.5v9.5H12V11H7a2.5 2.5 0 0 1 2.5-2.5V4.5A2.5 2.5 0 0 0 7 2H4.5Z" /></svg>
+                 <ProjectEmptyIcon className="w-10 h-10" />
                </div>
                <p className="text-sm font-medium">当前未打开任何项目</p>
                <Button variant="ghost" onClick={() => setIsLibraryOpen(true)} className="mt-4 text-slate-400 hover:text-blue-400" size="md">打开项目库</Button>
