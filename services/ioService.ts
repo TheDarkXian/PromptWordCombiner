@@ -6,6 +6,9 @@
  * 1. 修改下方 IS_TAURI 为 true。
  * 2. 确保已安装插件: 
  *    npm add @tauri-apps/plugin-store @tauri-apps/plugin-fs @tauri-apps/plugin-dialog
+ *    npm run tauri add dialog
+ *    npm run tauri add fs
+ *    npm run tauri add store
  * 3. 在 src-tauri/capabilities/main.json 中添加权限:
  *    "permissions": [
  *      "store:allow-get", "store:allow-set", "store:allow-save",
