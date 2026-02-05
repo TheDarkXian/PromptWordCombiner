@@ -9,6 +9,7 @@ import { FileLibrary } from './components/FileLibrary';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { ExportModal } from './components/ExportModal';
 import { SettingsModal } from './components/SettingsModal';
+import { ioService, STORAGE_KEYS } from './services/ioService';
 import { 
   MenuIcon, 
   SettingsIcon, 
@@ -18,12 +19,9 @@ import {
   BuildIcon, 
   ChevronDownIcon, 
   DownloadIcon, 
-  ProjectEmptyIcon 
+  ProjectEmptyIcon,
+  ProjectEmptyIcon as LibraryIcon
 } from './components/Icons';
-
-const STORAGE_PROJECTS = 'prompt-splicer-projects-v2';
-const STORAGE_TEMPLATES = 'prompt-splicer-templates-v2';
-const STORAGE_SETTINGS = 'prompt-splicer-settings-v2';
 
 type SidebarTab = 'vars' | 'nav' | 'build';
 type FontSize = 'text-xs' | 'text-sm' | 'text-base';
@@ -64,15 +62,13 @@ const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [openTabIds, setOpenTabIds] = useState<string[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [activeTabId, setActiveTabId] = useState<string | null>('library');
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // 设置相关 - 默认比例调整为 8 (50% 模式)
   const [fontSize, setFontSize] = useState<FontSize>('text-sm');
-  const [uiScale, setUiScale] = useState<UiScale>(8);
+  const [uiScale, setUiScale] = useState<UiScale>(16);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -98,58 +94,39 @@ const App: React.FC = () => {
   };
   const closeModal = () => setModalConfig(prev => ({ ...prev, isOpen: false }));
 
+  // 初始化加载
   useEffect(() => {
-    // 1. 加载项目
-    const savedProjects = localStorage.getItem(STORAGE_PROJECTS);
-    if (savedProjects) {
-       try {
-         const loaded = JSON.parse(savedProjects);
-         setProjects(loaded.map((p: any) => ({ ...p, customInputs: p.customInputs || [] })));
-       } catch (e) {
-         console.warn("Failed to load projects, clearing corrupted data...", e);
-         localStorage.removeItem(STORAGE_PROJECTS);
-         setProjects([]);
-       }
-    }
+    const init = async () => {
+      const loadedProjects = await ioService.loadFromDisk<Project[]>(STORAGE_KEYS.PROJECTS);
+      if (loadedProjects) {
+        setProjects(loadedProjects.map(p => ({ ...p, customInputs: p.customInputs || [] })));
+      }
 
-    // 2. 加载模版
-    const savedTemplates = localStorage.getItem(STORAGE_TEMPLATES);
-    if (savedTemplates) {
-      try {
-        const loadedTemplates = JSON.parse(savedTemplates);
+      const loadedTemplates = await ioService.loadFromDisk<Template[]>(STORAGE_KEYS.TEMPLATES);
+      if (loadedTemplates) {
         setTemplates(loadedTemplates);
-      } catch (e) {
-        console.warn("Failed to load templates, resetting...", e);
-        localStorage.removeItem(STORAGE_TEMPLATES);
+      } else {
         setTemplates(DEFAULT_TEMPLATES);
       }
-    } else {
-      setTemplates(DEFAULT_TEMPLATES);
-    }
 
-    // 3. 加载设置
-    const savedSettings = localStorage.getItem(STORAGE_SETTINGS);
-    if (savedSettings) {
-      try {
-        const settings = JSON.parse(savedSettings);
+      const settings = await ioService.loadFromDisk<any>(STORAGE_KEYS.SETTINGS);
+      if (settings) {
         if (settings.uiScale) setUiScale(settings.uiScale);
         if (settings.sidebarWidth) setSidebarWidth(settings.sidebarWidth);
         if (settings.isSidebarOpen !== undefined) setIsSidebarOpen(settings.isSidebarOpen);
         if (settings.fontSize) setFontSize(settings.fontSize);
         if (settings.rightPanelWidth) setRightPanelWidth(settings.rightPanelWidth);
-      } catch (e) {
-        console.warn("Failed to load settings, resetting...", e);
-        localStorage.removeItem(STORAGE_SETTINGS);
       }
-    }
+    };
 
-    if (!activeTabId && !openTabIds.length) setIsLibraryOpen(true);
+    init();
   }, []);
 
-  useEffect(() => { localStorage.setItem(STORAGE_TEMPLATES, JSON.stringify(templates)); }, [templates]);
-  useEffect(() => { localStorage.setItem(STORAGE_PROJECTS, JSON.stringify(projects)); }, [projects]);
+  // 监听状态自动保存
+  useEffect(() => { ioService.saveToDisk(STORAGE_KEYS.TEMPLATES, templates); }, [templates]);
+  useEffect(() => { ioService.saveToDisk(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
   useEffect(() => {
-    localStorage.setItem(STORAGE_SETTINGS, JSON.stringify({ uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize }));
+    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize });
     document.documentElement.style.fontSize = `${uiScale}px`;
   }, [uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize]);
 
@@ -181,19 +158,14 @@ const App: React.FC = () => {
         inputValues: defaultInputs, customInputs: [], stepOutputs: {}, stepOverrides: {} 
     };
     setProjects([...projects, newProject]);
-    // 修改：新建项目后不再自动打开，让用户在库中手动点开
-    // openTab(newProject.id); 
+    openTab(newProject.id);
   };
 
   const updateProjectTimestamp = (projectId: string, isModification: boolean = true) => {
     const now = Date.now();
     setProjects(prev => prev.map(p => {
         if (p.id === projectId) {
-            return {
-                ...p,
-                lastOpenedAt: now,
-                ...(isModification ? { lastModifiedAt: now } : {})
-            };
+            return { ...p, lastOpenedAt: now, ...(isModification ? { lastModifiedAt: now } : {}) };
         }
         return p;
     }));
@@ -253,13 +225,7 @@ const App: React.FC = () => {
        fullText += `### ${step.name}\n${interpolate(rawContent)}\n\n`;
     });
     
-    const blob = new Blob([fullText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${project.name}_烘焙结果.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    ioService.exportFile(`${project.name}_烘焙结果.txt`, fullText);
   };
 
   const createTemplate = () => {
@@ -272,18 +238,11 @@ const App: React.FC = () => {
     };
     setTemplates(prev => [...prev, newTemplate]);
     setEditingTemplateId(newTemplate.id);
-    setIsLibraryOpen(false);
   };
 
   const handleDownloadBackup = () => {
     const data = { projects, templates };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `prompt_splicer_backup_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    ioService.exportFile(`prompt_splicer_backup_${new Date().toISOString().split('T')[0]}.json`, JSON.stringify(data, null, 2), 'application/json');
   };
 
   const handleCreateTemplateFromProject = (projectId: string) => {
@@ -310,98 +269,78 @@ const App: React.FC = () => {
     };
     setTemplates(prev => [...prev, newTemplate]);
     setEditingTemplateId(newTemplate.id);
-    setIsLibraryOpen(false);
   };
 
   const openTab = (id: string) => { 
+    if (id === 'library') {
+      setActiveTabId('library');
+      return;
+    }
     if (!openTabIds.includes(id)) setOpenTabIds([...openTabIds, id]); 
     setActiveTabId(id); 
-    setIsLibraryOpen(false); 
     updateProjectTimestamp(id, false);
   };
 
   const closeTab = (id: string, e?: React.MouseEvent) => {
+    if (id === 'library') return;
     e?.stopPropagation();
     const newTabs = openTabIds.filter(tid => tid !== id);
     setOpenTabIds(newTabs);
     if (activeTabId === id) {
       if (newTabs.length > 0) setActiveTabId(newTabs[newTabs.length - 1]);
-      else { setActiveTabId(null); setIsLibraryOpen(true); }
+      else setActiveTabId('library');
     }
   };
 
   const sortedProjects = [...projects].sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0));
-
-  const activeProject = projects.find(p => p.id === activeTabId);
+  const activeProject = activeTabId !== 'library' ? projects.find(p => p.id === activeTabId) : null;
   const activeProjectTemplate = activeProject ? templates.find(t => t.id === activeProject.templateId) : null;
 
   return (
     <div className={`flex flex-col h-screen overflow-hidden text-slate-200 font-sans ${fontSize} app-root`}>
-      {/* Top Header - Height increased to h-14 for "expanded" look and added overflow-hidden to prevent vertical scroll */}
       <div className="flex items-center bg-slate-900 h-14 border-b border-slate-800 shrink-0 pr-4 z-30 relative shadow-sm overflow-hidden">
            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`w-14 h-full flex items-center justify-center text-slate-400 hover:text-white border-r border-slate-800 hover:bg-slate-800 transition-colors shrink-0 ${isSidebarOpen ? 'bg-slate-800 text-white' : ''}`}>
              <MenuIcon className="w-5 h-5" />
            </button>
-           
            <div className="px-5 font-bold text-slate-400 text-sm hidden sm:flex items-center gap-3 shrink-0">
               <span className="tracking-tight">提示词拼接器 Pro</span>
-              <button 
-                onClick={() => setIsSettingsOpen(true)}
-                className="p-1.5 text-slate-600 hover:text-blue-400 transition-colors"
-                title="应用设置"
-              >
-                <SettingsIcon className="w-4 h-4" />
-              </button>
+              <button onClick={() => setIsSettingsOpen(true)} className="p-1.5 text-slate-600 hover:text-blue-400 transition-colors" title="应用设置"><SettingsIcon className="w-4 h-4" /></button>
            </div>
-
-           {/* Tab container - Fixed vertical scroll issue with overflow-y-hidden */}
            <div className="flex-1 flex overflow-x-auto overflow-y-hidden no-scrollbar items-end h-full px-3 gap-0.5">
+             {/* 永久的库标签 */}
+             <div onClick={() => openTab('library')} className={`group relative flex items-center gap-2 px-4 py-2 min-w-[100px] max-w-[150px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[85%] ${activeTabId === 'library' ? 'bg-slate-950 border-slate-800 text-white z-10 border-b-slate-950' : 'bg-slate-900 border-transparent text-slate-500 border-b-slate-800'}`} style={{ marginBottom: '-1px' }}>
+                <LibraryIcon className={`w-3.5 h-3.5 ${activeTabId === 'library' ? 'text-blue-400' : 'text-slate-600'}`} />
+                <span className="truncate flex-1 font-bold">文件库</span>
+             </div>
+
              {openTabIds.map(id => {
                const p = projects.find(proj => proj.id === id);
                if (!p) return null;
                const isActive = activeTabId === id;
                return (
-                 <div 
-                   key={id} 
-                   onClick={() => openTab(id)} 
-                   onDoubleClick={(e) => closeTab(id, e)}
-                   className={`group relative flex items-center gap-2 px-4 py-2 min-w-[120px] max-w-[200px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[85%] ${isActive ? 'bg-slate-950 border-slate-800 text-white z-10 border-b-slate-950' : 'bg-slate-900 border-transparent text-slate-500 border-b-slate-800'}`} 
-                   style={{ marginBottom: '-1px' }}
-                   title="双击可关闭标签页"
-                 >
+                 <div key={id} onClick={() => openTab(id)} onDoubleClick={(e) => closeTab(id, e)} className={`group relative flex items-center gap-2 px-4 py-2 min-w-[120px] max-w-[200px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[85%] ${isActive ? 'bg-slate-950 border-slate-800 text-white z-10 border-b-slate-950' : 'bg-slate-900 border-transparent text-slate-500 border-b-slate-800'}`} style={{ marginBottom: '-1px' }} title="双击可关闭标签页">
                    <span className="truncate flex-1">{p.name}</span>
-                   <button onClick={(e) => closeTab(id, e)} className="p-1 rounded-full hover:bg-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <CloseIcon className="w-3 h-3" />
-                   </button>
+                   <button onClick={(e) => closeTab(id, e)} className="p-1 rounded-full hover:bg-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><CloseIcon className="w-3 h-3" /></button>
                  </div>
                );
              })}
            </div>
-           
-           <button onClick={() => setIsLibraryOpen(true)} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20 transition-all shrink-0">文件库</button>
       </div>
 
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Sidebar */}
         <div ref={sidebarRef} style={{ width: isSidebarOpen ? sidebarWidth : 0 }} className={`bg-slate-900 flex flex-shrink-0 z-20 transition-all duration-75 relative border-r border-slate-800 ${!isSidebarOpen && 'opacity-0 overflow-hidden'}`}>
           <div className="w-12 bg-slate-950 flex flex-col items-center py-6 border-r border-slate-800 gap-6 shrink-0">
              {activeProject && (
                <>
-                 <button onClick={() => setActiveSidebarTab('vars')} title="变量配置" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'}`}>
-                   <VarsIcon className="w-5 h-5" />
-                 </button>
-                 <button onClick={() => setActiveSidebarTab('nav')} title="步骤导航" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'}`}>
-                   <NavIcon className="w-5 h-5" />
-                 </button>
-                 <button onClick={() => setActiveSidebarTab('build')} title="导出烘焙" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'}`}>
-                   <BuildIcon className="w-5 h-5" />
-                 </button>
+                 <button onClick={() => setActiveSidebarTab('vars')} title="变量配置" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'}`}><VarsIcon className="w-5 h-5" /></button>
+                 <button onClick={() => setActiveSidebarTab('nav')} title="步骤导航" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'}`}><NavIcon className="w-5 h-5" /></button>
+                 <button onClick={() => setActiveSidebarTab('build')} title="导出烘焙" className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'}`}><BuildIcon className="w-5 h-5" /></button>
                </>
              )}
           </div>
           <div className="flex-1 flex flex-col bg-slate-900 overflow-hidden relative">
              <div className="flex-1 overflow-hidden flex flex-col">
-                {activeProject && activeProjectTemplate && (
+                {activeProject && activeProjectTemplate ? (
                 <>
                     {activeSidebarTab === 'vars' && (
                     <div className="flex flex-col h-full overflow-y-auto p-4 space-y-6">
@@ -453,7 +392,6 @@ const App: React.FC = () => {
                         </div>
                     </div>
                     )}
-
                     {activeSidebarTab === 'nav' && (
                         <div className="h-full overflow-y-auto p-3 space-y-2">
                             {activeProjectTemplate.steps.map((step, idx) => (
@@ -467,63 +405,50 @@ const App: React.FC = () => {
                             ))}
                         </div>
                     )}
-
                     {activeSidebarTab === 'build' && (
                         <div className="p-6 flex flex-col items-center justify-center text-center h-full">
-                            <div className="w-16 h-16 bg-purple-900/30 text-purple-400 rounded-2xl flex items-center justify-center mb-4 shadow-xl shadow-purple-950/20">
-                                <DownloadIcon className="w-8 h-8" />
-                            </div>
+                            <div className="w-16 h-16 bg-purple-900/30 text-purple-400 rounded-2xl flex items-center justify-center mb-4 shadow-xl shadow-purple-950/20"><DownloadIcon className="w-8 h-8" /></div>
                             <h4 className="text-sm font-bold text-white mb-2">提示词全量烘焙</h4>
                             <p className="text-xs text-slate-500 mb-6 px-4 leading-relaxed">将当前项目的所有步骤一键导出为格式化纯文本，方便直接粘贴使用。</p>
                             <Button variant="primary" size="md" onClick={() => handleBakeDownload(activeProject.id)} className="w-full bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30">导出 .txt 烘焙文件</Button>
                         </div>
                     )}
                 </>
+                ) : (
+                  <div className="p-6 text-center text-slate-600 text-xs">
+                     请先选择一个项目以查看变量与导航
+                  </div>
                 )}
              </div>
           </div>
           {isSidebarOpen && <div className="absolute right-0 top-0 bottom-0 w-1.5 bg-transparent hover:bg-blue-500 cursor-col-resize z-40 transition-colors" onMouseDown={() => setIsResizingSidebar(true)} />}
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden">
-           {activeProject && activeProjectTemplate ? (
+        <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden relative">
+           {editingTemplateId && (
+              <div className="absolute inset-0 bg-slate-950 z-50 p-8 overflow-hidden animate-in zoom-in-95 duration-200">
+                <TemplateEditor template={templates.find(t => t.id === editingTemplateId)!} onSave={(updated) => { setTemplates(prev => prev.map(t => t.id === updated.id ? updated : t)); setEditingTemplateId(null); }} onCancel={() => setEditingTemplateId(null)} onRequestConfirm={openConfirm} />
+              </div>
+           )}
+
+           {activeTabId === 'library' ? (
+             <FileLibrary projects={sortedProjects} templates={templates} onOpenProject={openTab} onCreateProject={createProject} onCreateTemplate={createTemplate} onEditTemplate={setEditingTemplateId} onDuplicateTemplate={(id) => setTemplates([...templates, { ...JSON.parse(JSON.stringify(templates.find(t => t.id === id))), id: `tmpl_${Date.now()}_copy`, name: `副本` }])} onCreateTemplateFromProject={(id) => openConfirm("提取模版", "从该项目状态提取出新的模版结构？", () => handleCreateTemplateFromProject(id))} onDeleteProject={(id) => openConfirm("删除项目", "确定要彻底删除该项目吗？数据将无法挽回。", () => { setProjects(projects.filter(p => p.id !== id)); closeTab(id); })} onDeleteTemplate={(id) => openConfirm("删除模版", "确定要删除此模版吗？基于此模版的项目可能会出现显示异常。", () => setTemplates(templates.filter(t => t.id !== id)))} onImportData={(p, t) => { setProjects([...p]); setTemplates([...t]); }} onOpenExport={() => setIsExportModalOpen(true)} onRequestAlert={openAlert} onClose={() => { if(openTabIds.length > 0) setActiveTabId(openTabIds[0]); }} />
+           ) : activeProject && activeProjectTemplate ? (
              <div className="w-full h-full flex flex-col">
                 <div className="px-8 pt-6 shrink-0 flex items-center justify-between">
-                    <input 
-                      type="text" 
-                      value={activeProject.name} 
-                      onChange={(e) => setProjects(prev => prev.map(p => p.id === activeProject.id ? { ...p, lastModifiedAt: Date.now(), name: e.target.value } : p))} 
-                      className="text-2xl font-black bg-transparent text-white border-none focus:ring-0 w-full p-0 tracking-tight" 
-                    />
+                    <input type="text" value={activeProject.name} onChange={(e) => setProjects(prev => prev.map(p => p.id === activeProject.id ? { ...p, lastModifiedAt: Date.now(), name: e.target.value } : p))} className="text-2xl font-black bg-transparent text-white border-none focus:ring-0 w-full p-0 tracking-tight" />
                 </div>
                 <div className="flex-1 overflow-hidden">
-                    <ProjectRunner project={activeProject} template={activeProjectTemplate} 
-                        onUpdateProject={(id, u) => {
-                            setProjects(prev => prev.map(p => p.id === id ? { ...p, ...u, lastModifiedAt: Date.now() } : p));
-                        }} 
-                        onUpdateTemplate={(id, u) => setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...u } : t))} 
-                        onRequestConfirm={openConfirm} 
-                        rightPanelWidth={rightPanelWidth} 
-                        onRightPanelWidthChange={setRightPanelWidth} 
-                        isRightPanelOpen={isRightPanelOpen} 
-                        onRightPanelOpenChange={setIsRightPanelOpen} 
-                        fontSizeClass={fontSize}
-                    />
+                    <ProjectRunner project={activeProject} template={activeProjectTemplate} onUpdateProject={(id, u) => { setProjects(prev => prev.map(p => p.id === id ? { ...p, ...u, lastModifiedAt: Date.now() } : p)); }} onUpdateTemplate={(id, u) => setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...u } : t))} onRequestConfirm={openConfirm} rightPanelWidth={rightPanelWidth} onRightPanelWidthChange={setRightPanelWidth} isRightPanelOpen={isRightPanelOpen} onRightPanelOpenChange={setIsRightPanelOpen} fontSizeClass={fontSize} />
                 </div>
              </div>
            ) : (
              <div className="w-full h-full flex items-center justify-center flex-col text-slate-700">
-               <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mb-4 text-slate-800">
-                 <ProjectEmptyIcon className="w-10 h-10" />
-               </div>
+               <div className="w-20 h-20 bg-slate-900 rounded-3xl flex items-center justify-center mb-4 text-slate-800"><ProjectEmptyIcon className="w-10 h-10" /></div>
                <p className="text-sm font-medium">当前未打开任何项目</p>
-               <Button variant="ghost" onClick={() => setIsLibraryOpen(true)} className="mt-4 text-slate-400 hover:text-blue-400" size="md">打开项目库</Button>
+               <Button variant="ghost" onClick={() => setActiveTabId('library')} className="mt-4 text-slate-400 hover:text-blue-400" size="md">前往文件库</Button>
              </div>
            )}
-
-           {isLibraryOpen && <FileLibrary projects={sortedProjects} templates={templates} onOpenProject={openTab} onCreateProject={createProject} onCreateTemplate={createTemplate} onEditTemplate={(id) => { setEditingTemplateId(id); setIsLibraryOpen(false); }} onDuplicateTemplate={(id) => setTemplates([...templates, { ...JSON.parse(JSON.stringify(templates.find(t => t.id === id))), id: `tmpl_${Date.now()}_copy`, name: `副本` }])} onCreateTemplateFromProject={(id) => openConfirm("提取模版", "从该项目状态提取出新的模版结构？", () => handleCreateTemplateFromProject(id))} onDeleteProject={(id) => openConfirm("删除项目", "确定要彻底删除该项目吗？数据将无法挽回。", () => { setProjects(projects.filter(p => p.id !== id)); closeTab(id); })} onDeleteTemplate={(id) => openConfirm("删除模版", "确定要删除此模版吗？基于此模版的项目可能会出现显示异常。", () => setTemplates(templates.filter(t => t.id !== id)))} onImportData={(p, t) => { setProjects([...p]); setTemplates([...t]); }} onOpenExport={() => setIsExportModalOpen(true)} onRequestAlert={openAlert} onClose={() => setIsLibraryOpen(false)} />}
-           {editingTemplateId && <div className="absolute inset-0 bg-slate-950 z-50 p-8 overflow-hidden animate-in zoom-in-95 duration-200"><TemplateEditor template={templates.find(t => t.id === editingTemplateId)!} onSave={(updated) => { setTemplates(prev => prev.map(t => t.id === updated.id ? updated : t)); setEditingTemplateId(null); setIsLibraryOpen(true); }} onCancel={() => { setEditingTemplateId(null); setIsLibraryOpen(true); }} onRequestConfirm={openConfirm} /></div>}
         </div>
       </div>
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} uiScale={uiScale} setUiScale={setUiScale} fontSize={fontSize} setFontSize={setFontSize} />

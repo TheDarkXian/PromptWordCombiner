@@ -102,6 +102,26 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
     });
   };
 
+  const moveStep = (idx: number, direction: 'up' | 'down') => {
+    setEditedTemplate(prev => {
+      const steps = [...prev.steps];
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= steps.length) return prev;
+      
+      // Swap steps
+      [steps[idx], steps[targetIdx]] = [steps[targetIdx], steps[idx]];
+      
+      // Update collapsed states to follow the steps
+      const newCollapsed = { ...collapsedSteps };
+      const temp = newCollapsed[idx];
+      newCollapsed[idx] = newCollapsed[targetIdx];
+      newCollapsed[targetIdx] = temp;
+      setCollapsedSteps(newCollapsed);
+
+      return { ...prev, steps };
+    });
+  };
+
   const removeStep = (idx: number) => {
     onRequestConfirm('删除步骤', '确认删除此步骤？', () => {
       setEditedTemplate(prev => ({
@@ -116,7 +136,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
   };
 
   return (
-    /* Removed max-w-5xl and mx-auto to fill horizontal space */
     <div className="bg-slate-900 p-4 md:p-6 rounded-lg h-full overflow-y-auto w-full">
       <div className="flex justify-between items-center mb-6 sticky top-0 bg-slate-900 z-10 py-2 border-b border-slate-800">
         <h2 className="text-xl font-bold text-white">编辑模版</h2>
@@ -186,15 +205,41 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
                           <span className="bg-slate-700 text-slate-300 px-2 py-0.5 rounded text-xs font-bold">Step {idx + 1}</span>
                           <span className="font-bold text-slate-200 text-sm">{step.name || '未命名步骤'}</span>
                        </div>
-                       <div className="flex items-center gap-2">
+                       <div className="flex items-center gap-3">
+                           <div className="flex items-center bg-slate-950/40 rounded-md border border-slate-700/50 overflow-hidden">
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); moveStep(idx, 'up'); }}
+                                disabled={idx === 0}
+                                className={`p-1.5 hover:bg-slate-700 transition-colors ${idx === 0 ? 'text-slate-800 cursor-not-allowed' : 'text-slate-500 hover:text-blue-400'}`}
+                                title="上移"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                                  <path fillRule="evenodd" d="M8 11.75a.75.75 0 0 1-.75-.75V4.56L4.53 7.28a.75.75 0 0 1-1.06-1.06l4-4a.75.75 0 0 1 1.06 0l4 4a.75.75 0 1 1-1.06 1.06L8.75 4.56V11a.75.75 0 0 1-.75.75Z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                              <div className="w-[1px] h-4 bg-slate-800"></div>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); moveStep(idx, 'down'); }}
+                                disabled={idx === editedTemplate.steps.length - 1}
+                                className={`p-1.5 hover:bg-slate-700 transition-colors ${idx === editedTemplate.steps.length - 1 ? 'text-slate-800 cursor-not-allowed' : 'text-slate-500 hover:text-blue-400'}`}
+                                title="下移"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                                  <path fillRule="evenodd" d="M8 4.25a.75.75 0 0 1 .75.75v6.44l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 1.06-1.06l2.72 2.72V5a.75.75 0 0 1 .75-.75Z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                           </div>
+
                            <button 
                              onClick={(e) => { e.stopPropagation(); removeStep(idx); }} 
-                             className="text-slate-500 hover:text-red-400 p-1"
+                             className="text-slate-500 hover:text-red-400 p-1.5 hover:bg-red-400/10 rounded-md transition-colors"
+                             title="删除步骤"
                            >
                               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
                                 <path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" />
                               </svg>
                            </button>
+                           
                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={`w-4 h-4 text-slate-500 transition-transform ${isCollapsed ? '' : 'rotate-180'}`}>
                              <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
                            </svg>
