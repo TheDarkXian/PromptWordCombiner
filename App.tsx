@@ -98,12 +98,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const init = async () => {
       const loadedProjects = await ioService.loadFromDisk<Project[]>(STORAGE_KEYS.PROJECTS);
-      if (loadedProjects) {
+      if (loadedProjects && Array.isArray(loadedProjects)) {
         setProjects(loadedProjects.map(p => ({ ...p, customInputs: p.customInputs || [] })));
       }
 
       const loadedTemplates = await ioService.loadFromDisk<Template[]>(STORAGE_KEYS.TEMPLATES);
-      if (loadedTemplates) {
+      if (loadedTemplates && Array.isArray(loadedTemplates)) {
         setTemplates(loadedTemplates);
       } else {
         setTemplates(DEFAULT_TEMPLATES);
@@ -123,8 +123,8 @@ const App: React.FC = () => {
   }, []);
 
   // 监听状态自动保存
-  useEffect(() => { ioService.saveToDisk(STORAGE_KEYS.TEMPLATES, templates); }, [templates]);
-  useEffect(() => { ioService.saveToDisk(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
+  useEffect(() => { if(templates.length > 0) ioService.saveToDisk(STORAGE_KEYS.TEMPLATES, templates); }, [templates]);
+  useEffect(() => { if(projects.length > 0) ioService.saveToDisk(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
   useEffect(() => {
     ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize });
     document.documentElement.style.fontSize = `${uiScale}px`;
@@ -157,7 +157,7 @@ const App: React.FC = () => {
         id: `proj_${now}`, templateId, name: name || `新项目`, createdAt: now, lastModifiedAt: now, lastOpenedAt: now,
         inputValues: defaultInputs, customInputs: [], stepOutputs: {}, stepOverrides: {} 
     };
-    setProjects([...projects, newProject]);
+    setProjects(prev => [...prev, newProject]);
     openTab(newProject.id);
   };
 
@@ -245,6 +245,24 @@ const App: React.FC = () => {
     ioService.exportFile(`prompt_splicer_backup_${new Date().toISOString().split('T')[0]}.json`, JSON.stringify(data, null, 2), 'application/json');
   };
 
+  const handleDuplicateTemplate = (id: string) => {
+    const target = templates.find(t => t.id === id);
+    if (!target) return;
+    try {
+      // Use structuredClone if available, or a safe deep clone
+      const clone = JSON.parse(JSON.stringify(target));
+      const now = Date.now();
+      setTemplates(prev => [...prev, { 
+        ...clone, 
+        id: `tmpl_${now}_${Math.random().toString(36).substr(2, 5)}`, 
+        name: `${target.name} (副本)` 
+      }]);
+    } catch (e) {
+      console.error("Duplicate failed", e);
+      openAlert("操作失败", "无法克隆该模版，数据可能已损坏。");
+    }
+  };
+
   const handleCreateTemplateFromProject = (projectId: string) => {
     const project = projects.find(p => p.id === projectId);
     if (!project) return;
@@ -276,7 +294,7 @@ const App: React.FC = () => {
       setActiveTabId('library');
       return;
     }
-    if (!openTabIds.includes(id)) setOpenTabIds([...openTabIds, id]); 
+    setOpenTabIds(prev => prev.includes(id) ? prev : [...prev, id]); 
     setActiveTabId(id); 
     updateProjectTimestamp(id, false);
   };
@@ -284,12 +302,14 @@ const App: React.FC = () => {
   const closeTab = (id: string, e?: React.MouseEvent) => {
     if (id === 'library') return;
     e?.stopPropagation();
-    const newTabs = openTabIds.filter(tid => tid !== id);
-    setOpenTabIds(newTabs);
-    if (activeTabId === id) {
-      if (newTabs.length > 0) setActiveTabId(newTabs[newTabs.length - 1]);
-      else setActiveTabId('library');
-    }
+    setOpenTabIds(prev => {
+        const newTabs = prev.filter(tid => tid !== id);
+        if (activeTabId === id) {
+          if (newTabs.length > 0) setActiveTabId(newTabs[newTabs.length - 1]);
+          else setActiveTabId('library');
+        }
+        return newTabs;
+    });
   };
 
   const handleDeleteProjects = (ids: string[]) => {
@@ -450,7 +470,7 @@ const App: React.FC = () => {
                 onCreateProject={createProject} 
                 onCreateTemplate={createTemplate} 
                 onEditTemplate={setEditingTemplateId} 
-                onDuplicateTemplate={(id) => setTemplates([...templates, { ...JSON.parse(JSON.stringify(templates.find(t => t.id === id))), id: `tmpl_${Date.now()}_copy`, name: `副本` }])} 
+                onDuplicateTemplate={handleDuplicateTemplate} 
                 onCreateTemplateFromProject={(id) => openConfirm("提取模版", "从该项目状态提取出新的模版结构？", () => handleCreateTemplateFromProject(id))} 
                 onDeleteProject={(id) => openConfirm("删除项目", "确定要彻底删除该项目吗？数据将无法挽回。", () => { handleDeleteProjects([id]); closeTab(id); })} 
                 onDeleteProjects={(ids) => openConfirm("批量删除项目", `确定要彻底删除选中的 ${ids.length} 个项目吗？此操作无法撤销。`, () => { handleDeleteProjects(ids); })}
