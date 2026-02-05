@@ -23,4 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
-src-tauri
+src-tauri/*
+!src-tauri/capabilities/
+!src-tauri/capabilities/default.json
