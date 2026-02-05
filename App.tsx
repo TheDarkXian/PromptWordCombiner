@@ -292,6 +292,18 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteProjects = (ids: string[]) => {
+    setProjects(prev => prev.filter(p => !ids.includes(p.id)));
+    setOpenTabIds(prev => {
+        const nextTabs = prev.filter(id => !ids.includes(id));
+        if (activeTabId && ids.includes(activeTabId)) {
+            if (nextTabs.length > 0) setActiveTabId(nextTabs[nextTabs.length - 1]);
+            else setActiveTabId('library');
+        }
+        return nextTabs;
+    });
+  };
+
   const sortedProjects = [...projects].sort((a, b) => (b.lastOpenedAt || 0) - (a.lastOpenedAt || 0));
   const activeProject = activeTabId !== 'library' ? projects.find(p => p.id === activeTabId) : null;
   const activeProjectTemplate = activeProject ? templates.find(t => t.id === activeProject.templateId) : null;
@@ -307,7 +319,6 @@ const App: React.FC = () => {
               <button onClick={() => setIsSettingsOpen(true)} className="p-1.5 text-slate-600 hover:text-blue-400 transition-colors" title="应用设置"><SettingsIcon className="w-4 h-4" /></button>
            </div>
            <div className="flex-1 flex overflow-x-auto overflow-y-hidden no-scrollbar items-end h-full px-3 gap-0.5">
-             {/* 永久的库标签 */}
              <div onClick={() => openTab('library')} className={`group relative flex items-center gap-2 px-4 py-2 min-w-[100px] max-w-[150px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[85%] ${activeTabId === 'library' ? 'bg-slate-950 border-slate-800 text-white z-10 border-b-slate-950' : 'bg-slate-900 border-transparent text-slate-500 border-b-slate-800'}`} style={{ marginBottom: '-1px' }}>
                 <LibraryIcon className={`w-3.5 h-3.5 ${activeTabId === 'library' ? 'text-blue-400' : 'text-slate-600'}`} />
                 <span className="truncate flex-1 font-bold">文件库</span>
@@ -338,7 +349,7 @@ const App: React.FC = () => {
                </>
              )}
           </div>
-          <div className="flex-1 flex flex-col bg-slate-900 overflow-hidden relative">
+          <div className="flex-1 flex-col bg-slate-900 overflow-hidden relative flex">
              <div className="flex-1 overflow-hidden flex flex-col">
                 {activeProject && activeProjectTemplate ? (
                 <>
@@ -432,7 +443,23 @@ const App: React.FC = () => {
            )}
 
            {activeTabId === 'library' ? (
-             <FileLibrary projects={sortedProjects} templates={templates} onOpenProject={openTab} onCreateProject={createProject} onCreateTemplate={createTemplate} onEditTemplate={setEditingTemplateId} onDuplicateTemplate={(id) => setTemplates([...templates, { ...JSON.parse(JSON.stringify(templates.find(t => t.id === id))), id: `tmpl_${Date.now()}_copy`, name: `副本` }])} onCreateTemplateFromProject={(id) => openConfirm("提取模版", "从该项目状态提取出新的模版结构？", () => handleCreateTemplateFromProject(id))} onDeleteProject={(id) => openConfirm("删除项目", "确定要彻底删除该项目吗？数据将无法挽回。", () => { setProjects(projects.filter(p => p.id !== id)); closeTab(id); })} onDeleteTemplate={(id) => openConfirm("删除模版", "确定要删除此模版吗？基于此模版的项目可能会出现显示异常。", () => setTemplates(templates.filter(t => t.id !== id)))} onImportData={(p, t) => { setProjects([...p]); setTemplates([...t]); }} onOpenExport={() => setIsExportModalOpen(true)} onRequestAlert={openAlert} onClose={() => { if(openTabIds.length > 0) setActiveTabId(openTabIds[0]); }} />
+             <FileLibrary 
+                projects={sortedProjects} 
+                templates={templates} 
+                onOpenProject={openTab} 
+                onCreateProject={createProject} 
+                onCreateTemplate={createTemplate} 
+                onEditTemplate={setEditingTemplateId} 
+                onDuplicateTemplate={(id) => setTemplates([...templates, { ...JSON.parse(JSON.stringify(templates.find(t => t.id === id))), id: `tmpl_${Date.now()}_copy`, name: `副本` }])} 
+                onCreateTemplateFromProject={(id) => openConfirm("提取模版", "从该项目状态提取出新的模版结构？", () => handleCreateTemplateFromProject(id))} 
+                onDeleteProject={(id) => openConfirm("删除项目", "确定要彻底删除该项目吗？数据将无法挽回。", () => { handleDeleteProjects([id]); closeTab(id); })} 
+                onDeleteProjects={(ids) => openConfirm("批量删除项目", `确定要彻底删除选中的 ${ids.length} 个项目吗？此操作无法撤销。`, () => { handleDeleteProjects(ids); })}
+                onDeleteTemplate={(id) => openConfirm("删除模版", "确定要删除此模版吗？基于此模版的项目可能会出现显示异常。", () => setTemplates(templates.filter(t => t.id !== id)))} 
+                onImportData={(p, t) => { setProjects([...p]); setTemplates([...t]); }} 
+                onOpenExport={() => setIsExportModalOpen(true)} 
+                onRequestAlert={openAlert} 
+                onClose={() => { if(openTabIds.length > 0) setActiveTabId(openTabIds[0]); }} 
+             />
            ) : activeProject && activeProjectTemplate ? (
              <div className="w-full h-full flex flex-col">
                 <div className="px-8 pt-6 shrink-0 flex items-center justify-between">

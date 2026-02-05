@@ -16,6 +16,7 @@ interface FileLibraryProps {
   onDuplicateTemplate: (templateId: string) => void;
   onCreateTemplateFromProject: (projectId: string) => void;
   onDeleteProject: (id: string) => void;
+  onDeleteProjects: (ids: string[]) => void;
   onDeleteTemplate: (id: string) => void;
   onClose: () => void;
   onImportData: (projects: Project[], templates: Template[]) => void;
@@ -40,6 +41,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onDuplicateTemplate,
   onCreateTemplateFromProject,
   onDeleteProject,
+  onDeleteProjects,
   onDeleteTemplate,
   onClose,
   onImportData,
@@ -55,6 +57,10 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     templateId: null
   });
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+
+  // 批量模式状态
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const sortProjects = (projs: Project[]) => {
     return [...projs].sort((a, b) => {
@@ -103,23 +109,68 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     e.target.value = '';
   };
 
+  const toggleSelection = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === projects.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(projects.map(p => p.id)));
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedIds.size === 0) return;
+    onDeleteProjects(Array.from(selectedIds));
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
   const renderProjectCard = (p: Project) => {
     const template = templates.find(t => t.id === p.templateId);
+    const isSelected = selectedIds.has(p.id);
+
     return (
       <HighlightEffect key={p.id} isActive={lastCreatedId === p.id}>
-        <div onClick={() => onOpenProject(p.id)} className="group bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/50 rounded-xl p-4 cursor-pointer transition-all relative">
-          <div className="mb-2">
+        <div 
+          onClick={() => isSelectionMode ? toggleSelection(p.id) : onOpenProject(p.id)} 
+          className={`group bg-slate-900 hover:bg-slate-800 border transition-all relative rounded-xl p-4 cursor-pointer ${
+            isSelected ? 'border-blue-500 ring-2 ring-blue-500/20 bg-slate-800' : 'border-slate-800 hover:border-blue-500/50'
+          }`}
+        >
+          {isSelectionMode && (
+            <div className={`absolute top-3 left-3 w-5 h-5 rounded border flex items-center justify-center transition-colors z-20 ${
+              isSelected ? 'bg-blue-600 border-blue-500' : 'bg-slate-950 border-slate-700'
+            }`}>
+              {isSelected && (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-white">
+                  <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
+                </svg>
+              )}
+            </div>
+          )}
+
+          <div className={`${isSelectionMode ? 'pl-7' : ''} mb-2`}>
               <h4 className="text-base font-bold text-slate-200 group-hover:text-white mb-1 truncate">{p.name}</h4>
-              <div className="flex items-center gap-2"><span className="text-[10px] bg-slate-950 text-slate-500 px-1.5 py-0.5 rounded border border-slate-800/50">模版: {template?.name || '已失效'}</span></div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] bg-slate-950 text-slate-500 px-1.5 py-0.5 rounded border border-slate-800/50">
+                  模版: {template?.name || '已失效'}
+                </span>
+              </div>
           </div>
           <div className="flex flex-col gap-1 border-t border-slate-800/40 mt-3 pt-3">
               <div className="flex justify-between items-center text-[9px] font-mono text-slate-600"><span>创建: {formatFullDate(p.createdAt)}</span></div>
               <div className="flex justify-between items-center text-[9px] font-mono text-blue-600/60"><span>最后修改: {formatFullDate(p.lastModifiedAt)}</span></div>
           </div>
-          <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={(e) => { e.stopPropagation(); onCreateTemplateFromProject(p.id); }} title="提取模版" className="text-slate-500 hover:text-blue-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M8 2a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 8 2ZM4.25 5a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H5v6.5h6v-6.5h-1.5a.75.75 0 0 1 0-1.5h1.5A1.5 1.5 0 0 1 12.5 5.75v6.5A1.5 1.5 0 0 1 11 13.75H5a1.5 1.5 0 0 1-1.5-1.5v-6.5A1.5 1.5 0 0 1 4.25 5Z" /></svg></button>
-              <button onClick={(e) => { e.stopPropagation(); onDeleteProject(p.id); }} title="彻底删除" className="text-slate-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
-          </div>
+          
+          {!isSelectionMode && (
+            <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={(e) => { e.stopPropagation(); onCreateTemplateFromProject(p.id); }} title="提取模版" className="text-slate-500 hover:text-blue-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M8 2a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 8 2ZM4.25 5a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H5v6.5h6v-6.5h-1.5a.75.75 0 0 1 0-1.5h1.5A1.5 1.5 0 0 1 12.5 5.75v6.5A1.5 1.5 0 0 1 11 13.75H5a1.5 1.5 0 0 1-1.5-1.5v-6.5A1.5 1.5 0 0 1 4.25 5Z" /></svg></button>
+                <button onClick={(e) => { e.stopPropagation(); onDeleteProject(p.id); }} title="彻底删除" className="text-slate-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
+            </div>
+          )}
         </div>
       </HighlightEffect>
     );
@@ -138,25 +189,34 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
             <button onClick={() => fileInputRef.current?.click()} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">恢复数据</button>
             <button onClick={onOpenExport} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">备份数据</button>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-800 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-950">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-950 relative pb-24">
          <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-8 flex flex-col">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6 pb-2 border-b border-slate-800/50">
-                <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest">我的游戏项目</h3>
-                <div className="flex flex-wrap items-center gap-6">
+                <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest">我的项目资产</h3>
+                <div className="flex flex-wrap items-center gap-4 md:gap-6">
+                  {/* 批量选择开关 */}
+                  <button 
+                    onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedIds(new Set()); }}
+                    className={`flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
+                      isSelectionMode ? 'bg-blue-600 border-blue-400 text-white shadow-lg shadow-blue-600/30' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-600'
+                    }`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" /></svg>
+                    {isSelectionMode ? '退出管理' : '批量管理'}
+                  </button>
+
                   <div className="flex items-center gap-3">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">卡片缩放</span>
-                    <input type="range" min="150" max="500" value={cardScale} onChange={(e) => setCardScale(parseInt(e.target.value))} className="w-32 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">缩放</span>
+                    <input type="range" min="150" max="500" value={cardScale} onChange={(e) => setCardScale(parseInt(e.target.value))} className="w-24 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setIsGrouped(!isGrouped)} className={`flex items-center gap-2 px-3 py-1 text-[10px] font-bold rounded border transition-colors ${isGrouped ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75ZM2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Zm.75 3.5a.75.75 0 0 0 0 1.5h10.5a.75.75 0 0 0 0-1.5H2.75Z" /></svg>{isGrouped ? '已分类显示' : '平铺显示'}</button>
+                    <button onClick={() => setIsGrouped(!isGrouped)} className={`flex items-center gap-2 px-3 py-1 text-[10px] font-bold rounded border transition-colors ${isGrouped ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75ZM2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Zm.75 3.5a.75.75 0 0 0 0 1.5h10.5a.75.75 0 0 0 0-1.5H2.75Z" /></svg>{isGrouped ? '已分组' : '平铺'}</button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase">排序</span>
-                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-400 outline-none hover:border-slate-600 transition-colors"><option value="lastModified">最后修改时间</option><option value="createdAt">创建时间</option><option value="name">项目名称</option></select>
+                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-400 outline-none hover:border-slate-600 transition-colors"><option value="lastModified">修改时间</option><option value="createdAt">创建时间</option><option value="name">名称</option></select>
                   </div>
                 </div>
             </div>
@@ -177,7 +237,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                   <h4 className="font-bold text-slate-200 text-sm mb-1">{t.name}</h4>
                   <div className="flex gap-2 text-[9px] text-slate-600 mb-4 font-mono"><span>{t.steps.length} STEPS</span><span>{t.inputs.length} VARS</span></div>
                   <div className="flex gap-2">
-                      <Button onClick={() => setCreateModalInfo({ isOpen: true, templateId: t.id })} className="flex-1 h-8 text-[11px]" size="sm" variant="success">使用此模版</Button>
+                      <Button onClick={() => setCreateModalInfo({ isOpen: true, templateId: t.id })} className="flex-1 h-8 text-[11px]" size="sm" variant="success">使用模版</Button>
                       <button onClick={() => onEditTemplate(t.id)} className="px-3 bg-slate-950 border border-slate-800 text-[10px] text-slate-500 hover:text-white rounded" title="编辑模版结构">编辑</button>
                       <button onClick={() => onDeleteTemplate(t.id)} className="px-2 bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 rounded transition-colors" title="删除模版"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
                   </div>
@@ -186,6 +246,25 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
             </div>
           </div>
         </div>
+
+        {/* 批量操作工具栏 */}
+        {isSelectionMode && (
+          <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-700 rounded-2xl px-6 py-4 flex items-center gap-6 shadow-2xl z-[60] animate-in slide-in-from-bottom-4 duration-300 ring-1 ring-white/5">
+              <div className="flex flex-col pr-6 border-r border-slate-800">
+                <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">已选择</span>
+                <span className="text-xl font-black text-blue-400">{selectedIds.size}</span>
+              </div>
+              <div className="flex gap-3">
+                <Button variant="ghost" size="sm" onClick={selectAll} className="text-slate-300 hover:bg-slate-800">
+                  {selectedIds.size === projects.length ? '取消全选' : '全选所有'}
+                </Button>
+                <Button variant="danger" size="sm" onClick={handleBatchDelete} disabled={selectedIds.size === 0} className="shadow-lg shadow-red-500/20 px-6 font-bold">
+                  批量删除
+                </Button>
+                <button onClick={() => setIsSelectionMode(false)} className="text-[11px] text-slate-500 hover:text-white px-2">取消</button>
+              </div>
+          </div>
+        )}
       </div>
       <CreateProjectModal isOpen={createModalInfo.isOpen} onConfirm={(name) => { if (createModalInfo.templateId) { onCreateProject(createModalInfo.templateId, name); setCreateModalInfo({ isOpen: false, templateId: null }); } }} onCancel={() => setCreateModalInfo({ isOpen: false, templateId: null })} />
     </div>
