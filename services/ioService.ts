@@ -41,7 +41,11 @@ export const ioService = {
        */
       console.log('Tauri Save Triggered (Mock):', key);
     } else {
-      localStorage.setItem(key, JSON.stringify(data));
+      try {
+        localStorage.setItem(key, JSON.stringify(data));
+      } catch (e) {
+        console.error(`Failed to save data for key: ${key}`, e);
+      }
     }
   },
 
@@ -57,11 +61,12 @@ export const ioService = {
       return null;
     } else {
       const data = localStorage.getItem(key);
-      if (!data) return null;
+      // Check for null, empty string, or the string literal "undefined"
+      if (data === null || data === "" || data === "undefined") return null;
       try {
         return JSON.parse(data) as T;
       } catch (e) {
-        console.error(`Failed to parse data for key: ${key}`, e);
+        console.error(`Failed to parse data for key: ${key}. Raw data:`, data, e);
         return null;
       }
     }
@@ -128,7 +133,7 @@ export const ioService = {
       if (!file) throw new Error("No file provided for browser upload");
       return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onload = (e) => resolve(e.target?.result as string || "");
         reader.onerror = (e) => reject(e);
         reader.readAsText(file);
       });
