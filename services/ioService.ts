@@ -13,14 +13,12 @@
  *      "dialog:allow-save", "dialog:allow-open"
  *    ]
  */
+import { load } from "@tauri-apps/plugin-store";
+import { save, open } from "@tauri-apps/plugin-dialog";
+import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 
 // --- 宏定义开关 ---
-const IS_TAURI = false; 
-
-// --- Tauri 模块导入 (使用时取消注释) ---
-// import { load } from "@tauri-apps/plugin-store";
-// import { save, open } from "@tauri-apps/plugin-dialog";
-// import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+const IS_TAURI = true; 
 
 export const STORAGE_KEYS = {
   PROJECTS: 'prompt-splicer-projects-v2',
@@ -33,13 +31,11 @@ export const ioService = {
   
   async saveToDisk(key: string, data: any): Promise<void> {
     if (IS_TAURI) {
-      /**
-       * [TAURI 实现]
-       * const store = await load("app_data.json", { autoSave: true });
-       * await store.set(key, data);
-       * await store.save(); 
-       */
-      console.log('Tauri Save Triggered (Mock):', key);
+      // [TAURI 实现]
+      const store = await load("app_data.json");
+      await store.set(key, data);
+      await store.save();
+      console.log('Tauri Save Triggered:', key);
     } else {
       localStorage.setItem(key, JSON.stringify(data));
     }
@@ -47,14 +43,11 @@ export const ioService = {
 
   async loadFromDisk<T>(key: string): Promise<T | null> {
     if (IS_TAURI) {
-      /**
-       * [TAURI 实现]
-       * const store = await load("app_data.json");
-       * const val = await store.get<T>(key);
-       * return val || null;
-       */
-      console.log('Tauri Load Triggered (Mock):', key);
-      return null;
+      // [TAURI 实现]
+      const store = await load("app_data.json");
+      const val = await store.get<T>(key);
+      console.log('Tauri Load Triggered:', key);
+      return val || null;
     } else {
       const data = localStorage.getItem(key);
       if (!data) return null;
@@ -74,19 +67,17 @@ export const ioService = {
    */
   async exportFile(filename: string, content: string, mimeType: string = 'text/plain'): Promise<void> {
     if (IS_TAURI) {
-      /**
-       * [TAURI 实现]
-       * // 弹出保存对话框
-       * const path = await save({
-       *   defaultPath: filename,
-       *   filters: [{ name: 'Document', extensions: mimeType.includes('json') ? ['json'] : ['txt'] }]
-       * });
-       * // 如果用户选择了路径，则写入文件
-       * if (path) {
-       *   await writeTextFile(path, content);
-       * }
-       */
-      console.log('Tauri Export File Triggered (Mock):', filename);
+      // [TAURI 实现]
+      // 弹出保存对话框
+      const path = await save({
+        defaultPath: filename,
+        filters: [{ name: 'Document', extensions: mimeType.includes('json') ? ['json'] : ['txt'] }]
+      });
+      // 如果用户选择了路径，则写入文件
+      if (path) {
+        await writeTextFile(path, content);
+      }
+      console.log('Tauri Export File Triggered:', filename);
     } else {
       // 浏览器环境下的下载实现
       const blob = new Blob([content], { type: mimeType });
@@ -109,20 +100,17 @@ export const ioService = {
    */
   async readFileAsText(file?: File): Promise<string> {
     if (IS_TAURI) {
-      /**
-       * [TAURI 实现]
-       * // 弹出打开对话框
-       * const path = await open({
-       *   multiple: false,
-       *   filters: [{ name: 'JSON Data', extensions: ['json'] }]
-       * });
-       * // 如果选择了文件，读取其文本内容
-       * if (path && typeof path === 'string') {
-       *   return await readTextFile(path);
-       * }
-       * return "";
-       */
-      console.log('Tauri Read File Triggered (Mock)');
+      // [TAURI 实现]
+      // 弹出打开对话框
+      const path = await open({
+        multiple: false,
+        filters: [{ name: 'JSON Data', extensions: ['json'] }]
+      });
+      // 如果选择了文件，读取其文本内容
+      if (path && typeof path === 'string') {
+        return await readTextFile(path);
+      }
+      console.log('Tauri Read File Triggered');
       return "";
     } else {
       if (!file) throw new Error("No file provided for browser upload");
