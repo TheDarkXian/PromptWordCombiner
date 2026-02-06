@@ -44,3 +44,8 @@ src-tauri/icons/Square89x89Logo.png
 src-tauri/icons/StoreLogo.png
 src-tauri/src/lib.rs
 src-tauri/src/main.rs
+src-tauri/*
+!src-tauri/tauri.conf.json
+!src-tauri/capabilities/
+!src-tauri/capabilities/default.json
+package-lock.json
