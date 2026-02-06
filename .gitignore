@@ -22,9 +22,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-src-tauri/*
-!src-tauri/tauri.conf.json
-!src-tauri/capabilities/
-!src-tauri/capabilities/default.json
-package-lock.json

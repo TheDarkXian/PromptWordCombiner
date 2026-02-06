@@ -182,6 +182,28 @@ const App: React.FC = () => {
        fullText += `### ${step.name}\n${interpolate(rawContent)}\n\n`;
     });
     ioService.exportFile(`${project.name}_烘焙结果.txt`, fullText);
+
+
+
+
+
+
+
+
+
+    
+  };
+     
+  const handleDownloadAllData = () => {
+    const backupData = {
+      projects,
+      templates,
+      exportDate: new Date().toISOString(),
+      version: "2.0"
+    };
+    const jsonString = JSON.stringify(backupData, null, 2);
+    const dateStr = new Date().toISOString().split('T')[0];
+    ioService.exportFile(`prompt_splicer_backup_${dateStr}.json`, jsonString, 'application/json');
   };
 
   const editingTemplate = templates.find(t => t.id === editingTemplateId);
@@ -269,7 +291,7 @@ const App: React.FC = () => {
       </div>
       
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} uiScale={uiScale} setUiScale={setUiScale} fontSize={fontSize} setFontSize={setFontSize} />
-      <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} data={{ projects, templates }} onDownload={() => {}} />
+      <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} data={{ projects, templates }} onDownload={handleDownloadAllData} />
       <ConfirmationModal isOpen={modalConfig.isOpen} title={modalConfig.title} message={modalConfig.message} isAlert={modalConfig.isAlert} onConfirm={modalConfig.onConfirm} onCancel={closeModal} />
     </div>
   );

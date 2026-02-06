@@ -19,9 +19,10 @@
 import { load } from "@tauri-apps/plugin-store";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+
+
 // --- 动态检测是否在 Tauri 环境中 ---
-const IS_TAURI = true;
-//typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
+const IS_TAURI = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
 
 export const STORAGE_KEYS = {
   PROJECTS: 'prompt-splicer-projects-v2',
