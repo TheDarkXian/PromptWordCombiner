@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "提示词拼接器",
+  "productName": "prompt",
   "version": "0.2.0",
   "identifier": "com.tdksoftware.prompt",
   "build": {
