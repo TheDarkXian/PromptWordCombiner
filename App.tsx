@@ -247,7 +247,7 @@ const App: React.FC = () => {
                 onImportData={(p, t) => { setProjects(p); setTemplates(t); }} 
                 onOpenExport={() => setIsExportModalOpen(true)} 
                 onRequestAlert={openAlert} 
-                onClose={() => { if(openTabIds.length > 0) setActiveTabId(openTabIds[0]); }} 
+                //onClose={() => { if(openTabIds.length > 0) setActiveTabId(openTabIds[0]); }} 
              />
            ) : activeProject && activeProjectTemplate ? (
              <ProjectRunner 
