@@ -8,6 +8,7 @@
  *    npm run tauri add dialog
  *    npm run tauri add fs
  *    npm run tauri add store
+
  * 2. 在 src-tauri/capabilities/main.json 中添加权限:
  *    "permissions": [
  *      "store:allow-get", "store:allow-set", "store:allow-save",
@@ -18,6 +19,7 @@
 import { load } from "@tauri-apps/plugin-store";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+
 
 // --- 动态检测是否在 Tauri 环境中 ---
 const IS_TAURI = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
@@ -33,6 +35,7 @@ export const ioService = {
   
   async saveToDisk(key: string, data: any): Promise<void> {
     if (IS_TAURI) {
+
       try {
         const store = await load("app_data.json");
         await store.set(key, data);
@@ -52,6 +55,7 @@ export const ioService = {
 
   async loadFromDisk<T>(key: string): Promise<T | null> {
     if (IS_TAURI) {
+
       try {
         const store = await load("app_data.json");
         const val = await store.get<T>(key);
@@ -115,6 +119,7 @@ export const ioService = {
    */
   async readFileAsText(file?: File): Promise<string> {
     if (IS_TAURI) {
+
       try {
         // 弹出打开对话框
         const path = await open({

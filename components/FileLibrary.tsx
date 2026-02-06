@@ -18,7 +18,6 @@ interface FileLibraryProps {
   onDeleteProject: (id: string) => void;
   onDeleteProjects: (ids: string[]) => void;
   onDeleteTemplate: (id: string) => void;
-  onClose: () => void;
   onImportData: (projects: Project[], templates: Template[]) => void;
   onOpenExport: () => void;
   onRequestAlert: (title: string, message: string) => void;
@@ -43,7 +42,6 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onDeleteProject,
   onDeleteProjects,
   onDeleteTemplate,
-  onClose,
   onImportData,
   onOpenExport,
   onRequestAlert
@@ -193,7 +191,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
             <button onClick={() => fileInputRef.current?.click()} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">恢复数据</button>
             <button onClick={onOpenExport} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">备份数据</button>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 rounded-full hover:bg-slate-800 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>
+         
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-950 relative pb-24">
