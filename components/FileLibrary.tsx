@@ -21,6 +21,8 @@ interface FileLibraryProps {
   onImportData: (projects: Project[], templates: Template[]) => void;
   onOpenExport: () => void;
   onRequestAlert: (title: string, message: string) => void;
+  cardScale: number;
+  onCardScaleChange: (scale: number) => void;
 }
 
 const formatFullDate = (ts: number) => {
@@ -44,11 +46,12 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onDeleteTemplate,
   onImportData,
   onOpenExport,
-  onRequestAlert
+  onRequestAlert,
+  cardScale,
+  onCardScaleChange
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sortBy, setSortBy] = useState<SortKey>('lastModified');
-  const [cardScale, setCardScale] = useState<number>(300);
   const [isGrouped, setIsGrouped] = useState<boolean>(false);
   const [createModalInfo, setCreateModalInfo] = useState<{ isOpen: boolean; templateId: string | null }>({
     isOpen: false,
@@ -213,7 +216,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
 
                   <div className="flex items-center gap-3">
                     <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">缩放</span>
-                    <input type="range" min="150" max="500" value={cardScale} onChange={(e) => setCardScale(parseInt(e.target.value))} className="w-24 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
+                    <input type="range" min="150" max="500" value={cardScale} onChange={(e) => onCardScaleChange(parseInt(e.target.value))} className="w-24 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setIsGrouped(!isGrouped)} className={`flex items-center gap-2 px-3 py-1 text-[10px] font-bold rounded border transition-colors ${isGrouped ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75ZM2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Zm.75 3.5a.75.75 0 0 0 0 1.5h10.5a.75.75 0 0 0 0-1.5H2.75Z" /></svg>{isGrouped ? '已分组' : '平铺'}</button>
