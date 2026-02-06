@@ -155,7 +155,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                     </div>
                     <div 
                       onDoubleClick={(e) => handleDoubleClickCopy(content, e)}
-                      className="text-slate-300 font-mono text-sm leading-relaxed whitespace-pre-wrap pl-4 py-2 border-l-2 border-slate-800 group-hover:border-blue-500/30 transition-colors relative cursor-copy select-none active:bg-blue-500/5"
+                      className="text-slate-300 font-mono text-sm leading-relaxed whitespace-pre-wrap break-words pl-4 py-2 border-l-2 border-slate-800 group-hover:border-blue-500/30 transition-colors relative cursor-copy select-none active:bg-blue-500/5"
                       title="双击复制内容"
                     >
                         {content}
