@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [rightPanelWidth, setRightPanelWidth] = useState(400);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [cardScale, setCardScale] = useState<number>(300);
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean; title: string; message: string; isAlert: boolean; onConfirm: () => void;
@@ -58,6 +59,7 @@ const App: React.FC = () => {
         if (settings.isSidebarOpen !== undefined) setIsSidebarOpen(settings.isSidebarOpen);
         if (settings.fontSize) setFontSize(settings.fontSize);
         if (settings.rightPanelWidth) setRightPanelWidth(settings.rightPanelWidth);
+        if (settings.cardScale) setCardScale(settings.cardScale);
       }
     };
     init();
@@ -67,9 +69,9 @@ const App: React.FC = () => {
   useEffect(() => { if(templates.length > 0) ioService.saveToDisk(STORAGE_KEYS.TEMPLATES, templates); }, [templates]);
   useEffect(() => { if(projects.length > 0) ioService.saveToDisk(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
   useEffect(() => {
-    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize });
+    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale });
     document.documentElement.style.fontSize = `${uiScale}px`;
-  }, [uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize]);
+  }, [uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale]);
 
   // 侧边栏宽度调整监听
   useEffect(() => {
@@ -247,7 +249,8 @@ const App: React.FC = () => {
                 onImportData={(p, t) => { setProjects(p); setTemplates(t); }} 
                 onOpenExport={() => setIsExportModalOpen(true)} 
                 onRequestAlert={openAlert} 
-                //onClose={() => { if(openTabIds.length > 0) setActiveTabId(openTabIds[0]); }} 
+                cardScale={cardScale}
+                onCardScaleChange={setCardScale}
              />
            ) : activeProject && activeProjectTemplate ? (
              <ProjectRunner 
