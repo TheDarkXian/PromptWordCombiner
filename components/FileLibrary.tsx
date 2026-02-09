@@ -244,6 +244,12 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                   <div className="flex gap-2 text-[9px] text-slate-600 mb-4 font-mono"><span>{t.steps.length} STEPS</span><span>{t.inputs.length} VARS</span></div>
                   <div className="flex gap-2">
                       <Button onClick={() => setCreateModalInfo({ isOpen: true, templateId: t.id })} className="flex-1 h-8 text-[11px]" size="sm" variant="success">使用模版</Button>
+                      <button onClick={() => onDuplicateTemplate(t.id)} className="px-2.5 bg-slate-950 border border-slate-800 text-slate-500 hover:text-blue-400 rounded transition-colors" title="复制模版">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                          <path d="M4 4c0-1.1.9-2 2-2h4.688c.265 0 .52.105.707.293l2.312 2.312c.188.188.293.442.293.707V12c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V4Z" />
+                          <path d="M2.5 6A1.5 1.5 0 0 0 1 7.5v6A1.5 1.5 0 0 0 2.5 15h6A1.5 1.5 0 0 0 10 13.5V13H2.5V6Z" />
+                        </svg>
+                      </button>
                       <button onClick={() => onEditTemplate(t.id)} className="px-3 bg-slate-950 border border-slate-800 text-[10px] text-slate-500 hover:text-white rounded" title="编辑模版结构">编辑</button>
                       <button onClick={() => onDeleteTemplate(t.id)} className="px-2 bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 rounded transition-colors" title="删除模版"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
                   </div>
