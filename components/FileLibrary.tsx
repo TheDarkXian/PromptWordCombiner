@@ -62,6 +62,9 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     templateId: null
   });
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+  
+  // 用于追踪哪些分组是折叠的
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // 批量模式状态
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -96,6 +99,13 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     });
     return groups;
   }, [projects, sortBy, isGrouped, templates]);
+
+  const toggleGroup = (groupName: string) => {
+    const next = new Set(collapsedGroups);
+    if (next.has(groupName)) next.delete(groupName);
+    else next.add(groupName);
+    setCollapsedGroups(next);
+  };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -232,12 +242,41 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                 </div>
             </div>
             <div className="space-y-10">
-              {Object.entries(groupedData).map(([groupName, projs]) => (
-                <div key={groupName} className="space-y-4">
-                  {isGrouped && (<div className="flex items-center gap-3"><div className="h-4 w-1 bg-blue-500 rounded-full"></div><h4 className="text-xs font-black text-slate-500 uppercase tracking-tighter">{groupName} <span className="ml-2 text-[10px] font-normal text-slate-700">({(projs as Project[]).length} 个项目)</span></h4></div>)}
-                  <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardScale}px, 1fr))` }}>{(projs as Project[]).map(p => renderProjectCard(p))}</div>
-                </div>
-              ))}
+              {Object.entries(groupedData).map(([groupName, projs]) => {
+                const isCollapsed = collapsedGroups.has(groupName);
+                return (
+                  <div key={groupName} className="space-y-4">
+                    {isGrouped && (
+                      <div 
+                        className="flex items-center justify-between cursor-pointer group/header select-none p-1 -ml-1 rounded-lg hover:bg-slate-900/40 transition-colors"
+                        onClick={() => toggleGroup(groupName)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`h-4 w-1 rounded-full transition-colors ${isCollapsed ? 'bg-slate-700' : 'bg-blue-500'}`}></div>
+                          <h4 className={`text-xs font-black uppercase tracking-tighter transition-colors ${isCollapsed ? 'text-slate-600' : 'text-slate-500'}`}>
+                            {groupName} 
+                            <span className="ml-2 text-[10px] font-normal text-slate-700">({(projs as Project[]).length} 个项目)</span>
+                          </h4>
+                        </div>
+                        <svg 
+                          xmlns="http://www.w3.org/2000/svg" 
+                          viewBox="0 0 16 16" 
+                          fill="currentColor" 
+                          className={`w-4 h-4 text-slate-700 transition-transform duration-300 ${isCollapsed ? '' : 'rotate-180'}`}
+                        >
+                          <path fillRule="evenodd" d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    )}
+                    
+                    {!isCollapsed && (
+                      <div className="grid gap-4 animate-in fade-in slide-in-from-top-1 duration-200" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardScale}px, 1fr))` }}>
+                        {(projs as Project[]).map(p => renderProjectCard(p))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div className="lg:col-span-4">
@@ -284,6 +323,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         )}
       </div>
       <CreateProjectModal isOpen={createModalInfo.isOpen} onConfirm={(name) => { if (createModalInfo.templateId) { onCreateProject(createModalInfo.templateId, name); setCreateModalInfo({ isOpen: false, templateId: null }); } }} onCancel={() => setCreateModalInfo({ isOpen: false, templateId: null })} />
+      {/* Fix: Use onConfirmMerge instead of onMergeData to match MergeModalProps interface defined in MergeModal.tsx */}
       <MergeModal 
         isOpen={isMergeModalOpen} 
         onClose={() => setIsMergeModalOpen(false)} 
