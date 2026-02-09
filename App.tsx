@@ -182,16 +182,6 @@ const App: React.FC = () => {
        fullText += `### ${step.name}\n${interpolate(rawContent)}\n\n`;
     });
     ioService.exportFile(`${project.name}_烘焙结果.txt`, fullText);
-
-
-
-
-
-
-
-
-
-    
   };
      
   const handleDownloadAllData = () => {
@@ -204,6 +194,29 @@ const App: React.FC = () => {
     const jsonString = JSON.stringify(backupData, null, 2);
     const dateStr = new Date().toISOString().split('T')[0];
     ioService.exportFile(`prompt_splicer_backup_${dateStr}.json`, jsonString, 'application/json');
+  };
+
+  const handleMergeData = (newProjects: Project[], newTemplates: Template[]) => {
+    // 处理合并逻辑
+    setTemplates(prev => {
+      const merged = [...prev];
+      newTemplates.forEach(nt => {
+        const idx = merged.findIndex(t => t.id === nt.id);
+        if (idx !== -1) merged[idx] = nt; // 覆盖已有的ID（如果是overwrite操作）
+        else merged.push(nt); // 否则新增
+      });
+      return merged;
+    });
+
+    setProjects(prev => {
+      const merged = [...prev];
+      newProjects.forEach(np => {
+        const idx = merged.findIndex(p => p.id === np.id);
+        if (idx !== -1) merged[idx] = np;
+        else merged.push(np);
+      });
+      return merged;
+    });
   };
 
   const editingTemplate = templates.find(t => t.id === editingTemplateId);
@@ -269,6 +282,7 @@ const App: React.FC = () => {
                 onDeleteProjects={(ids) => openConfirm("批量删除", "确定删除？", () => { setProjects(projects.filter(p => !ids.includes(p.id))); ids.forEach(id => closeTab(id)); })}
                 onDeleteTemplate={(id) => openConfirm("删除模版", "确定删除？", () => setTemplates(templates.filter(t => t.id !== id)))} 
                 onImportData={(p, t) => { setProjects(p); setTemplates(t); }} 
+                onMergeData={handleMergeData}
                 onOpenExport={() => setIsExportModalOpen(true)} 
                 onRequestAlert={openAlert} 
                 cardScale={cardScale}

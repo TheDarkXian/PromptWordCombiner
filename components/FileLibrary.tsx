@@ -4,6 +4,7 @@ import { Project, Template } from '../types';
 import { Button } from './Button';
 import { CreateProjectModal } from './CreateProjectModal';
 import { HighlightEffect } from './HighlightEffect';
+import { MergeModal } from './MergeModal';
 import { ioService } from '../services/ioService';
 
 interface FileLibraryProps {
@@ -19,6 +20,7 @@ interface FileLibraryProps {
   onDeleteProjects: (ids: string[]) => void;
   onDeleteTemplate: (id: string) => void;
   onImportData: (projects: Project[], templates: Template[]) => void;
+  onMergeData: (projects: Project[], templates: Template[]) => void;
   onOpenExport: () => void;
   onRequestAlert: (title: string, message: string) => void;
   cardScale: number;
@@ -45,6 +47,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onDeleteProjects,
   onDeleteTemplate,
   onImportData,
+  onMergeData,
   onOpenExport,
   onRequestAlert,
   cardScale,
@@ -53,6 +56,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sortBy, setSortBy] = useState<SortKey>('lastModified');
   const [isGrouped, setIsGrouped] = useState<boolean>(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [createModalInfo, setCreateModalInfo] = useState<{ isOpen: boolean; templateId: string | null }>({
     isOpen: false,
     templateId: null
@@ -191,8 +195,9 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 mr-4">
             <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".json" />
-            <button onClick={() => fileInputRef.current?.click()} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">恢复数据</button>
+            <button onClick={() => fileInputRef.current?.click()} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">全量恢复</button>
             <button onClick={onOpenExport} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">备份数据</button>
+            <button onClick={() => setIsMergeModalOpen(true)} className="text-[11px] bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-500/30 px-3 py-1.5 rounded transition-all">合并数据</button>
           </div>
          
         </div>
@@ -279,6 +284,14 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         )}
       </div>
       <CreateProjectModal isOpen={createModalInfo.isOpen} onConfirm={(name) => { if (createModalInfo.templateId) { onCreateProject(createModalInfo.templateId, name); setCreateModalInfo({ isOpen: false, templateId: null }); } }} onCancel={() => setCreateModalInfo({ isOpen: false, templateId: null })} />
+      <MergeModal 
+        isOpen={isMergeModalOpen} 
+        onClose={() => setIsMergeModalOpen(false)} 
+        currentProjects={projects} 
+        currentTemplates={templates} 
+        onConfirmMerge={onMergeData}
+        onRequestAlert={onRequestAlert}
+      />
     </div>
   );
 };
