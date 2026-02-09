@@ -115,34 +115,57 @@ export const ioService = {
   // --- 文件导入 ---
 
   /**
-   * 处理文件上传读取
+   * 基础读取函数：将 File 对象读取为文本
    */
-  async readFileAsText(file?: File): Promise<string> {
-    if (IS_TAURI) {
+  async readFileAsText(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string || "");
+      reader.onerror = (e) => reject(e);
+      reader.readAsText(file);
+    });
+  },
 
+  /**
+   * 弹出对话框选择并读取文件内容（跨平台入口）
+   */
+  async selectAndReadFile(): Promise<string> {
+    if (IS_TAURI) {
       try {
-        // 弹出打开对话框
         const path = await open({
           multiple: false,
           filters: [{ name: 'JSON Data', extensions: ['json'] }]
         });
-        // 如果选择了文件，读取其文本内容
         if (path && typeof path === 'string') {
           return await readTextFile(path);
         }
-        console.log('Tauri Read File Triggered');
         return "";
       } catch (e) {
-        console.error('Tauri Read Error:', e);
+        console.error('Tauri Select File Error:', e);
         return "";
       }
     } else {
-      if (!file) throw new Error("No file provided for browser upload");
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target?.result as string || "");
-        reader.onerror = (e) => reject(e);
-        reader.readAsText(file);
+      // 浏览器环境下，动态创建一个隐藏的 input 来触发文件选择
+      return new Promise((resolve) => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        
+        input.onchange = async (e: Event) => {
+          const file = (e.target as HTMLInputElement).files?.[0];
+          if (file) {
+            const content = await this.readFileAsText(file);
+            resolve(content);
+          } else {
+            resolve("");
+          }
+        };
+
+        // 某些浏览器可能需要添加到 DOM 才能工作
+        input.style.display = 'none';
+        document.body.appendChild(input);
+        input.click();
+        document.body.removeChild(input);
       });
     }
   }
