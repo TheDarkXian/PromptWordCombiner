@@ -14,6 +14,7 @@ interface FileLibraryProps {
   onCreateProject: (templateId: string, name: string) => void;
   onCreateTemplate: () => void;
   onEditTemplate: (templateId: string) => void;
+  onUpdateTemplate: (templateId: string, updates: Partial<Template>) => void;
   onDuplicateTemplate: (templateId: string) => void;
   onCreateTemplateFromProject: (projectId: string) => void;
   onDeleteProject: (id: string) => void;
@@ -41,6 +42,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onCreateProject,
   onCreateTemplate,
   onEditTemplate,
+  onUpdateTemplate,
   onDuplicateTemplate,
   onCreateTemplateFromProject,
   onDeleteProject,
@@ -63,10 +65,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   });
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
   
-  // 用于追踪哪些分组是折叠的
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  // 批量模式状态
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -88,8 +87,16 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   }, [projects.length]);
 
   const groupedData = useMemo(() => {
-    const sorted = sortProjects(projects);
+    // 过滤掉所属模版被标记为“隐藏”的项目
+    const visibleProjects = projects.filter(p => {
+      const template = templates.find(t => t.id === p.templateId);
+      return !template?.hideProjects;
+    });
+
+    const sorted = sortProjects(visibleProjects);
+    
     if (!isGrouped) return { 'all': sorted };
+    
     const groups: Record<string, Project[]> = {};
     sorted.forEach(p => {
       const template = templates.find(t => t.id === p.templateId);
@@ -212,13 +219,17 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
          
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-950 relative pb-24">
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-slate-950 relative pb-24 no-scrollbar">
          <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
           <div className="lg:col-span-8 flex flex-col">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6 pb-2 border-b border-slate-800/50">
-                <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest">我的项目资产</h3>
+                <div className="flex flex-col">
+                  <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest">我的项目资产</h3>
+                  <p className="text-[10px] text-slate-600 mt-1 uppercase font-bold tracking-tighter">
+                    {Object.values(groupedData).flat().length} 个可见项目
+                  </p>
+                </div>
                 <div className="flex flex-wrap items-center gap-4 md:gap-6">
-                  {/* 批量选择开关 */}
                   <button 
                     onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedIds(new Set()); }}
                     className={`flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${
@@ -244,6 +255,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
             <div className="space-y-10">
               {Object.entries(groupedData).map(([groupName, projs]) => {
                 const isCollapsed = collapsedGroups.has(groupName);
+                if ((projs as Project[]).length === 0) return null;
                 return (
                   <div key={groupName} className="space-y-4">
                     {isGrouped && (
@@ -277,14 +289,44 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                   </div>
                 );
               })}
+              {Object.values(groupedData).flat().length === 0 && (
+                <div className="flex flex-col items-center justify-center py-32 text-center opacity-30 grayscale scale-95">
+                  <div className="w-16 h-16 border border-slate-700 rounded-full flex items-center justify-center mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-8 h-8"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+                  </div>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">未发现可见资产</h3>
+                  <p className="text-[10px] mt-2 max-w-xs text-slate-500 font-bold uppercase">当前过滤条件下无项目显示。请检查右侧模版卡片上的“眼睛”图标是否已关闭。</p>
+                </div>
+              )}
             </div>
           </div>
           <div className="lg:col-span-4">
              <div className="flex items-center justify-between mb-6 pb-2 border-b border-slate-800/50"><h3 className="text-sm font-bold text-emerald-400 uppercase tracking-widest">快速创建</h3><button onClick={onCreateTemplate} className="text-[10px] text-slate-500 hover:text-white transition-colors underline underline-offset-4">新建模版</button></div>
              <div className="grid grid-cols-1 gap-3">
               {templates.map(t => (
-                <div key={t.id} className="bg-slate-900/50 border border-slate-800 rounded-lg p-4 transition-colors">
-                  <h4 className="font-bold text-slate-200 text-sm mb-1">{t.name}</h4>
+                <div key={t.id} className={`bg-slate-900/50 border rounded-lg p-4 transition-all relative group/tcard ${t.hideProjects ? 'opacity-60 border-slate-800' : 'border-slate-800 hover:border-slate-700'}`}>
+                  <div className="flex justify-between items-start mb-1">
+                    <h4 className={`font-bold text-sm truncate pr-8 ${t.hideProjects ? 'text-slate-500' : 'text-slate-200'}`}>{t.name}</h4>
+                    {/* 眼睛功能：切换显示/隐藏资产 */}
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onUpdateTemplate(t.id, { hideProjects: !t.hideProjects }); }}
+                      className={`absolute top-4 right-4 p-1 rounded-md transition-all ${t.hideProjects ? 'text-slate-600 hover:text-blue-400' : 'text-slate-700 hover:text-blue-400 opacity-0 group-hover/tcard:opacity-100'}`}
+                      title={t.hideProjects ? "显示该模版下的资产" : "隐藏该模版下的资产"}
+                    >
+                      {t.hideProjects ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                          <path d="M12.44 11.38a6.47 6.47 0 0 1-8.88 0l-.06-.05a.75.75 0 0 1 1.01-1.11l.05.04c1.88 1.7 4.93 1.7 6.81 0l.05-.04a.75.75 0 0 1 1.01 1.11l-.05.05Z" />
+                          <path d="M11.234 3.23a.75.75 0 0 0-1.06 0l-5.657 5.658a.75.75 0 1 0 1.06 1.06l5.657-5.657a.75.75 0 0 0 0-1.06Z" />
+                          <path fillRule="evenodd" d="M14.97 10.47a.75.75 0 0 1 0 1.06l-3.5 3.5a.75.75 0 0 1-1.06-1.06l2.97-2.97-2.97-2.97a.75.75 0 0 1 1.06-1.06l3.5 3.5ZM1.03 5.53a.75.75 0 0 1 0-1.06l3.5-3.5a.75.75 0 0 1 1.06 1.06L2.62 5l2.97 2.97a.75.75 0 1 1-1.06 1.06l-3.5-3.5Z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                          <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+                          <path fillRule="evenodd" d="M1.38 8.28a.87.87 0 0 1 0-.56 6.33 6.33 0 0 1 13.24 0 .87.87 0 0 1 0 .56 6.33 6.33 0 0 1-13.24 0ZM8 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" />
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                   <div className="flex gap-2 text-[9px] text-slate-600 mb-4 font-mono"><span>{t.steps.length} STEPS</span><span>{t.inputs.length} VARS</span></div>
                   <div className="flex gap-2">
                       <Button onClick={() => setCreateModalInfo({ isOpen: true, templateId: t.id })} className="flex-1 h-8 text-[11px]" size="sm" variant="success">使用模版</Button>
@@ -303,7 +345,6 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
           </div>
         </div>
 
-        {/* 批量操作工具栏 */}
         {isSelectionMode && (
           <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-700 rounded-2xl px-6 py-4 flex items-center gap-6 shadow-2xl z-[60] animate-in slide-in-from-bottom-4 duration-300 ring-1 ring-white/5">
               <div className="flex flex-col pr-6 border-r border-slate-800">
@@ -323,7 +364,6 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         )}
       </div>
       <CreateProjectModal isOpen={createModalInfo.isOpen} onConfirm={(name) => { if (createModalInfo.templateId) { onCreateProject(createModalInfo.templateId, name); setCreateModalInfo({ isOpen: false, templateId: null }); } }} onCancel={() => setCreateModalInfo({ isOpen: false, templateId: null })} />
-      {/* Fix: Use onConfirmMerge instead of onMergeData to match MergeModalProps interface defined in MergeModal.tsx */}
       <MergeModal 
         isOpen={isMergeModalOpen} 
         onClose={() => setIsMergeModalOpen(false)} 

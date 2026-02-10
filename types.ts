@@ -21,6 +21,7 @@ export interface Template {
   name: string;
   inputs: TemplateInput[];
   steps: TemplateStep[];
+  hideProjects?: boolean; // 新增：用于在库中隐藏此模版下的项目
 }
 
 export interface TemplateInput {

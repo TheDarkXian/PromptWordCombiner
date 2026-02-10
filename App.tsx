@@ -134,6 +134,10 @@ const App: React.FC = () => {
     setProjects(prev => prev.map(p => p.id === activeTabId ? { ...p, lastModifiedAt: Date.now(), inputValues: { ...p.inputValues, [inputId]: value } } : p));
   };
 
+  const handleUpdateTemplate = (id: string, updates: Partial<Template>) => {
+    setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+  };
+
   const handleAddLocalVariable = (name: string) => {
     if (!activeTabId || activeTabId === 'library') return;
     const newInput: TemplateInput = { id: `local_${Date.now()}`, label: name };
@@ -286,6 +290,7 @@ const App: React.FC = () => {
                 onCreateProject={createProject} 
                 onCreateTemplate={createTemplate} 
                 onEditTemplate={setEditingTemplateId} 
+                onUpdateTemplate={handleUpdateTemplate}
                 onDuplicateTemplate={(id) => { const t = templates.find(x => x.id === id); if(t) { const nid = `tmpl_${Date.now()}`; setTemplates([...templates, {...t, id: nid, name: t.name+' (副本)'}]); setEditingTemplateId(nid); } }} 
                 onCreateTemplateFromProject={(id) => { const p = projects.find(x => x.id === id); const t = templates.find(x => x.id === p?.templateId); if(t) { const nid = `tmpl_${Date.now()}`; setTemplates([...templates, {...t, id: nid, name: p?.name+' 提取'}]); setEditingTemplateId(nid); } }} 
                 onDeleteProject={(id) => openConfirm("删除项目", "确定删除？", () => { setProjects(projects.filter(p => p.id !== id)); closeTab(id); })} 
