@@ -90,6 +90,28 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     <div className={`flex h-full w-full ${fontSizeClass}`}>
       <div className="flex-1 flex flex-col min-w-0">
          <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 pb-40 no-scrollbar">
+            {/* 项目标题编辑区域 */}
+            <div className="mb-10 px-2 animate-in fade-in slide-in-from-top-2 duration-500">
+               <div className="flex items-center gap-3 group/title">
+                  <div className="p-2 bg-blue-600/10 rounded-xl text-blue-500 group-hover/title:bg-blue-600 group-hover/title:text-white transition-all duration-300">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5"><path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z" /></svg>
+                  </div>
+                  <input 
+                    type="text"
+                    value={project.name}
+                    onChange={(e) => onUpdateProject(project.id, { name: e.target.value })}
+                    className="bg-transparent text-2xl font-black text-white outline-none border-b-2 border-transparent focus:border-blue-500/50 hover:bg-white/5 px-2 py-1 rounded-lg transition-all w-full max-w-2xl tracking-tight"
+                    placeholder="未命名项目"
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  />
+               </div>
+               <div className="flex items-center gap-4 mt-2 ml-12">
+                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Base Template: {template.name}</span>
+                  <div className="w-1 h-1 rounded-full bg-slate-800"></div>
+                  <span className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Project ID: {project.id}</span>
+               </div>
+            </div>
+
             <div className="w-full space-y-8">
                 {template.steps.map((step, index) => {
                 const override = project.stepOverrides[step.id];
