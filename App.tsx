@@ -192,7 +192,17 @@ const App: React.FC = () => {
       version: "2.0"
     };
     const jsonString = JSON.stringify(backupData, null, 2);
-    const dateStr = new Date().toISOString().split('T')[0];
+    
+    // 生成精确到时分秒的时间戳文件名
+    const now = new Date();
+    const YYYY = now.getFullYear();
+    const MM = (now.getMonth() + 1).toString().padStart(2, '0');
+    const DD = now.getDate().toString().padStart(2, '0');
+    const HH = now.getHours().toString().padStart(2, '0');
+    const mm = now.getMinutes().toString().padStart(2, '0');
+    const ss = now.getSeconds().toString().padStart(2, '0');
+    const dateStr = `${YYYY}${MM}${DD}_${HH}${mm}${ss}`;
+    
     ioService.exportFile(`prompt_splicer_backup_${dateStr}.json`, jsonString, 'application/json');
   };
 
