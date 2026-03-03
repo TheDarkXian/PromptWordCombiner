@@ -1,6 +1,7 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from './Button';
+import { getVersion } from '@tauri-apps/api/app';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,6 +12,9 @@ interface SettingsModalProps {
   setFontSize: (val: any) => void;
 }
 
+// Define global constant for TS
+declare const __APP_VERSION__: string;
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
@@ -19,6 +23,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   fontSize,
   setFontSize
 }) => {
+  const [appVersion, setAppVersion] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      // Use the injected version from vite.config.ts which reads tauri.conf.json
+      try {
+        setAppVersion(__APP_VERSION__);
+      } catch (e) {
+        // Fallback to Tauri API if constant is missing (though it shouldn't be)
+        getVersion()
+          .then(v => setAppVersion(v))
+          .catch(err => {
+            console.warn('Failed to get app version:', err);
+            setAppVersion('Unknown');
+          });
+      }
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -82,6 +105,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               ))}
             </div>
+          </div>
+          
+          <div className="pt-4 border-t border-slate-800/50 flex justify-between items-center">
+             <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">当前版本</span>
+             <span className="text-xs font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded border border-slate-800">{appVersion || 'Loading...'}</span>
           </div>
         </div>
 
