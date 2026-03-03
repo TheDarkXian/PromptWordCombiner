@@ -16,6 +16,8 @@ export interface StepOverride {
   content?: string;
 }
 
+export type SortKey = 'lastModified' | 'createdAt' | 'name';
+
 export interface Template {
   id: string;
   name: string;

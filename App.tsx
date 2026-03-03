@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Project, Template, TemplateInput } from './types';
+import { Project, Template, TemplateInput, SortKey } from './types';
 import { DEFAULT_TEMPLATES } from './constants';
 import { ProjectRunner } from './components/ProjectRunner';
 import { TemplateEditor } from './components/TemplateEditor';
@@ -32,6 +32,7 @@ const App: React.FC = () => {
   const [rightPanelWidth, setRightPanelWidth] = useState(400);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [cardScale, setCardScale] = useState<number>(300);
+  const [fileLibrarySortBy, setFileLibrarySortBy] = useState<SortKey>('name');
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean; title: string; message: string; isAlert: boolean; onConfirm: () => void;
@@ -60,6 +61,7 @@ const App: React.FC = () => {
         if (settings.fontSize) setFontSize(settings.fontSize);
         if (settings.rightPanelWidth) setRightPanelWidth(settings.rightPanelWidth);
         if (settings.cardScale) setCardScale(settings.cardScale);
+        if (settings.fileLibrarySortBy) setFileLibrarySortBy(settings.fileLibrarySortBy);
       }
     };
     init();
@@ -69,9 +71,9 @@ const App: React.FC = () => {
   useEffect(() => { if(templates.length > 0) ioService.saveToDisk(STORAGE_KEYS.TEMPLATES, templates); }, [templates]);
   useEffect(() => { if(projects.length > 0) ioService.saveToDisk(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
   useEffect(() => {
-    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale });
+    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy });
     document.documentElement.style.fontSize = `${uiScale}px`;
-  }, [uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale]);
+  }, [uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy]);
 
   // 侧边栏宽度调整监听
   useEffect(() => {
@@ -302,6 +304,8 @@ const App: React.FC = () => {
                 onRequestAlert={openAlert} 
                 cardScale={cardScale}
                 onCardScaleChange={setCardScale}
+                sortBy={fileLibrarySortBy}
+                onSortChange={setFileLibrarySortBy}
              />
            ) : activeProject && activeProjectTemplate ? (
              <ProjectRunner 
