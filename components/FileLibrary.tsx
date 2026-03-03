@@ -1,6 +1,6 @@
 
 import React, { useRef, useState, useMemo, useEffect } from 'react';
-import { Project, Template } from '../types';
+import { Project, Template, SortKey } from '../types';
 import { Button } from './Button';
 import { CreateProjectModal } from './CreateProjectModal';
 import { HighlightEffect } from './HighlightEffect';
@@ -26,14 +26,14 @@ interface FileLibraryProps {
   onRequestAlert: (title: string, message: string) => void;
   cardScale: number;
   onCardScaleChange: (scale: number) => void;
+  sortBy: SortKey;
+  onSortChange: (key: SortKey) => void;
 }
 
 const formatFullDate = (ts: number) => {
     const d = new Date(ts);
     return `${d.getFullYear()}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
 };
-
-type SortKey = 'lastModified' | 'createdAt' | 'name';
 
 export const FileLibrary: React.FC<FileLibraryProps> = ({
   projects,
@@ -53,10 +53,11 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onOpenExport,
   onRequestAlert,
   cardScale,
-  onCardScaleChange
+  onCardScaleChange,
+  sortBy,
+  onSortChange
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [sortBy, setSortBy] = useState<SortKey>('lastModified');
   const [isGrouped, setIsGrouped] = useState<boolean>(false);
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [createModalInfo, setCreateModalInfo] = useState<{ isOpen: boolean; templateId: string | null }>({
@@ -248,7 +249,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                     <button onClick={() => setIsGrouped(!isGrouped)} className={`flex items-center gap-2 px-3 py-1 text-[10px] font-bold rounded border transition-colors ${isGrouped ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75ZM2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Zm.75 3.5a.75.75 0 0 0 0 1.5h10.5a.75.75 0 0 0 0-1.5H2.75Z" /></svg>{isGrouped ? '已分组' : '平铺'}</button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortKey)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-400 outline-none hover:border-slate-600 transition-colors"><option value="lastModified">修改时间</option><option value="createdAt">创建时间</option><option value="name">名称</option></select>
+                    <select value={sortBy} onChange={(e) => onSortChange(e.target.value as SortKey)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-400 outline-none hover:border-slate-600 transition-colors"><option value="lastModified">修改时间</option><option value="createdAt">创建时间</option><option value="name">名称</option></select>
                   </div>
                 </div>
             </div>
