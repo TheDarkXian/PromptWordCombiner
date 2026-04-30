@@ -1,47 +1,124 @@
+import { ModelCatalogItem, ProviderConfig, Template } from './types';
 
-import { Template } from './types';
+export const DEFAULT_PROVIDER_CONFIGS: ProviderConfig[] = [
+  {
+    id: 'provider_openai_default',
+    label: 'OpenAI Default',
+    providerType: 'openai',
+    apiKey: '',
+    baseUrl: 'https://api.openai.com/v1',
+    enabled: true,
+  },
+  {
+    id: 'provider_anthropic_default',
+    label: 'Anthropic Default',
+    providerType: 'anthropic',
+    apiKey: '',
+    baseUrl: 'https://api.anthropic.com',
+    enabled: true,
+  },
+  {
+    id: 'provider_gemini_default',
+    label: 'Gemini Default',
+    providerType: 'gemini',
+    apiKey: '',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    enabled: true,
+  },
+];
+
+export const DEFAULT_MODEL_CATALOG: ModelCatalogItem[] = [
+  {
+    id: 'model_openai_gpt_4_1',
+    label: 'GPT-4.1',
+    providerConfigId: 'provider_openai_default',
+    modelName: 'gpt-4.1',
+    enabled: true,
+  },
+  {
+    id: 'model_openai_gpt_4_1_mini',
+    label: 'GPT-4.1 Mini',
+    providerConfigId: 'provider_openai_default',
+    modelName: 'gpt-4.1-mini',
+    enabled: true,
+  },
+  {
+    id: 'model_anthropic_claude_3_7_sonnet',
+    label: 'Claude 3.7 Sonnet',
+    providerConfigId: 'provider_anthropic_default',
+    modelName: 'claude-3-7-sonnet-latest',
+    enabled: true,
+  },
+  {
+    id: 'model_gemini_2_5_pro',
+    label: 'Gemini 2.5 Pro',
+    providerConfigId: 'provider_gemini_default',
+    modelName: 'gemini-2.5-pro',
+    enabled: true,
+  },
+];
 
 export const DEFAULT_TEMPLATE: Template = {
   id: 'pro_chain_demo',
-  name: '提示词链 (演示：策划->绘图)',
+  name: 'Prompt Chain Demo',
   inputs: [
     {
       id: 'topic',
-      label: '核心主题',
-      defaultValue: '赛博朋克森林'
+      label: 'topic',
+      defaultValue: 'cyberpunk forest',
     },
     {
       id: 'mood',
-      label: '氛围基调',
-      defaultValue: '忧郁且充满霓虹感'
-    }
+      label: 'mood',
+      defaultValue: 'melancholic and mysterious',
+    },
+  ],
+  modelRefs: [
+    {
+      id: 'model_ref_a',
+      label: 'Description Model A',
+      modelCatalogItemId: 'model_openai_gpt_4_1',
+    },
   ],
   steps: [
     {
       id: 'step_concept',
-      name: '1. 概念构思',
-      description: '基于主题扩展详细场景描述。',
-      content: `请为主题为“<topic>”的项目写一段详细的场景描述。
-氛围要求：<mood>。
-请包含光影、细节和一种独特的视觉奇观。`
+      name: '1. Scene Description',
+      description: 'Expand the topic into a detailed visual scene description.',
+      content:
+        'Write a detailed scene description for the topic "{{topic}}". Mood requirement: "{{mood}}". Include lighting, atmosphere, and a distinctive visual motif.',
+      execution: {
+        modelRefId: 'model_ref_a',
+        systemPrompt: 'Expand short ideas into vivid scene descriptions suitable for downstream image generation.',
+      },
+      outputBinding: {
+        variableKey: 'scene_description',
+        variableLabel: 'Scene Description',
+      },
     },
     {
       id: 'step_mj_prompt',
-      name: '2. 绘图提示词',
-      description: '将步骤1的描述转化为 Midjourney 提示词。',
-      content: `把下面的场景描述翻译并转化为专业的 Midjourney 提示词：
----
-[[1]]
----
-要求：英文输出，加入 8k, photorealistic, cinematic lighting 等后缀。`
+      name: '2. Image Prompt',
+      description: 'Turn the scene description into an English image-generation prompt.',
+      content:
+        'Transform the following scene description into a professional English image prompt:\n---\n{{scene_description}}\n---\nAdd concise quality and lighting modifiers at the end.',
+      outputBinding: {
+        variableKey: 'image_prompt_en',
+        variableLabel: 'Image Prompt',
+      },
     },
     {
       id: 'step_sd_negative',
-      name: '3. 负面提示词',
-      description: '为该场景准备通用的负面提示词。',
-      content: `为步骤 [[2]] 生成的视觉效果匹配最适合的负面提示词。`
-    }
-  ]
+      name: '3. Negative Prompt',
+      description: 'Generate a general negative prompt for the scene.',
+      content:
+        'Create a negative prompt that complements the following image prompt:\n---\n{{image_prompt_en}}\n---',
+      outputBinding: {
+        variableKey: 'negative_prompt',
+        variableLabel: 'Negative Prompt',
+      },
+    },
+  ],
 };
 
 export const DEFAULT_TEMPLATES = [DEFAULT_TEMPLATE];
