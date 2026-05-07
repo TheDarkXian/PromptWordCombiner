@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Project, Template } from '../types';
 import { Button } from './Button';
 import { ioService } from '../services/ioService';
+import { validateBackupBundle } from '../services/schemas';
 import { DataPreviewOverlay } from './DataPreviewOverlay';
 
 interface MergeModalProps {
@@ -42,38 +43,45 @@ export const MergeModal: React.FC<MergeModalProps> = ({
     try {
       const content = await ioService.selectAndReadFile();
       if (!content) return;
-      const data = JSON.parse(content);
-      if (!data.projects || !data.templates) {
-        onRequestAlert('格式错误', '该文件不是有效的备份文件。');
+      let raw: unknown;
+      try {
+        raw = JSON.parse(content);
+      } catch {
+        onRequestAlert('解析失败', '无法读取或解析该 JSON 文件。');
         return;
       }
+      const validation = validateBackupBundle(raw);
+      if (validation.valid === false) {
+        onRequestAlert('格式错误', `该文件不是有效的备份文件。\n${validation.error}`);
+        return;
+      }
+      const data = validation.data;
       
-      const analyzedInventory: MergeItem<any>[] = [
-        ...data.templates.map((t: Template) => {
-          const existing = currentTemplates.find(ct => ct.name === t.name);
-          const isIdentical = existing ? JSON.stringify({ ...t, id: '' }) === JSON.stringify({ ...existing, id: '' }) : false;
-          return {
-            id: t.id,
-            originalData: t,
-            type: 'template',
-            status: existing ? (isIdentical ? 'identical' : 'conflict') : 'new',
-            action: 'import',
-            newName: t.name + (existing ? '_copy' : '')
-          };
-        }),
-        ...data.projects.map((p: Project) => {
-          const existing = currentProjects.find(cp => cp.name === p.name);
-          const isIdentical = existing ? JSON.stringify({ ...p, id: '', lastModifiedAt: 0 }) === JSON.stringify({ ...existing, id: '', lastModifiedAt: 0 }) : false;
-          return {
-            id: p.id,
-            originalData: p,
-            type: 'project',
-            status: existing ? (isIdentical ? 'identical' : 'conflict') : 'new',
-            action: 'import',
-            newName: p.name + (existing ? '_copy' : '')
-          };
-        })
-      ];
+      const analyzedTemplates: MergeItem<Template>[] = data.templates.map((t: Template) => {
+        const existing = currentTemplates.find(ct => ct.name === t.name);
+        const isIdentical = existing ? JSON.stringify({ ...t, id: '' }) === JSON.stringify({ ...existing, id: '' }) : false;
+        return {
+          id: t.id,
+          originalData: t,
+          type: 'template' as const,
+          status: existing ? (isIdentical ? 'identical' : 'conflict') : 'new',
+          action: 'import' as const,
+          newName: t.name + (existing ? '_copy' : '')
+        };
+      });
+      const analyzedProjects: MergeItem<Project>[] = data.projects.map((p: Project) => {
+        const existing = currentProjects.find(cp => cp.name === p.name);
+        const isIdentical = existing ? JSON.stringify({ ...p, id: '', lastModifiedAt: 0 }) === JSON.stringify({ ...existing, id: '', lastModifiedAt: 0 }) : false;
+        return {
+          id: p.id,
+          originalData: p,
+          type: 'project' as const,
+          status: existing ? (isIdentical ? 'identical' : 'conflict') : 'new',
+          action: 'import' as const,
+          newName: p.name + (existing ? '_copy' : '')
+        };
+      });
+      const analyzedInventory: MergeItem<any>[] = [...analyzedTemplates, ...analyzedProjects];
 
       setInventory(analyzedInventory);
       setQueue([]);

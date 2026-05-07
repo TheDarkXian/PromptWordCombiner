@@ -1,7 +1,10 @@
-
-import React, { useState, useLayoutEffect, useRef, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { UiLanguage } from '../types';
+import { t } from '../services/i18n';
+import { AutoResizeTextarea } from './common/AutoResizeTextarea';
 
 interface PromptEditorProps {
+  language: UiLanguage;
   label: string;
   templateContent: string;
   interpolatedContent: string;
@@ -11,64 +14,16 @@ interface PromptEditorProps {
   onSaveToTemplate: (newContent: string) => void;
 }
 
-const AutoResizeTextarea: React.FC<{
-  value: string;
-  onChange: (val: string) => void;
-  onBlur?: () => void;
-  placeholder?: string;
-  className?: string;
-  autoFocus?: boolean;
-}> = ({ value, onChange, onBlur, placeholder, className, autoFocus }) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const adjustHeight = () => {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = '0px';
-      const scrollHeight = el.scrollHeight;
-      el.style.height = `${scrollHeight}px`;
-    }
-  };
-
-  useLayoutEffect(() => {
-    adjustHeight();
-  }, [value]);
-
-  useEffect(() => {
-    const handle = requestAnimationFrame(() => {
-      adjustHeight();
-      if (autoFocus && textareaRef.current) {
-        textareaRef.current.focus();
-        textareaRef.current.setSelectionRange(value.length, value.length);
-      }
-    });
-    return () => cancelAnimationFrame(handle);
-  }, []);
-
-  return (
-    <textarea
-      ref={textareaRef}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onBlur={onBlur}
-      placeholder={placeholder}
-      className={`block w-full resize-none overflow-hidden bg-transparent outline-none focus:ring-0 p-0 m-0 ${className}`}
-      rows={1}
-      spellCheck={false}
-    />
-  );
-};
-
 export const PromptEditor: React.FC<PromptEditorProps> = ({
+  language,
   label,
   templateContent,
   interpolatedContent,
   originalTemplateContent,
   onUpdateOverride,
   onRevert,
-  onSaveToTemplate
+  onSaveToTemplate,
 }) => {
-  const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(templateContent);
 
@@ -85,67 +40,63 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
     setIsEditing(false);
   };
 
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(interpolatedContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="bg-slate-950 border border-slate-800/80 rounded px-3 py-2 mt-1 group/editor transition-all hover:border-slate-700">
-      <div className="flex items-center justify-between mb-1.5 h-4">
-        <div className="flex items-center gap-2">
-           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tight select-none">{label}</span>
-           <button 
-              onClick={handleCopy}
-              className={`text-[9px] px-1 py-0.5 rounded border transition-all ${
-                copied 
-                  ? "bg-emerald-900/50 text-emerald-400 border-emerald-700/50" 
-                  : "bg-slate-800 text-slate-400 border-slate-700 hover:text-white"
-              }`}
-            >
-              {copied ? "已复制" : "复制结果"}
-            </button>
-        </div>
-        
-        <div className="flex items-center gap-1">
-          {!isEditing && hasChanges && (
-            <div className="flex items-center gap-1 animate-in fade-in duration-200">
-              <span className="text-[9px] text-amber-500 font-bold">局部修改</span>
-              <button onClick={(e) => { e.stopPropagation(); onSaveToTemplate(templateContent); }} className="text-[9px] text-blue-400 hover:text-blue-300 px-1">同步到模版</button>
-              <button onClick={(e) => { e.stopPropagation(); onRevert(); }} className="text-[9px] text-slate-500 hover:text-white px-1">还原</button>
-            </div>
+    <div className="mt-1 rounded border border-slate-800/80 bg-slate-950 px-2.5 py-2 transition-colors hover:border-slate-700">
+      <div className="mb-1.5 flex min-h-[18px] items-center justify-between gap-2">
+        <span className="select-none text-[9px] font-bold uppercase tracking-tight text-slate-500">{label}</span>
+        <div className="flex flex-wrap items-center justify-end gap-1 text-[9px]">
+          {hasChanges && !isEditing && (
+            <>
+              <span className="font-bold text-amber-400">{t(language, 'editor.edited')}</span>
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSaveToTemplate(templateContent);
+                }}
+                className="rounded px-1.5 py-0.5 text-blue-400 transition-colors hover:bg-blue-500/10 hover:text-blue-300"
+              >
+                {t(language, 'editor.syncTemplate')}
+              </button>
+              <button
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRevert();
+                }}
+                className="rounded px-1.5 py-0.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-white"
+              >
+                {t(language, 'editor.revert')}
+              </button>
+            </>
           )}
-          {isEditing && <span className="text-[9px] text-blue-500 font-medium">编辑源码模版...</span>}
+          {isEditing && <span className="font-medium text-blue-400">{t(language, 'editor.editing')}</span>}
         </div>
       </div>
 
-      <div className="relative min-h-[30px]">
-        {isEditing ? (
-          <div className="bg-slate-900/80 rounded p-2.5 border border-blue-500/30 shadow-inner">
-            <AutoResizeTextarea 
-              className="text-[13px] text-slate-200 font-mono leading-relaxed"
-              value={editContent}
-              onChange={setEditContent}
-              onBlur={handleBlur}
-              autoFocus
-            />
+      {isEditing ? (
+        <div className="rounded border border-blue-500/30 bg-slate-900/80 p-2 shadow-inner">
+          <AutoResizeTextarea
+            className="text-xs font-mono leading-relaxed text-slate-200"
+            value={editContent}
+            onChange={setEditContent}
+            onBlur={handleBlur}
+            autoFocus
+          />
+        </div>
+      ) : (
+        <div
+          className="group/preview relative cursor-text rounded px-2 py-2 transition-colors hover:bg-slate-900/40"
+          onClick={() => setIsEditing(true)}
+        >
+          <div className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-slate-300">
+            {interpolatedContent || <span className="italic text-slate-600">{t(language, 'editor.waiting')}</span>}
           </div>
-        ) : (
-          <div 
-            className="cursor-text group/preview p-2.5 rounded hover:bg-slate-900/40 transition-colors"
-            onClick={() => setIsEditing(true)}
-          >
-            <div className="text-[13px] text-slate-300 font-mono whitespace-pre-wrap leading-relaxed break-words">
-              {interpolatedContent || <span className="italic text-slate-700">等待输入或引用数据...</span>}
-            </div>
-            <div className="absolute bottom-1 right-1 opacity-0 group-hover/preview:opacity-100 transition-opacity">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 text-slate-700"><path d="m13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z" /></svg>
-            </div>
+          <div className="absolute bottom-1 right-1 opacity-0 transition-opacity group-hover/preview:opacity-100">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-slate-700">
+              <path d="m13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z" />
+            </svg>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

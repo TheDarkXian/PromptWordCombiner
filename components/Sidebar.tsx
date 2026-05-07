@@ -1,17 +1,14 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Project, StepFlowStatus, Template } from '../types';
-import {
-  VarsIcon,
-  NavIcon,
-  BuildIcon,
-  ChevronDownIcon,
-  DownloadIcon
-} from './Icons';
+import React, { useEffect, useRef, useState } from 'react';
+import { Project, StepFlowStatus, Template, UiLanguage } from '../types';
+import { t } from '../services/i18n';
+import { VarsIcon, NavIcon, BuildIcon, ChevronDownIcon, DownloadIcon } from './Icons';
 import { Button } from './Button';
+import { AutoResizeTextarea } from './common/AutoResizeTextarea';
 
 type SidebarTab = 'vars' | 'nav' | 'build';
 
 interface SidebarProps {
+  language: UiLanguage;
   isOpen: boolean;
   width: number;
   onWidthChange: (width: number) => void;
@@ -22,47 +19,14 @@ interface SidebarProps {
   onInputChange: (inputId: string, value: string) => void;
   onAddLocalVariable: (name: string) => void;
   onDeleteLocalVariable: (varId: string) => void;
+  onImportVariableTable: (content: string) => void;
+  onExportVariableTable: (format: 'json' | 'csv') => void;
   onBakeDownload: () => void;
   onRequestAlert: (title: string, message: string) => void;
 }
 
-const AutoResizeSidebarTextarea: React.FC<{
-  value: string;
-  onChange: (val: string) => void;
-  placeholder?: string;
-  className?: string;
-  readOnly?: boolean;
-}> = ({ value, onChange, placeholder, className, readOnly = false }) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const adjustHeight = () => {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = 'auto';
-      el.style.height = `${Math.max(32, el.scrollHeight)}px`;
-    }
-  };
-
-  useLayoutEffect(() => {
-    const timeout = setTimeout(adjustHeight, 0);
-    return () => clearTimeout(timeout);
-  }, [value]);
-
-  return (
-    <textarea
-      ref={textareaRef}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      readOnly={readOnly}
-      className={`block w-full resize-none overflow-hidden bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all ${readOnly ? 'cursor-default opacity-80' : ''} ${className}`}
-      rows={1}
-      spellCheck={false}
-    />
-  );
-};
-
 export const Sidebar: React.FC<SidebarProps> = ({
+  language,
   isOpen,
   width,
   onWidthChange,
@@ -73,21 +37,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onInputChange,
   onAddLocalVariable,
   onDeleteLocalVariable,
+  onImportVariableTable,
+  onExportVariableTable,
   onBakeDownload,
-  onRequestAlert
+  onRequestAlert,
 }) => {
   const [activeTab, setActiveTab] = useState<SidebarTab>('vars');
   const [sections, setSections] = useState({ global: true, local: true, result: true });
   const [isAddingVariable, setIsAddingVariable] = useState(false);
   const [newVarName, setNewVarName] = useState('');
   const newVarInputRef = useRef<HTMLInputElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
-  const resultVariables = (activeProject?.variables || []).filter(variable =>
+  const resultVariables = (activeProject?.variables || []).filter((variable) =>
     ['step_output', 'derived', 'manual'].includes(variable.sourceType)
   );
 
-  const getStepName = (stepId?: string) =>
-    activeProjectTemplate?.steps.find(step => step.id === stepId)?.name;
+  const getStepName = (stepId?: string) => activeProjectTemplate?.steps.find((step) => step.id === stepId)?.name;
 
   const getStepStatus = (stepId: string): StepFlowStatus => {
     const output = activeProject?.stepOutputs?.[stepId] || '';
@@ -95,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     const meta = activeProject?.stepOutputMeta?.[stepId];
     const boundVariable = (activeProject?.variables || []).find(
-      variable => variable.sourceType === 'step_output' && variable.sourceRef === stepId
+      (variable) => variable.sourceType === 'step_output' && variable.sourceRef === stepId
     );
     if (!boundVariable) return 'draft';
 
@@ -121,13 +87,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const getStatusLabel = (status: StepFlowStatus) => {
     switch (status) {
       case 'saved':
-        return '已写入';
+        return language === 'zh-CN' ? '已写入' : 'Synced';
       case 'stale':
-        return '待更新';
+        return language === 'zh-CN' ? '待更新' : 'Stale';
       case 'draft':
-        return '未写入';
+        return language === 'zh-CN' ? '未写入' : 'Draft';
       default:
-        return '未填写';
+        return language === 'zh-CN' ? '未填写' : 'Empty';
     }
   };
 
@@ -139,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const copyVariableValue = async (value: string) => {
     if (!value.trim()) {
-      onRequestAlert('无法复制', '这个变量当前没有内容可复制。');
+      onRequestAlert(t(language, 'sidebar.duplicateVar'), t(language, 'sidebar.duplicateVarMessage'));
       return;
     }
     await navigator.clipboard.writeText(value);
@@ -151,19 +117,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [isAddingVariable]);
 
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const newWidth = event.clientX;
+      if (newWidth > 220 && newWidth < 640) onWidthChange(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      onResizingChange(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, onResizingChange, onWidthChange]);
+
   const handleAddVariable = () => {
     const trimmed = newVarName.trim();
     if (!trimmed) {
       setIsAddingVariable(false);
       return;
     }
-    if (activeProject?.customInputs?.some(input => input.label === trimmed)) {
-      onRequestAlert('重名警告', '该变量名称已经存在。');
+    if (activeProject?.customInputs?.some((input) => input.label === trimmed)) {
+      onRequestAlert(language === 'zh-CN' ? '重名警告' : 'Duplicate name', language === 'zh-CN' ? '该变量名称已经存在。' : 'A variable with this name already exists.');
       return;
     }
     onAddLocalVariable(trimmed);
     setNewVarName('');
     setIsAddingVariable(false);
+  };
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const content = await file.text();
+    onImportVariableTable(content);
+    event.target.value = '';
   };
 
   if (!isOpen) return null;
@@ -178,21 +172,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <>
             <button
               onClick={() => setActiveTab('vars')}
-              title="变量配置"
+              title={t(language, 'sidebar.vars')}
               className={`p-2 rounded-lg transition-colors ${activeTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'}`}
             >
               <VarsIcon className="w-5 h-5" />
             </button>
             <button
               onClick={() => setActiveTab('nav')}
-              title="步骤导航"
+              title={t(language, 'sidebar.nav')}
               className={`p-2 rounded-lg transition-colors ${activeTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'}`}
             >
               <NavIcon className="w-5 h-5" />
             </button>
             <button
               onClick={() => setActiveTab('build')}
-              title="导出烘焙"
+              title={t(language, 'sidebar.build')}
               className={`p-2 rounded-lg transition-colors ${activeTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'}`}
             >
               <BuildIcon className="w-5 h-5" />
@@ -207,35 +201,59 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <>
               {activeTab === 'vars' && (
                 <div className="flex flex-col h-full overflow-y-auto p-4 space-y-6 no-scrollbar">
-                  <div className="space-y-3">
-                    <div
-                      className="flex items-center justify-between cursor-pointer group"
-                      onClick={() => setSections(prev => ({ ...prev, global: !prev.global }))}
+                  <input
+                    ref={importFileInputRef}
+                    type="file"
+                    accept=".json,.csv,text/csv,application/json"
+                    onChange={handleImportFile}
+                    className="hidden"
+                  />
+                  <div className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                    <button
+                      onClick={() => importFileInputRef.current?.click()}
+                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
                     >
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">输入变量</span>
+                      {t(language, 'sidebar.importVarTable')}
+                    </button>
+                    <button
+                      onClick={() => void onExportVariableTable('json')}
+                      className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-[10px] font-bold text-blue-300 transition-colors hover:border-blue-400/40 hover:text-white"
+                    >
+                      {t(language, 'sidebar.exportJson')}
+                    </button>
+                    <button
+                      onClick={() => void onExportVariableTable('csv')}
+                      className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-bold text-emerald-300 transition-colors hover:border-emerald-400/40 hover:text-white"
+                    >
+                      {t(language, 'sidebar.exportCsv')}
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSections((prev) => ({ ...prev, global: !prev.global }))}>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">{t(language, 'sidebar.inputVars')}</span>
                       <ChevronDownIcon className={`w-3.5 h-3.5 text-slate-600 transition-transform ${sections.global ? 'rotate-180' : ''}`} />
                     </div>
-                    {sections.global && activeProjectTemplate.inputs.map((input, idx) => (
-                      <div key={input.id}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-[10px] font-mono text-blue-400 font-bold">&lt;{idx}&gt;</span>
-                          <label className="text-[10px] text-slate-500 block truncate font-medium">{input.label}</label>
+                    {sections.global &&
+                      activeProjectTemplate.inputs.map((input, idx) => (
+                        <div key={input.id}>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[10px] font-mono text-blue-400 font-bold">&lt;{idx}&gt;</span>
+                            <label className="text-[10px] text-slate-500 block truncate font-medium">{input.label}</label>
+                          </div>
+                          <AutoResizeTextarea
+                            value={activeProject.inputValues[input.id] || ''}
+                            onChange={(val) => onInputChange(input.id, val)}
+                            placeholder="..."
+                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
+                          />
                         </div>
-                        <AutoResizeSidebarTextarea
-                          value={activeProject.inputValues[input.id] || ''}
-                          onChange={(val) => onInputChange(input.id, val)}
-                          placeholder="..."
-                        />
-                      </div>
-                    ))}
+                      ))}
                   </div>
 
                   <div className="space-y-3 border-t border-slate-800 pt-4">
-                    <div
-                      className="flex items-center justify-between cursor-pointer group"
-                      onClick={() => setSections(prev => ({ ...prev, local: !prev.local }))}
-                    >
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider group-hover:text-emerald-400 transition-colors">局部变量</span>
+                    <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSections((prev) => ({ ...prev, local: !prev.local }))}>
+                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider group-hover:text-emerald-400 transition-colors">{t(language, 'sidebar.localVars')}</span>
                       <ChevronDownIcon className={`w-3.5 h-3.5 text-emerald-600/50 transition-transform ${sections.local ? 'rotate-180' : ''}`} />
                     </div>
                     {sections.local && (
@@ -246,16 +264,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               <span className="text-[10px] font-mono text-emerald-400 font-bold">&lt;l{idx + 1}&gt;</span>
                               <label className="text-[10px] text-slate-500 block truncate font-medium">{input.label}</label>
                             </div>
-                            <AutoResizeSidebarTextarea
+                            <AutoResizeTextarea
                               value={activeProject.inputValues[input.id] || ''}
                               onChange={(val) => onInputChange(input.id, val)}
                               placeholder="..."
+                              className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
                             />
                             <button
                               onClick={() => onDeleteLocalVariable(input.id)}
                               className="absolute top-0 right-0 text-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
                             >
-                              删
+                              ×
                             </button>
                           </div>
                         ))}
@@ -265,7 +284,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               ref={newVarInputRef}
                               type="text"
                               className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-xs text-white focus:border-emerald-500 outline-none"
-                              placeholder="名称..."
+                              placeholder={t(language, 'sidebar.varNamePlaceholder')}
                               value={newVarName}
                               onChange={(e) => setNewVarName(e.target.value)}
                               onKeyDown={(e) => {
@@ -274,8 +293,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               }}
                             />
                             <div className="flex justify-end gap-2 mt-3">
-                              <button onClick={() => setIsAddingVariable(false)} className="text-[10px] text-slate-500 px-2 py-1 hover:text-white">取消</button>
-                              <button onClick={handleAddVariable} className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-md transition-colors">添加</button>
+                              <button onClick={() => setIsAddingVariable(false)} className="text-[10px] text-slate-500 px-2 py-1 hover:text-white">{t(language, 'sidebar.cancel')}</button>
+                              <button onClick={handleAddVariable} className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-md transition-colors">{t(language, 'sidebar.add')}</button>
                             </div>
                           </div>
                         ) : (
@@ -283,7 +302,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             onClick={() => setIsAddingVariable(true)}
                             className="w-full py-2 border border-dashed border-slate-800 rounded-lg text-[10px] text-slate-500 hover:border-emerald-500/50 hover:text-emerald-500 transition-all"
                           >
-                            + 新增局部变量
+                            {t(language, 'sidebar.addLocalVar')}
                           </button>
                         )}
                       </>
@@ -291,66 +310,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
 
                   <div className="space-y-3 border-t border-slate-800 pt-4">
-                    <div
-                      className="flex items-center justify-between cursor-pointer group"
-                      onClick={() => setSections(prev => ({ ...prev, result: !prev.result }))}
-                    >
-                      <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wider group-hover:text-violet-300 transition-colors">结果变量</span>
+                    <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSections((prev) => ({ ...prev, result: !prev.result }))}>
+                      <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wider group-hover:text-violet-300 transition-colors">{t(language, 'sidebar.resultVars')}</span>
                       <ChevronDownIcon className={`w-3.5 h-3.5 text-violet-500/50 transition-transform ${sections.result ? 'rotate-180' : ''}`} />
                     </div>
                     {sections.result && (
                       <>
                         {resultVariables.length === 0 ? (
                           <div className="text-[10px] text-slate-600 border border-dashed border-slate-800 rounded-lg px-3 py-3">
-                            暂无结果变量。可在步骤输出区将某一步结果写入变量。
+                            {t(language, 'sidebar.noResultVars')}
                           </div>
-                        ) : resultVariables.map((variable) => (
-                          <div key={variable.id} className="space-y-1.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="text-[10px] text-violet-400 font-bold font-mono truncate">{`{{${variable.key}}}`}</div>
-                                <div className="text-[10px] text-slate-500 truncate">{variable.label}</div>
-                                <div className="text-[9px] text-slate-600 truncate">
-                                  {variable.sourceType === 'step_output'
-                                    ? `来源步骤: ${getStepName(variable.sourceRef) || variable.sourceRef || '未关联'}`
-                                    : `来源类型: ${variable.sourceType}`}
+                        ) : (
+                          resultVariables.map((variable) => (
+                            <div key={variable.id} className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-[10px] text-violet-400 font-bold font-mono truncate">{`{{${variable.key}}}`}</div>
+                                  <div className="text-[10px] text-slate-500 truncate">{variable.label}</div>
+                                  <div className="text-[9px] text-slate-600 truncate">
+                                    {variable.sourceType === 'step_output'
+                                      ? `${t(language, 'sidebar.stepSource')}: ${getStepName(variable.sourceRef) || variable.sourceRef || '-'}`
+                                      : `${t(language, 'sidebar.sourceType')}: ${variable.sourceType}`}
+                                  </div>
+                                </div>
+                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                  {variable.sourceRef && (
+                                    <>
+                                      <span className={`w-2 h-2 rounded-full ${getStatusDotClass(getStepStatus(variable.sourceRef))}`}></span>
+                                      <span className="text-[9px] text-slate-600 truncate max-w-[120px]">
+                                        {getStatusLabel(getStepStatus(variable.sourceRef))}
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
-                              <div className="flex flex-col items-end gap-1 shrink-0">
+                              <AutoResizeTextarea
+                                value={variable.value || ''}
+                                onChange={() => {}}
+                                readOnly
+                                placeholder="..."
+                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 cursor-default opacity-80"
+                              />
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  onClick={() => copyVariableValue(variable.value || '')}
+                                  className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                                >
+                                  {t(language, 'sidebar.copyVar')}
+                                </button>
                                 {variable.sourceRef && (
-                                  <>
-                                    <span className={`w-2 h-2 rounded-full ${getStatusDotClass(getStepStatus(variable.sourceRef))}`}></span>
-                                    <span className="text-[9px] text-slate-600 truncate max-w-[120px]">
-                                      {getStatusLabel(getStepStatus(variable.sourceRef))}
-                                    </span>
-                                  </>
+                                  <button
+                                    onClick={() => scrollToStep(variable.sourceRef)}
+                                    className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold text-amber-300 transition-colors hover:border-amber-400/40 hover:text-white"
+                                  >
+                                    {t(language, 'sidebar.goSource')}
+                                  </button>
                                 )}
                               </div>
                             </div>
-                            <AutoResizeSidebarTextarea
-                              value={variable.value || ''}
-                              onChange={() => {}}
-                              readOnly
-                              placeholder="..."
-                            />
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                onClick={() => copyVariableValue(variable.value || '')}
-                                className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-                              >
-                                复制变量值
-                              </button>
-                              {variable.sourceRef && (
-                                <button
-                                  onClick={() => scrollToStep(variable.sourceRef)}
-                                  className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold text-amber-300 transition-colors hover:border-amber-400/40 hover:text-white"
-                                >
-                                  跳到来源步骤
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ))}
+                          ))
+                        )}
                       </>
                     )}
                   </div>
@@ -378,15 +397,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="w-14 h-14 bg-purple-900/30 text-purple-400 rounded-2xl flex items-center justify-center mb-4 shadow-xl shadow-purple-950/20">
                     <DownloadIcon className="w-7 h-7" />
                   </div>
-                  <h4 className="text-xs font-bold text-white mb-2 uppercase tracking-wider">提示词全量烘焙</h4>
-                  <p className="text-[10px] text-slate-500 mb-6 px-4 leading-relaxed">一键合并所有步骤内容并导出为 .txt 纯文本</p>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={onBakeDownload}
-                    className="w-full bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 font-bold"
-                  >
-                    开始导出
+                  <h4 className="text-xs font-bold text-white mb-2 uppercase tracking-wider">{t(language, 'sidebar.bakeTitle')}</h4>
+                  <p className="text-[10px] text-slate-500 mb-6 px-4 leading-relaxed">{t(language, 'sidebar.bakeDescription')}</p>
+                  <Button variant="primary" size="sm" onClick={onBakeDownload} className="w-full bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 font-bold">
+                    {t(language, 'sidebar.startExport')}
                   </Button>
                 </div>
               )}
@@ -394,7 +408,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             <div className="p-10 text-center text-slate-600 text-[10px] flex flex-col items-center gap-3">
               <div className="w-8 h-8 border border-slate-800 rounded-full flex items-center justify-center opacity-40">!</div>
-              请先从库中打开项目
+              {t(language, 'sidebar.openProjectFirst')}
             </div>
           )}
         </div>

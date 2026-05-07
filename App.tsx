@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { DEFAULT_MODEL_CATALOG, DEFAULT_PROVIDER_CONFIGS, DEFAULT_TEMPLATES } from './constants';
+import { DEFAULT_TEMPLATES } from './constants';
 import { ExportModal } from './components/ExportModal';
 import { FileLibrary } from './components/FileLibrary';
 import { ProjectRunner } from './components/ProjectRunner';
@@ -8,250 +8,56 @@ import { Sidebar } from './components/Sidebar';
 import { TemplateEditor } from './components/TemplateEditor';
 import { TopNav } from './components/TopNav';
 import { ConfirmationModal } from './components/ConfirmationModal';
+import { BatchRunProgressState } from './components/BatchRunProgressModal';
 import { ioService, STORAGE_KEYS } from './services/ioService';
+import { executeModelText, resolveStepExecutionAvailability } from './services/modelService';
+import { createInterpolator } from './services/interpolationService';
+import {
+  buildProjectVariableTableRow,
+  parseBatchProjectSeeds,
+  parseProjectVariableTable,
+  stringifyRowsAsCsv,
+} from './services/variableTableService';
+import { validateSettings, validateProjectsArray, validateTemplatesArray } from './services/schemas';
+import {
+  appendStepRunLog,
+  normalizeProject,
+  syncProjectVariables,
+  upsertVariable,
+} from './domain/projectDomain';
+import {
+  createDefaultSettings,
+  normalizeTemplate,
+  normalizeSettings,
+} from './domain/templateDomain';
 import {
   AppSettings,
-  ModelCatalogItem,
   Project,
   ProjectVariable,
   SortKey,
-  StepOutputMeta,
+  StepRunLog,
   Template,
   TemplateInput,
-  TemplateModelRef,
 } from './types';
 
 type FontSize = AppSettings['fontSize'];
 type UiScale = 8 | 11 | 14 | 16 | 18 | 19 | 20 | 22 | 24;
 
-const LEGACY_MODEL_PRESET_MAP: Record<string, string> = {
-  'openai:gpt-4.1': 'model_openai_gpt_4_1',
-  'openai:gpt-4.1-mini': 'model_openai_gpt_4_1_mini',
-  'anthropic:claude-3-7-sonnet': 'model_anthropic_claude_3_7_sonnet',
-  'google:gemini-2.5-pro': 'model_gemini_2_5_pro',
-};
-
-const createDefaultSettings = (): AppSettings => ({
-  uiScale: 16,
-  sidebarWidth: 300,
-  isSidebarOpen: true,
-  rightPanelWidth: 400,
-  isRightPanelOpen: true,
-  fontSize: 'text-sm',
-  cardScale: 300,
-  fileLibrarySortBy: 'name',
-  providerConfigs: DEFAULT_PROVIDER_CONFIGS.map((item) => ({ ...item })),
-  modelCatalog: DEFAULT_MODEL_CATALOG.map((item) => ({ ...item })),
-});
-
-const slugifyVariableKey = (label: string) => {
-  const normalized = label
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '_')
-    .replace(/^_+|_+$/g, '');
-  return normalized || `var_${Date.now()}`;
-};
-
-const upsertVariable = (variables: ProjectVariable[], nextVariable: ProjectVariable) => {
-  const next = [...variables];
-  const index = next.findIndex((variable) => variable.id === nextVariable.id);
-  if (index >= 0) next[index] = nextVariable;
-  else next.push(nextVariable);
-  return next;
-};
-
-const markStepOutputMeta = (
-  stepOutputMeta: Record<string, StepOutputMeta>,
-  stepId: string,
-  updates: Partial<StepOutputMeta>
-) => ({
-  ...stepOutputMeta,
-  [stepId]: {
-    updatedAt: stepOutputMeta[stepId]?.updatedAt || Date.now(),
-    ...stepOutputMeta[stepId],
-    ...updates,
-  },
-});
-
-const normalizeSettings = (raw: any): AppSettings => {
-  const defaults = createDefaultSettings();
-  const providerConfigs = Array.isArray(raw?.providerConfigs) && raw.providerConfigs.length > 0
-    ? raw.providerConfigs.map((provider: any, index: number) => ({
-        id: provider?.id || `provider_${Date.now()}_${index}`,
-        label: provider?.label || `Provider ${index + 1}`,
-        providerType: provider?.providerType || 'openai',
-        apiKey: provider?.apiKey || '',
-        baseUrl: provider?.baseUrl || '',
-        enabled: provider?.enabled !== false,
-      }))
-    : defaults.providerConfigs;
-
-  const modelCatalog = Array.isArray(raw?.modelCatalog) && raw.modelCatalog.length > 0
-    ? raw.modelCatalog.map((item: any, index: number) => ({
-        id: item?.id || `model_${Date.now()}_${index}`,
-        label: item?.label || `Model ${index + 1}`,
-        providerConfigId: item?.providerConfigId || providerConfigs[0]?.id || '',
-        modelName: item?.modelName || '',
-        enabled: item?.enabled !== false,
-      }))
-    : defaults.modelCatalog;
-
-  return {
-    uiScale: raw?.uiScale || defaults.uiScale,
-    sidebarWidth: raw?.sidebarWidth || defaults.sidebarWidth,
-    isSidebarOpen: raw?.isSidebarOpen ?? defaults.isSidebarOpen,
-    rightPanelWidth: raw?.rightPanelWidth || defaults.rightPanelWidth,
-    isRightPanelOpen: raw?.isRightPanelOpen ?? defaults.isRightPanelOpen,
-    fontSize: raw?.fontSize || defaults.fontSize,
-    cardScale: raw?.cardScale || defaults.cardScale,
-    fileLibrarySortBy: raw?.fileLibrarySortBy || defaults.fileLibrarySortBy,
-    providerConfigs,
-    modelCatalog,
-  };
-};
-
-const normalizeTemplateModelRefs = (template: Template, modelCatalog: ModelCatalogItem[]): TemplateModelRef[] =>
-  (template.modelRefs || []).map((modelRef: any) => {
-    const nextModelCatalogItemId =
-      modelRef?.modelCatalogItemId ||
-      LEGACY_MODEL_PRESET_MAP[modelRef?.presetId || ''] ||
-      undefined;
-
-    const modelCatalogItemExists = nextModelCatalogItemId
-      ? modelCatalog.some((item) => item.id === nextModelCatalogItemId)
-      : false;
-
-    return {
-      id: modelRef?.id || `model_ref_${Date.now()}`,
-      label: modelRef?.label || 'Model Ref',
-      modelCatalogItemId: modelCatalogItemExists ? nextModelCatalogItemId : undefined,
-    };
-  });
-
-const normalizeTemplate = (template: Template, modelCatalog: ModelCatalogItem[]): Template => ({
-  ...template,
-  modelRefs: normalizeTemplateModelRefs(template, modelCatalog),
-  steps: template.steps.map((step) => ({
-    ...step,
-    outputBinding: {
-      variableKey: step.outputBinding?.variableKey || '',
-      variableLabel: step.outputBinding?.variableLabel || '',
-    },
-    execution: {
-      modelRefId: step.execution?.modelRefId,
-      systemPrompt: step.execution?.systemPrompt || '',
-    },
-  })),
-});
-
-const createInterpolator = (project: Project, template: Template) => {
-  return (templateStr: string): string => {
-    if (!templateStr) return '';
-    let result = templateStr;
-    const variableMap = Object.fromEntries((project.variables || []).map((variable) => [variable.key, variable.value || '']));
-
-    result = result.replace(/\{\{([^}]+)\}\}/g, (_, rawKey) => variableMap[String(rawKey).trim()] || '');
-
-    template.inputs.forEach((input, index) => {
-      const value = project.inputValues[input.id] || '';
-      result = result.split(`<${index}>`).join(value);
-      result = result.split(`<${input.label}>`).join(value);
-    });
-
-    (project.customInputs || []).forEach((input, index) => {
-      const value = project.inputValues[input.id] || '';
-      result = result.split(`<l${index + 1}>`).join(value);
-      result = result.split(`<${input.label}>`).join(value);
-    });
-
-    template.steps.forEach((step, index) => {
-      const output = project.stepOutputs[step.id] || '';
-      result = result.split(`[[${index + 1}]]`).join(output);
-      result = result.split(`[[${step.name}]]`).join(output);
-    });
-
-    return result;
-  };
-};
-
-const syncProjectVariables = (project: Project, template?: Template): ProjectVariable[] => {
-  const now = Date.now();
-  const existing = project.variables || [];
-  const synced: ProjectVariable[] = [];
-
-  const findExisting = (sourceType: ProjectVariable['sourceType'], sourceRef?: string) =>
-    existing.find((variable) => variable.sourceType === sourceType && variable.sourceRef === sourceRef);
-
-  template?.inputs.forEach((input) => {
-    const previous = findExisting('template_input', input.id);
-    const nextValue = project.inputValues[input.id] || input.defaultValue || '';
-    synced.push({
-      id: previous?.id || `var_${input.id}`,
-      key: previous?.key || slugifyVariableKey(input.label),
-      label: input.label,
-      value: nextValue,
-      sourceType: 'template_input',
-      sourceRef: input.id,
-      createdAt: previous?.createdAt || now,
-      updatedAt: previous && previous.value === nextValue && previous.label === input.label ? previous.updatedAt : now,
-    });
-  });
-
-  (project.customInputs || []).forEach((input) => {
-    const previous = findExisting('project_local', input.id);
-    const nextValue = project.inputValues[input.id] || '';
-    synced.push({
-      id: previous?.id || `var_${input.id}`,
-      key: previous?.key || slugifyVariableKey(input.label),
-      label: input.label,
-      value: nextValue,
-      sourceType: 'project_local',
-      sourceRef: input.id,
-      createdAt: previous?.createdAt || now,
-      updatedAt: previous && previous.value === nextValue && previous.label === input.label ? previous.updatedAt : now,
-    });
-  });
-
-  existing
-    .filter((variable) => variable.sourceType === 'step_output')
-    .forEach((variable) => {
-      const nextValue = variable.sourceRef ? project.stepOutputs[variable.sourceRef] || '' : variable.value;
-      synced.push({
-        ...variable,
-        value: nextValue,
-        updatedAt: variable.value === nextValue ? variable.updatedAt : now,
-      });
-    });
-
-  existing
-    .filter((variable) => !['template_input', 'project_local', 'step_output'].includes(variable.sourceType))
-    .forEach((variable) => synced.push(variable));
-
-  return synced;
-};
-
-const normalizeProject = (project: Project, templates: Template[]): Project => {
-  const normalizedProject: Project = {
-    ...project,
-    inputValues: project.inputValues || {},
-    customInputs: project.customInputs || [],
-    stepOutputs: project.stepOutputs || {},
-    stepOutputMeta: project.stepOutputMeta || {},
-    stepOverrides: project.stepOverrides || {},
-    variables: project.variables || [],
-  };
-
-  return {
-    ...normalizedProject,
-    variables: syncProjectVariables(
-      normalizedProject,
-      templates.find((template) => template.id === normalizedProject.templateId)
-    ),
-  };
-};
-
 const App: React.FC = () => {
+  const createEmptyBatchRunProgress = (): BatchRunProgressState => ({
+    isOpen: false,
+    isRunning: false,
+    templateId: null,
+    templateName: '',
+    stepId: null,
+    stepName: '',
+    total: 0,
+    processed: 0,
+    successCount: 0,
+    failures: [],
+    results: [],
+  });
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [settings, setSettings] = useState<AppSettings>(createDefaultSettings());
@@ -261,6 +67,7 @@ const App: React.FC = () => {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+  const [batchRunProgress, setBatchRunProgress] = useState<BatchRunProgressState>(createEmptyBatchRunProgress());
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -270,6 +77,189 @@ const App: React.FC = () => {
   }>({ isOpen: false, title: '', message: '', isAlert: false, onConfirm: () => {} });
 
   const hasLoadedRef = useRef(false);
+  const persistTimers = useRef<Partial<Record<string, ReturnType<typeof setTimeout>>>>({});
+
+  const debouncedSave = (key: string, data: unknown, delay = 500) => {
+    if (persistTimers.current[key]) {
+      clearTimeout(persistTimers.current[key]);
+    }
+    persistTimers.current[key] = setTimeout(() => {
+      ioService.saveToDisk(key, data).catch(() => {
+        showPersistError();
+      });
+    }, delay);
+  };
+
+  const runBatchStepWithProgress = async (projectIds: string[], templateId: string, stepId: string) => {
+    const template = templates.find((item) => item.id === templateId);
+    const step = template?.steps.find((item) => item.id === stepId);
+    if (!template || !step) {
+      openAlert('??????', '?????????????');
+      return;
+    }
+
+    let successCount = 0;
+    const failures: BatchRunProgressState['failures'] = [];
+    const results: BatchRunProgressState['results'] = [];
+
+    setBatchRunProgress({
+      isOpen: true,
+      isRunning: true,
+      templateId,
+      templateName: template.name,
+      stepId,
+      stepName: step.name,
+      total: projectIds.length,
+      processed: 0,
+      successCount: 0,
+      failures: [],
+      results: [],
+    });
+
+    for (let index = 0; index < projectIds.length; index += 1) {
+      const projectId = projectIds[index];
+      const project = projects.find((item) => item.id === projectId);
+
+      if (!project) {
+        const message = '?????';
+        failures.push({
+          projectId,
+          projectName: projectId,
+          message,
+        });
+        results.push({
+          projectId,
+          projectName: projectId,
+          status: 'error',
+          message,
+        });
+      } else {
+        try {
+          await executeProjectStep(project.id, stepId);
+          successCount += 1;
+          results.push({
+            projectId: project.id,
+            projectName: project.name,
+            status: 'success',
+            message: '????',
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '????';
+          failures.push({
+            projectId: project.id,
+            projectName: project.name,
+            message,
+          });
+          results.push({
+            projectId: project.id,
+            projectName: project.name,
+            status: 'error',
+            message,
+          });
+        }
+      }
+
+      setBatchRunProgress((prev) => ({
+        ...prev,
+        processed: index + 1,
+        successCount,
+        failures: [...failures],
+        results: [...results],
+      }));
+    }
+
+    setBatchRunProgress((prev) => ({
+      ...prev,
+      isRunning: false,
+      processed: projectIds.length,
+      successCount,
+      failures: [...failures],
+      results: [...results],
+    }));
+  };
+
+  const handleBatchRunStepWithProgress = async (templateId: string, stepId: string) => {
+    const matchedProjectIds = projects
+      .filter((project) => project.templateId === templateId && !project.archived)
+      .map((project) => project.id);
+
+    if (matchedProjectIds.length === 0) {
+      openAlert('无法批量执行', '这个模板下没有可执行的未归档项目。');
+      return;
+    }
+
+    await runBatchStepWithProgress(matchedProjectIds, templateId, stepId);
+  };
+
+  const handleRetryFailedBatchRun = async () => {
+    if (!batchRunProgress.templateId || !batchRunProgress.stepId || batchRunProgress.failures.length === 0) {
+      return;
+    }
+
+    await runBatchStepWithProgress(
+      batchRunProgress.failures.map((failure) => failure.projectId),
+      batchRunProgress.templateId,
+      batchRunProgress.stepId
+    );
+  };
+
+  const handleCloseBatchRunProgress = () => {
+    setBatchRunProgress((prev) => (prev.isRunning ? prev : createEmptyBatchRunProgress()));
+  };
+
+  const handleExportBatchRunResults = async (
+    format: 'json' | 'csv',
+    scope: 'all' | 'success' | 'error'
+  ) => {
+    const filteredResults =
+      scope === 'all'
+        ? batchRunProgress.results
+        : batchRunProgress.results.filter((item) => item.status === scope);
+
+    if (filteredResults.length === 0) {
+      openAlert('无法导出', '当前筛选条件下没有可导出的结果。');
+      return;
+    }
+
+    const rows = filteredResults.map((item) => ({
+      template_name: batchRunProgress.templateName,
+      step_name: batchRunProgress.stepName,
+      project_id: item.projectId,
+      project_name: item.projectName,
+      status: item.status,
+      message: item.message,
+    }));
+
+    const safeTemplateName = (batchRunProgress.templateName || 'batch_run').replace(/[\\/:*?"<>|]+/g, '_');
+    const safeStepName = (batchRunProgress.stepName || 'step').replace(/[\\/:*?"<>|]+/g, '_');
+    const scopeSuffix = scope === 'all' ? 'all' : scope;
+
+    if (format === 'json') {
+      await ioService.exportFile(
+        `${safeTemplateName}_${safeStepName}_${scopeSuffix}.json`,
+        JSON.stringify(rows, null, 2),
+        'application/json'
+      );
+      return;
+    }
+
+    await ioService.exportFile(
+      `${safeTemplateName}_${safeStepName}_${scopeSuffix}.csv`,
+      stringifyRowsAsCsv(rows),
+      'text/csv'
+    );
+  };
+
+  const showPersistError = () => {
+    if (persistErrorRef.current) return;
+    persistErrorRef.current = true;
+    openAlert('保存失败', '数据未能保存到本地，请检查磁盘空间和文件权限。');
+    setTimeout(() => {
+      persistErrorRef.current = false;
+    }, 5000);
+  };
+
+  const persistErrorRef = useRef(false);
 
   const openConfirm = (title: string, message: string, onConfirm: () => void) => {
     setModalConfig({
@@ -293,15 +283,29 @@ const App: React.FC = () => {
   useEffect(() => {
     const init = async () => {
       const loadedSettings = await ioService.loadFromDisk<any>(STORAGE_KEYS.SETTINGS);
-      const nextSettings = normalizeSettings(loadedSettings);
+      let nextSettings = normalizeSettings(loadedSettings);
+      const settingsValidation = validateSettings(nextSettings);
+      if (settingsValidation.valid) {
+        nextSettings = settingsValidation.data as AppSettings;
+      }
 
-      const loadedTemplates = await ioService.loadFromDisk<Template[]>(STORAGE_KEYS.TEMPLATES);
-      const nextTemplates = (loadedTemplates || DEFAULT_TEMPLATES).map((template) =>
+      const loadedTemplates = await ioService.loadFromDisk<any>(STORAGE_KEYS.TEMPLATES);
+      let rawTemplates = (loadedTemplates || DEFAULT_TEMPLATES).map((template: any) =>
         normalizeTemplate(template, nextSettings.modelCatalog)
       );
+      const templatesValidation = validateTemplatesArray(rawTemplates);
+      if (templatesValidation.valid) {
+        rawTemplates = templatesValidation.data;
+      }
+      const nextTemplates = rawTemplates;
 
-      const loadedProjects = await ioService.loadFromDisk<Project[]>(STORAGE_KEYS.PROJECTS);
-      const nextProjects = (loadedProjects || []).map((project) => normalizeProject(project, nextTemplates));
+      const loadedProjects = await ioService.loadFromDisk<any>(STORAGE_KEYS.PROJECTS);
+      let rawProjects = (loadedProjects || []).map((project: any) => normalizeProject(project, nextTemplates));
+      const projectsValidation = validateProjectsArray(rawProjects);
+      if (projectsValidation.valid) {
+        rawProjects = projectsValidation.data;
+      }
+      const nextProjects = rawProjects;
 
       setSettings(nextSettings);
       setTemplates(nextTemplates);
@@ -314,23 +318,28 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!hasLoadedRef.current) return;
-    ioService.saveToDisk(STORAGE_KEYS.TEMPLATES, templates);
+    debouncedSave(STORAGE_KEYS.TEMPLATES, templates, 500);
   }, [templates]);
 
   useEffect(() => {
     if (!hasLoadedRef.current) return;
-    ioService.saveToDisk(STORAGE_KEYS.PROJECTS, projects);
+    debouncedSave(STORAGE_KEYS.PROJECTS, projects, 500);
   }, [projects]);
 
   useEffect(() => {
     if (!hasLoadedRef.current) return;
-    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, settings);
+    debouncedSave(STORAGE_KEYS.SETTINGS, settings, 800);
     document.documentElement.style.fontSize = `${settings.uiScale}px`;
+    document.documentElement.lang = settings.language;
   }, [settings]);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${settings.uiScale}px`;
   }, [settings.uiScale]);
+
+  useEffect(() => {
+    document.documentElement.lang = settings.language;
+  }, [settings.language]);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
@@ -377,33 +386,68 @@ const App: React.FC = () => {
     );
   };
 
-  const createProject = (templateId: string, name: string) => {
-    const template = templates.find((item) => item.id === templateId);
-    if (!template) return;
-
+  const buildProjectFromTemplate = (
+    template: Template,
+    name: string,
+    inputValuesOverride: Record<string, string> = {},
+    idSuffix = ''
+  ): Project => {
     const now = Date.now();
     const newProjectBase: Project = {
-      id: `proj_${now}`,
-      templateId,
+      id: `proj_${now}${idSuffix}`,
+      templateId: template.id,
       name: name && name.trim() ? name.trim() : `proj_${now}`,
       createdAt: now,
       lastModifiedAt: now,
       lastOpenedAt: now,
-      inputValues: {},
+      inputValues: template.inputs.reduce<Record<string, string>>((result, input) => {
+        result[input.id] = inputValuesOverride[input.id] ?? input.defaultValue ?? '';
+        return result;
+      }, {}),
       customInputs: [],
       stepOutputs: {},
       stepOutputMeta: {},
+      stepRunLogs: {},
       stepOverrides: {},
       variables: [],
     };
 
-    const newProject: Project = {
+    return {
       ...newProjectBase,
       variables: syncProjectVariables(newProjectBase, template),
     };
+  };
 
+  const createProject = (templateId: string, name: string) => {
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) return;
+
+    const newProject = buildProjectFromTemplate(template, name);
     setProjects((prev) => [...prev, newProject]);
     openTab(newProject.id);
+  };
+
+  const createProjectsFromTable = (templateId: string, content: string) => {
+    const template = templates.find((item) => item.id === templateId);
+    if (!template) return;
+
+    try {
+      const seeds = parseBatchProjectSeeds(content, template);
+      const newProjects = seeds.map((seed, index) =>
+        buildProjectFromTemplate(template, seed.projectName, seed.inputValues, `_${index}`)
+      );
+
+      if (newProjects.length === 0) {
+        openAlert('无法创建', '没有解析出任何可创建的项目。');
+        return;
+      }
+
+      setProjects((prev) => [...prev, ...newProjects]);
+      openTab(newProjects[0].id);
+      openAlert('批量创建完成', `已创建 ${newProjects.length} 个项目。`);
+    } catch (error) {
+      openAlert('批量创建失败', error instanceof Error ? error.message : '批量创建失败。');
+    }
   };
 
   const createTemplate = () => {
@@ -423,6 +467,8 @@ const App: React.FC = () => {
           execution: {
             modelRefId: undefined,
             systemPrompt: '',
+            temperature: undefined,
+            maxTokens: undefined,
           },
         },
       ],
@@ -480,6 +526,40 @@ const App: React.FC = () => {
     });
   };
 
+  const handleSaveTemplateWithHistory = (template: Template) => {
+    setTemplates((prev) => {
+      const existing = prev.find((t) => t.id === template.id);
+      const history = existing?.history || [];
+      const version = (existing?.version || 1) + 1;
+      const snapshot: Template = {
+        ...existing!,
+        history: undefined,
+        version: existing?.version || 1,
+      };
+      return prev.map((t) =>
+        t.id === template.id
+          ? normalizeTemplate(
+              { ...template, version, history: [...history.slice(-19), snapshot] },
+              settings.modelCatalog
+            )
+          : t
+      );
+    });
+    setEditingTemplateId(null);
+  };
+
+  const handleArchiveProject = (id: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, archived: true } : p))
+    );
+  };
+
+  const handleUnarchiveProject = (id: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, archived: false } : p))
+    );
+  };
+
   const handleAddLocalVariable = (name: string) => {
     if (!activeTabId || activeTabId === 'library') return;
     const newInput: TemplateInput = { id: `local_${Date.now()}`, label: name };
@@ -497,50 +577,355 @@ const App: React.FC = () => {
     }));
   };
 
-  const handleSaveStepOutputAsVariable = (stepId: string) => {
-    if (!activeTabId || activeTabId === 'library') return;
-    const project = projects.find((item) => item.id === activeTabId);
-    const template = templates.find((item) => item.id === project?.templateId);
-    const step = template?.steps.find((item) => item.id === stepId);
-    if (!project || !step) return;
+  const handleExportProjectVariableTable = async (format: 'json' | 'csv') => {
+    if (!activeProject || !activeProjectTemplate) return;
 
-    const output = project.stepOutputs[stepId] || '';
-    if (!output.trim()) {
-      openAlert('无法写入', '这个步骤的输出为空，请先填写内容再写入变量。');
+    const row = buildProjectVariableTableRow(activeProject, activeProjectTemplate);
+    const safeName = activeProject.name.replace(/[\\/:*?"<>|]+/g, '_');
+
+    if (format === 'json') {
+      await ioService.exportFile(
+        `${safeName}_variables.json`,
+        JSON.stringify([row], null, 2),
+        'application/json'
+      );
       return;
     }
 
-    const existing = (project.variables || []).find(
-      (variable) => variable.sourceType === 'step_output' && variable.sourceRef === stepId
+    await ioService.exportFile(
+      `${safeName}_variables.csv`,
+      stringifyRowsAsCsv([row]),
+      'text/csv'
     );
-    const binding = step.outputBinding;
+  };
 
-    if (!binding?.variableKey?.trim()) {
-      openAlert('无法写入', '这个步骤没有配置“输出到变量”，请先去模板里设置。');
-      return;
+  const handleImportProjectVariableTable = (content: string) => {
+    if (!activeProject || !activeProjectTemplate || !activeTabId || activeTabId === 'library') return;
+
+    try {
+      const parsed = parseProjectVariableTable(content, activeProjectTemplate);
+
+      updateProjectWithSync(activeTabId, (project) => {
+        const nextInputValues = { ...project.inputValues };
+        const nextCustomInputs = [...(project.customInputs || [])];
+        const localInputMap = new Map(nextCustomInputs.map((input) => [input.label, input]));
+
+        activeProjectTemplate.inputs.forEach((input) => {
+          if (Object.prototype.hasOwnProperty.call(parsed.templateInputValues, input.label)) {
+            nextInputValues[input.id] = parsed.templateInputValues[input.label];
+          }
+        });
+
+        Object.entries(parsed.localVariableValues).forEach(([label, value], index) => {
+          let localInput = localInputMap.get(label);
+          if (!localInput) {
+            localInput = { id: `local_${Date.now()}_${index}`, label };
+            localInputMap.set(label, localInput);
+            nextCustomInputs.push(localInput);
+          }
+          nextInputValues[localInput.id] = value;
+        });
+
+        return {
+          ...project,
+          name: parsed.projectName?.trim() || project.name,
+          customInputs: nextCustomInputs,
+          inputValues: nextInputValues,
+        };
+      });
+
+      openAlert('导入完成', '变量表已导入到当前项目。');
+    } catch (error) {
+      openAlert('导入失败', error instanceof Error ? error.message : '变量表导入失败。');
+    }
+  };
+
+  const executeProjectStep = async (projectId: string, stepId: string) => {
+    const project = projects.find((item) => item.id === projectId);
+    const template = templates.find((item) => item.id === project?.templateId);
+    if (!project || !template) {
+      throw new Error('当前项目或模板不存在。');
     }
 
-    const nextKey = binding.variableKey.trim();
-    const nextLabel = binding.variableLabel?.trim() || binding.variableKey.trim();
-    const now = Date.now();
-    const nextVariable: ProjectVariable = {
-      id: existing?.id || `var_step_${stepId}`,
-      key: nextKey,
-      label: nextLabel,
-      value: output,
-      sourceType: 'step_output',
-      sourceRef: stepId,
-      createdAt: existing?.createdAt || now,
-      updatedAt: now,
+    const step = template.steps.find((item) => item.id === stepId);
+    if (!step) {
+      throw new Error('未找到要执行的步骤。');
+    }
+
+    const availability = resolveStepExecutionAvailability({
+      step,
+      template,
+      modelCatalog: settings.modelCatalog,
+      providerConfigs: settings.providerConfigs,
+    });
+
+    if (!availability.isRunnable || !availability.modelCatalogItem || !availability.providerConfig) {
+      throw new Error(availability.message);
+    }
+
+    const override = project.stepOverrides[step.id];
+    const rawContent = override?.content !== undefined ? override.content : step.content || '';
+    const interpolate = createInterpolator(project, template);
+    const userPrompt = interpolate(rawContent).trim();
+    const systemPrompt = step.execution?.systemPrompt || '';
+    const temperature = step.execution?.temperature;
+    const maxTokens = step.execution?.maxTokens;
+
+    if (!userPrompt) {
+      throw new Error('当前步骤的插值结果为空，无法执行。');
+    }
+
+    const logBase = {
+      id: `run_${Date.now()}`,
+      createdAt: Date.now(),
+      providerType: availability.providerConfig.providerType,
+      providerLabel: availability.providerConfig.label,
+      modelName: availability.modelCatalogItem.modelName,
+      modelLabel: availability.modelCatalogItem.label,
+      systemPrompt,
+      userPrompt,
+      temperature,
+      maxTokens,
     };
 
-    updateProjectWithSync(activeTabId, (currentProject) => ({
-      ...currentProject,
-      stepOutputMeta: markStepOutputMeta(currentProject.stepOutputMeta || {}, stepId, {
-        lastSavedToVariableAt: now,
-      }),
-      variables: upsertVariable(currentProject.variables || [], nextVariable),
-    }));
+    try {
+      const result = await executeModelText({
+        providerType: availability.providerConfig.providerType,
+        apiKey: availability.providerConfig.apiKey,
+        baseUrl: availability.providerConfig.baseUrl,
+        modelName: availability.modelCatalogItem.modelName,
+        systemPrompt,
+        userPrompt,
+        temperature,
+        maxTokens,
+      });
+
+      const nextLog: StepRunLog = {
+        ...logBase,
+        status: 'success',
+        output: result.output,
+        error: '',
+        rawResponse: result.rawResponse,
+      };
+
+      const binding = step.outputBinding;
+      const now = Date.now();
+
+      updateProjectWithSync(project.id, (currentProject) => {
+        let nextProject: Project = {
+          ...currentProject,
+          stepOutputs: {
+            ...currentProject.stepOutputs,
+            [step.id]: result.output,
+          },
+          stepOutputMeta: {
+            ...currentProject.stepOutputMeta,
+            [step.id]: {
+              ...(currentProject.stepOutputMeta?.[step.id] || {}),
+              updatedAt: now,
+            },
+          },
+          stepRunLogs: {
+            ...currentProject.stepRunLogs,
+            [step.id]: appendStepRunLog(currentProject.stepRunLogs?.[step.id], nextLog),
+          },
+        };
+
+        if (binding?.variableKey?.trim() && result.output.trim()) {
+          const key = binding.variableKey.trim();
+          const label = binding.variableLabel?.trim() || key;
+          const existing = (nextProject.variables || []).find(
+            (variable) => variable.sourceType === 'step_output' && variable.sourceRef === step.id
+          );
+          const nextVariable: ProjectVariable = {
+            id: existing?.id || `var_step_${step.id}`,
+            key,
+            label,
+            value: result.output,
+            sourceType: 'step_output',
+            sourceRef: step.id,
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+          };
+          nextProject = {
+            ...nextProject,
+            stepOutputMeta: {
+              ...nextProject.stepOutputMeta,
+              [step.id]: {
+                ...(nextProject.stepOutputMeta?.[step.id] || {}),
+                lastSavedToVariableAt: now,
+              },
+            },
+            variables: upsertVariable(nextProject.variables || [], nextVariable),
+          };
+        }
+
+        return nextProject;
+      });
+
+      return result.output;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '执行失败';
+      const nextLog: StepRunLog = {
+        ...logBase,
+        status: 'error',
+        output: '',
+        error: message,
+      };
+
+      updateProjectWithSync(project.id, (currentProject) => ({
+        ...currentProject,
+        stepRunLogs: {
+          ...currentProject.stepRunLogs,
+          [step.id]: appendStepRunLog(currentProject.stepRunLogs?.[step.id], nextLog),
+        },
+      }));
+
+      throw error;
+    }
+  };
+
+  const handleRunStep = async (stepId: string) => {
+    if (!activeProject || !activeProjectTemplate) {
+      throw new Error('当前没有可执行的项目。');
+    }
+
+    const step = activeProjectTemplate.steps.find((item) => item.id === stepId);
+    if (!step) {
+      throw new Error('未找到要执行的步骤。');
+    }
+
+    const availability = resolveStepExecutionAvailability({
+      step,
+      template: activeProjectTemplate,
+      modelCatalog: settings.modelCatalog,
+      providerConfigs: settings.providerConfigs,
+    });
+
+    if (!availability.isRunnable || !availability.modelCatalogItem || !availability.providerConfig) {
+      throw new Error(availability.message);
+    }
+
+    const override = activeProject.stepOverrides[step.id];
+    const rawContent = override?.content !== undefined ? override.content : step.content || '';
+    const interpolate = createInterpolator(activeProject, activeProjectTemplate);
+    const userPrompt = interpolate(rawContent).trim();
+    const systemPrompt = step.execution?.systemPrompt || '';
+    const temperature = step.execution?.temperature;
+    const maxTokens = step.execution?.maxTokens;
+
+    if (!userPrompt) {
+      throw new Error('当前步骤的插值结果为空，无法执行。');
+    }
+
+    const logBase = {
+      id: `run_${Date.now()}`,
+      createdAt: Date.now(),
+      providerType: availability.providerConfig.providerType,
+      providerLabel: availability.providerConfig.label,
+      modelName: availability.modelCatalogItem.modelName,
+      modelLabel: availability.modelCatalogItem.label,
+      systemPrompt,
+      userPrompt,
+      temperature,
+      maxTokens,
+    };
+
+    try {
+      const result = await executeModelText({
+        providerType: availability.providerConfig.providerType,
+        apiKey: availability.providerConfig.apiKey,
+        baseUrl: availability.providerConfig.baseUrl,
+        modelName: availability.modelCatalogItem.modelName,
+        systemPrompt,
+        userPrompt,
+        temperature,
+        maxTokens,
+      });
+
+      const nextLog: StepRunLog = {
+        ...logBase,
+        status: 'success',
+        output: result.output,
+        error: '',
+        rawResponse: result.rawResponse,
+      };
+
+      const binding = step.outputBinding;
+      const now = Date.now();
+
+      updateProjectWithSync(activeProject.id, (project) => {
+        let nextProject: Project = {
+          ...project,
+          stepOutputs: {
+            ...project.stepOutputs,
+            [step.id]: result.output,
+          },
+          stepOutputMeta: {
+            ...project.stepOutputMeta,
+            [step.id]: {
+              ...(project.stepOutputMeta?.[step.id] || {}),
+              updatedAt: now,
+            },
+          },
+          stepRunLogs: {
+            ...project.stepRunLogs,
+            [step.id]: appendStepRunLog(project.stepRunLogs?.[step.id], nextLog),
+          },
+        };
+
+        if (binding?.variableKey?.trim() && result.output.trim()) {
+          const key = binding.variableKey.trim();
+          const label = binding.variableLabel?.trim() || key;
+          const existing = (nextProject.variables || []).find(
+            (variable) => variable.sourceType === 'step_output' && variable.sourceRef === step.id
+          );
+          const nextVariable: ProjectVariable = {
+            id: existing?.id || `var_step_${step.id}`,
+            key,
+            label,
+            value: result.output,
+            sourceType: 'step_output',
+            sourceRef: step.id,
+            createdAt: existing?.createdAt || now,
+            updatedAt: now,
+          };
+          nextProject = {
+            ...nextProject,
+            stepOutputMeta: {
+              ...nextProject.stepOutputMeta,
+              [step.id]: {
+                ...(nextProject.stepOutputMeta?.[step.id] || {}),
+                lastSavedToVariableAt: now,
+              },
+            },
+            variables: upsertVariable(nextProject.variables || [], nextVariable),
+          };
+        }
+
+        return nextProject;
+      });
+
+      return result.output;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '执行失败';
+      const nextLog: StepRunLog = {
+        ...logBase,
+        status: 'error',
+        output: '',
+        error: message,
+      };
+
+      updateProjectWithSync(activeProject.id, (project) => ({
+        ...project,
+        stepRunLogs: {
+          ...project.stepRunLogs,
+          [step.id]: appendStepRunLog(project.stepRunLogs?.[step.id], nextLog),
+        },
+      }));
+
+      throw error;
+    }
   };
 
   const handleBakeDownload = () => {
@@ -557,6 +942,51 @@ const App: React.FC = () => {
       fullText += `### ${step.name}\n${interpolate(rawContent)}\n\n`;
     });
     ioService.exportFile(`${project.name}_baked.txt`, fullText);
+  };
+
+  const handleBatchRunStep = async (templateId: string, stepId: string) => {
+    const matchedProjects = projects.filter((project) => project.templateId === templateId && !project.archived);
+    if (matchedProjects.length === 0) {
+      openAlert('无法批量执行', '这个模板下没有可执行的未归档项目。');
+      return;
+    }
+
+    let successCount = 0;
+    const failures: string[] = [];
+
+    for (const project of matchedProjects) {
+      try {
+        await executeProjectStep(project.id, stepId);
+        successCount += 1;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '执行失败';
+        failures.push(`${project.name}: ${message}`);
+      }
+    }
+
+    const failureSummary =
+      failures.length > 0 ? `\n失败 ${failures.length} 个：\n${failures.slice(0, 5).join('\n')}` : '';
+    openAlert('批量执行完成', `成功 ${successCount} 个项目。${failureSummary}`);
+  };
+
+  const handleClearStepRunLogs = (stepId: string) => {
+    if (!activeProject) return;
+    updateProjectWithSync(activeProject.id, (project) => {
+      const nextStepRunLogs = { ...(project.stepRunLogs || {}) };
+      delete nextStepRunLogs[stepId];
+      return {
+        ...project,
+        stepRunLogs: nextStepRunLogs,
+      };
+    });
+  };
+
+  const handleClearProjectRunLogs = () => {
+    if (!activeProject) return;
+    updateProjectWithSync(activeProject.id, (project) => ({
+      ...project,
+      stepRunLogs: {},
+    }));
   };
 
   const handleDownloadAllData = () => {
@@ -643,23 +1073,12 @@ const App: React.FC = () => {
       {editingTemplateId && editingTemplate && (
         <div className="fixed inset-0 z-[100] bg-slate-950 animate-in fade-in zoom-in-95 duration-200">
           <TemplateEditor
+            language={settings.language}
             template={editingTemplate}
             modelCatalog={settings.modelCatalog}
+            providerConfigs={settings.providerConfigs}
             onSave={(updatedTemplate) => {
-              const normalizedTemplate = normalizeTemplate(updatedTemplate, settings.modelCatalog);
-              setTemplates((prev) =>
-                prev.map((template) => (template.id === normalizedTemplate.id ? normalizedTemplate : template))
-              );
-              setProjects((prev) =>
-                prev.map((project) => {
-                  if (project.templateId !== normalizedTemplate.id) return project;
-                  return {
-                    ...project,
-                    variables: syncProjectVariables(project, normalizedTemplate),
-                  };
-                })
-              );
-              setEditingTemplateId(null);
+              handleSaveTemplateWithHistory(updatedTemplate);
             }}
             onCancel={() => setEditingTemplateId(null)}
             onRequestConfirm={openConfirm}
@@ -680,6 +1099,7 @@ const App: React.FC = () => {
 
       <div className="relative flex flex-1 overflow-hidden">
         <Sidebar
+          language={settings.language}
           isOpen={settings.isSidebarOpen}
           width={settings.sidebarWidth}
           onWidthChange={(width) => updateSettings({ sidebarWidth: width })}
@@ -690,6 +1110,8 @@ const App: React.FC = () => {
           onInputChange={handleInputChange}
           onAddLocalVariable={handleAddLocalVariable}
           onDeleteLocalVariable={handleDeleteLocalVariable}
+          onImportVariableTable={handleImportProjectVariableTable}
+          onExportVariableTable={handleExportProjectVariableTable}
           onBakeDownload={handleBakeDownload}
           onRequestAlert={openAlert}
         />
@@ -697,10 +1119,17 @@ const App: React.FC = () => {
         <div className="relative flex flex-1 flex-col overflow-hidden bg-slate-950">
           {activeTabId === 'library' ? (
             <FileLibrary
+              language={settings.language}
               projects={projects}
               templates={templates}
               onOpenProject={openTab}
               onCreateProject={createProject}
+              onBatchCreateProjects={createProjectsFromTable}
+              onBatchRunStep={handleBatchRunStepWithProgress}
+              batchRunProgress={batchRunProgress}
+              onRetryFailedBatchRun={handleRetryFailedBatchRun}
+              onCloseBatchRunProgress={handleCloseBatchRunProgress}
+              onExportBatchRunResults={handleExportBatchRunResults}
               onCreateTemplate={createTemplate}
               onEditTemplate={setEditingTemplateId}
               onUpdateTemplate={handleUpdateTemplate}
@@ -752,6 +1181,8 @@ const App: React.FC = () => {
               onMergeData={handleMergeData}
               onOpenExport={() => setIsExportModalOpen(true)}
               onRequestAlert={openAlert}
+              onArchiveProject={handleArchiveProject}
+              onUnarchiveProject={handleUnarchiveProject}
               cardScale={settings.cardScale}
               onCardScaleChange={(cardScale) => updateSettings({ cardScale })}
               sortBy={settings.fileLibrarySortBy as SortKey}
@@ -761,6 +1192,9 @@ const App: React.FC = () => {
             <ProjectRunner
               project={activeProject}
               template={activeProjectTemplate}
+              language={settings.language}
+              modelCatalog={settings.modelCatalog}
+              providerConfigs={settings.providerConfigs}
               onUpdateProject={(id, updates) => updateProjectWithSync(id, (project) => ({ ...project, ...updates }))}
               onUpdateTemplate={(id, updates) =>
                 setTemplates((prev) =>
@@ -769,7 +1203,9 @@ const App: React.FC = () => {
                   )
                 )
               }
-              onSaveStepOutputAsVariable={handleSaveStepOutputAsVariable}
+              onRunStep={handleRunStep}
+              onClearStepRunLogs={handleClearStepRunLogs}
+              onClearProjectRunLogs={handleClearProjectRunLogs}
               onRequestConfirm={openConfirm}
               rightPanelWidth={settings.rightPanelWidth}
               onRightPanelWidthChange={(rightPanelWidth) => updateSettings({ rightPanelWidth })}

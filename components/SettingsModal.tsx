@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
-import { AppSettings, ModelCatalogItem, ProviderConfig, ProviderType } from '../types';
+import { AppSettings, ModelCatalogItem, ProviderConfig, ProviderType, UiLanguage } from '../types';
 import { Button } from './Button';
+import { testProviderConnectivity } from '../services/apiConnectivityService';
+import { t } from '../services/i18n';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,19 +14,30 @@ interface SettingsModalProps {
   onDeleteModelCatalogItem: (modelCatalogItemId: string) => void;
 }
 
+interface TestState {
+  status: 'idle' | 'testing' | 'success' | 'error';
+  message: string;
+  latencyMs?: number;
+}
+
 declare const __APP_VERSION__: string;
 
 const PROVIDER_TYPE_OPTIONS: Array<{ value: ProviderType; label: string }> = [
+  { value: 'deepseek', label: 'DeepSeek' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'anthropic', label: 'Anthropic' },
-  { value: 'gemini', label: 'Gemini' },
   { value: 'openai_compatible', label: 'OpenAI Compatible' },
+];
+
+const LANGUAGE_OPTIONS: Array<{ value: UiLanguage; labelKey: 'settings.languageZh' | 'settings.languageEn' }> = [
+  { value: 'zh-CN', labelKey: 'settings.languageZh' },
+  { value: 'en-US', labelKey: 'settings.languageEn' },
 ];
 
 const createProviderConfig = (): ProviderConfig => ({
   id: `provider_${Date.now()}`,
   label: 'New Provider',
-  providerType: 'openai',
+  providerType: 'deepseek',
   apiKey: '',
   baseUrl: '',
   enabled: true,
@@ -47,6 +60,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onDeleteModelCatalogItem,
 }) => {
   const [appVersion, setAppVersion] = useState<string>('');
+  const [providerTests, setProviderTests] = useState<Record<string, TestState>>({});
 
   useEffect(() => {
     if (!isOpen) return;
@@ -85,6 +99,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const addModelCatalogItem = () =>
     updateModelCatalog([...settings.modelCatalog, createModelCatalogItem(settings.providerConfigs)]);
 
+  const handleTestConnectivity = async (provider: ProviderConfig) => {
+    setProviderTests((prev) => ({ ...prev, [provider.id]: { status: 'testing', message: '测试中...' } }));
+    try {
+      const result = await testProviderConnectivity(provider);
+      setProviderTests((prev) => ({
+        ...prev,
+        [provider.id]: {
+          status: result.success ? 'success' : 'error',
+          message: result.message,
+          latencyMs: result.latencyMs,
+        },
+      }));
+    } catch {
+      setProviderTests((prev) => ({
+        ...prev,
+        [provider.id]: { status: 'error', message: '测试异常' },
+      }));
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl">
@@ -105,6 +139,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div>
               <h4 className="text-sm font-bold text-slate-200">界面设置</h4>
               <p className="mt-1 text-xs text-slate-500">这些设置只影响当前设备上的显示和文件库布局。</p>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                {t(settings.language, 'settings.language')}
+              </label>
+              <div className="flex rounded-xl border border-slate-800 bg-slate-950 p-1.5 shadow-inner">
+                {LANGUAGE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => onChange({ language: option.value })}
+                    className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+                      settings.language === option.value
+                        ? 'bg-slate-800 text-white shadow-lg'
+                        : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    {t(settings.language, option.labelKey)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -228,14 +283,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                   <label className="space-y-2">
                     <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">API Key</span>
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      value={provider.apiKey}
-                      onChange={(event) => updateProvider(provider.id, { apiKey: event.target.value })}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                      placeholder="sk-..."
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        autoComplete="off"
+                        value={provider.apiKey}
+                        onChange={(event) => updateProvider(provider.id, { apiKey: event.target.value })}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                        placeholder="sk-..."
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleTestConnectivity(provider)}
+                        disabled={providerTests[provider.id]?.status === 'testing'}
+                      >
+                        {providerTests[provider.id]?.status === 'testing' ? '测试中...' : '测试连通'}
+                      </Button>
+                    </div>
+                    {providerTests[provider.id] && providerTests[provider.id]?.status !== 'idle' && providerTests[provider.id]?.status !== 'testing' && (
+                      <div
+                        className={`mt-1 rounded-lg px-3 py-1.5 text-[11px] font-medium ${
+                          providerTests[provider.id]?.status === 'success'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        }`}
+                      >
+                        {providerTests[provider.id]?.message}
+                        {providerTests[provider.id]?.latencyMs !== undefined && (
+                          <span className="ml-2 text-slate-500">({providerTests[provider.id]?.latencyMs}ms)</span>
+                        )}
+                      </div>
+                    )}
                   </label>
 
                   <label className="space-y-2">

@@ -1,48 +1,41 @@
----
-title: PromptWordSplicer 文档索引
+﻿---
+title: PromptWordSplicer 鏂囨。绱㈠紩
 author: Codex
 created_at: 2026-04-30 11:50:00 +08:00
-updated_at: 2026-04-30 14:45:00 +08:00
+updated_at: 2026-05-06 16:10:00 +08:00
 type: index
 status: active
 ---
 
-# PromptWordSplicer 文档索引
+# PromptWordSplicer 鏂囨。绱㈠紩
 
-## 目的
+## 鐩殑
 
-`docs/` 用于沉淀这个项目的长期文档资产，覆盖产品调研、路线规划、技术方案、决策记录和接入设计。
+`docs/` 鐢ㄤ簬娌夋穩椤圭洰鍐呯殑闀挎湡鏂囨。璧勪骇锛屽寘鎷皟鏌ユ姤鍛娿€侀噸鏋勬柟妗堛€佽璁¤鏄庡拰鍐崇瓥璁板綍銆?
+## 瑙勮寖
 
-## 文档规则
-
-所有正式文档都应包含统一元数据头：
+鎵€鏈夋寮忔枃妗ｅ簲鏀惧湪 `docs/` 涓嬶紝骞跺甫鏈夌粺涓€鐨勫厓鏁版嵁澶达細
 
 ```yaml
 ---
-title: 文档标题
-author: 作者
-created_at: YYYY-MM-DD HH:mm:ss +08:00
+title: 鏂囨。鏍囬
+author: 浣滆€?created_at: YYYY-MM-DD HH:mm:ss +08:00
 updated_at: YYYY-MM-DD HH:mm:ss +08:00
 type: report | plan | spec | decision | note | index
 status: draft | active | archived
 ---
 ```
 
-- `created_at` 表示首次创建时间，后续更新不改。
-- `updated_at` 表示最近一次实质更新的时间。
-- `type` 用于区分文档用途，便于检索和归档。
-- `status` 用于区分草稿、现行文档和归档文档。
+- `created_at` 琛ㄧず棣栨鍒涘缓鏃堕棿锛屽悗缁洿鏂颁笉鏀广€?- `updated_at` 琛ㄧず鏈€杩戜竴娆″疄璐ㄦ洿鏂扮殑鏃堕棿銆?- `type` 鐢ㄤ簬鍖哄垎鏂囨。鐢ㄩ€旓紝渚夸簬妫€绱㈠拰褰掓。銆?- `status` 鐢ㄤ簬鍖哄垎鑽夌銆佺幇琛屾枃妗ｅ拰褰掓。鏂囨。銆?
+## 褰撳墠鏂囨。
 
-## 当前文档
+- [椤圭洰璋冩煡鎶ュ憡.md](/E:/Project/Vscode/PromptWordSplicer/docs/椤圭洰璋冩煡鎶ュ憡.md:1)
+- [浠ｇ爜鏋舵瀯涓庝紭鍖栬皟鏌ユ姤鍛?md](/E:/Project/Vscode/PromptWordSplicer/docs/浠ｇ爜鏋舵瀯涓庝紭鍖栬皟鏌ユ姤鍛?md:1)
+- [浠ｇ爜鏋舵瀯浼樺寲瀹炴柦鏂规.md](/E:/Project/Vscode/PromptWordSplicer/docs/浠ｇ爜鏋舵瀯浼樺寲瀹炴柦鏂规.md:1)
+- [鍙橀噺绯荤粺閲嶆瀯鏂规.md](/E:/Project/Vscode/PromptWordSplicer/docs/鍙橀噺绯荤粺閲嶆瀯鏂规.md:1)
+- [浜烘帶浼樺厛涓嶢I鎵ц鍘熷垯.md](/E:/Project/Vscode/PromptWordSplicer/docs/浜烘帶浼樺厛涓嶢I鎵ц鍘熷垯.md:1)
+- [姝ラ浜や簰涓庢ā鍨嬪紩鐢ㄩ噸鏋勬柟妗?md](/E:/Project/Vscode/PromptWordSplicer/docs/姝ラ浜や簰涓庢ā鍨嬪紩鐢ㄩ噸鏋勬柟妗?md:1)
+- [妯″瀷璁剧疆涓庡嚟鎹鐞嗘柟妗?md](/E:/Project/Vscode/PromptWordSplicer/docs/妯″瀷璁剧疆涓庡嚟鎹鐞嗘柟妗?md:1)
 
-- [项目调查报告.md](/E:/Project/Vscode/PromptWordSplicer/docs/项目调查报告.md:1)
-- [变量系统重构方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/变量系统重构方案.md:1)
-- [人控优先与AI执行原则.md](/E:/Project/Vscode/PromptWordSplicer/docs/人控优先与AI执行原则.md:1)
-- [步骤交互与模型引用重构方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/步骤交互与模型引用重构方案.md:1)
-- [模型设置与凭据管理方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/模型设置与凭据管理方案.md:1)
-
-## 后续建议
-
-- 产品路线图
-- AI 执行层设计
-- 模型接入方案
+## 鍚庣画鍙ˉ鍏?
+- [产品路线清单.md](/E:/Project/Vscode/PromptWordSplicer/docs/产品路线清单.md:1)

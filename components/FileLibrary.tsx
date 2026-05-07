@@ -1,17 +1,29 @@
 
 import React, { useRef, useState, useMemo, useEffect } from 'react';
-import { Project, Template, SortKey } from '../types';
+import { Project, Template, SortKey, UiLanguage } from '../types';
+import { t } from '../services/i18n';
 import { Button } from './Button';
 import { CreateProjectModal } from './CreateProjectModal';
+import { BatchCreateProjectsModal } from './BatchCreateProjectsModal';
+import { BatchRunStepModal } from './BatchRunStepModal';
+import { BatchRunProgressModal, BatchRunProgressState } from './BatchRunProgressModal';
 import { HighlightEffect } from './HighlightEffect';
 import { MergeModal } from './MergeModal';
 import { ioService } from '../services/ioService';
+import { validateBackupBundle } from '../services/schemas';
 
 interface FileLibraryProps {
+  language: UiLanguage;
   projects: Project[];
   templates: Template[];
   onOpenProject: (projectId: string) => void;
   onCreateProject: (templateId: string, name: string) => void;
+  onBatchCreateProjects: (templateId: string, content: string) => void;
+  onBatchRunStep: (templateId: string, stepId: string) => void;
+  batchRunProgress: BatchRunProgressState;
+  onRetryFailedBatchRun: () => void;
+  onCloseBatchRunProgress: () => void;
+  onExportBatchRunResults: (format: 'json' | 'csv', scope: 'all' | 'success' | 'error') => void;
   onCreateTemplate: () => void;
   onEditTemplate: (templateId: string) => void;
   onUpdateTemplate: (templateId: string, updates: Partial<Template>) => void;
@@ -24,6 +36,8 @@ interface FileLibraryProps {
   onMergeData: (projects: Project[], templates: Template[]) => void;
   onOpenExport: () => void;
   onRequestAlert: (title: string, message: string) => void;
+  onArchiveProject?: (id: string) => void;
+  onUnarchiveProject?: (id: string) => void;
   cardScale: number;
   onCardScaleChange: (scale: number) => void;
   sortBy: SortKey;
@@ -36,10 +50,17 @@ const formatFullDate = (ts: number) => {
 };
 
 export const FileLibrary: React.FC<FileLibraryProps> = ({
+  language,
   projects,
   templates,
   onOpenProject,
   onCreateProject,
+  onBatchCreateProjects,
+  onBatchRunStep,
+  batchRunProgress,
+  onRetryFailedBatchRun,
+  onCloseBatchRunProgress,
+  onExportBatchRunResults,
   onCreateTemplate,
   onEditTemplate,
   onUpdateTemplate,
@@ -52,6 +73,8 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onMergeData,
   onOpenExport,
   onRequestAlert,
+  onArchiveProject,
+  onUnarchiveProject,
   cardScale,
   onCardScaleChange,
   sortBy,
@@ -64,11 +87,19 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     isOpen: false,
     templateId: null
   });
+  const [batchCreateModalInfo, setBatchCreateModalInfo] = useState<{ isOpen: boolean; templateId: string | null }>({
+    isOpen: false,
+    templateId: null
+  });
+  const [selectedBatchTemplateId, setSelectedBatchTemplateId] = useState<string>('');
+  const [isBatchRunModalOpen, setIsBatchRunModalOpen] = useState(false);
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
   
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showArchived, setShowArchived] = useState(false);
+  const [tagSearch, setTagSearch] = useState('');
 
   const sortProjects = (projs: Project[]) => {
     return [...projs].sort((a, b) => {
@@ -88,10 +119,22 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   }, [projects.length]);
 
   const groupedData = useMemo(() => {
-    // 过滤掉所属模版被标记为“隐藏”的项目
-    const visibleProjects = projects.filter(p => {
+    let visibleProjects = projects.filter(p => {
       const template = templates.find(t => t.id === p.templateId);
-      return !template?.hideProjects;
+      if (template?.hideProjects) return false;
+      if (!showArchived && p.archived) return false;
+      if (tagSearch.trim()) {
+        const searchLower = tagSearch.trim().toLowerCase();
+        const tplTags = (template?.tags || []).map((t) => t.toLowerCase());
+        const projectTags = (p as any).tags || [];
+        if (
+          !tplTags.some((t) => t.includes(searchLower)) &&
+          !projectTags.some((t: string) => t.toLowerCase().includes(searchLower))
+        ) {
+          return false;
+        }
+      }
+      return true;
     });
 
     const sorted = sortProjects(visibleProjects);
@@ -101,7 +144,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     const groups: Record<string, Project[]> = {};
     sorted.forEach(p => {
       const template = templates.find(t => t.id === p.templateId);
-      const groupName = template?.name || '未分类项目';
+      const groupName = template?.name || t(language, 'fileLibrary.ungroupedProjects');
       if (!groups[groupName]) groups[groupName] = [];
       groups[groupName].push(p);
     });
@@ -121,17 +164,27 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     try {
       const content = await ioService.readFileAsText(file);
       if (!content || content.trim() === "") {
-        onRequestAlert('失败', '所选文件为空。');
+        onRequestAlert(t(language, 'fileLibrary.importFailed'), t(language, 'fileLibrary.importEmpty'));
         return;
       }
-      const data = JSON.parse(content);
-      if (data && Array.isArray(data.projects) && Array.isArray(data.templates)) {
-        onImportData(data.projects, data.templates);
-      } else {
-        onRequestAlert('失败', '文件格式不匹配。');
+      let raw: unknown;
+      try {
+        raw = JSON.parse(content);
+      } catch {
+        onRequestAlert(t(language, 'fileLibrary.importFailed'), t(language, 'fileLibrary.importInvalidJson'));
+        return;
       }
+      const validation = validateBackupBundle(raw);
+      if (validation.valid === false) {
+        onRequestAlert(
+          t(language, 'fileLibrary.importFailed'),
+          t(language, 'fileLibrary.importInvalidBundle', { error: String(validation.error) })
+        );
+        return;
+      }
+      onImportData(validation.data.projects, validation.data.templates);
     } catch (err) {
-      onRequestAlert('失败', '文件读取或解析 JSON 失败。');
+      onRequestAlert(t(language, 'fileLibrary.importFailed'), t(language, 'fileLibrary.importReadFailed'));
     }
     e.target.value = '';
   };
@@ -183,19 +236,28 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
               <h4 className="text-base font-bold text-slate-200 group-hover:text-white mb-1 truncate">{p.name}</h4>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] bg-slate-950 text-slate-500 px-1.5 py-0.5 rounded border border-slate-800/50">
-                  模版: {template?.name || '已失效'}
+                  {t(language, 'project.template')}: {template?.name || t(language, 'fileLibrary.missingTemplate')}
                 </span>
               </div>
           </div>
           <div className="flex flex-col gap-1 border-t border-slate-800/40 mt-3 pt-3">
-              <div className="flex justify-between items-center text-[9px] font-mono text-slate-600"><span>创建: {formatFullDate(p.createdAt)}</span></div>
-              <div className="flex justify-between items-center text-[9px] font-mono text-blue-600/60"><span>最后修改: {formatFullDate(p.lastModifiedAt)}</span></div>
+              <div className="flex justify-between items-center text-[9px] font-mono text-slate-600"><span>{t(language, 'fileLibrary.created')}: {formatFullDate(p.createdAt)}</span></div>
+              <div className="flex justify-between items-center text-[9px] font-mono text-blue-600/60"><span>{t(language, 'fileLibrary.modified')}: {formatFullDate(p.lastModifiedAt)}</span></div>
           </div>
           
           {!isSelectionMode && (
             <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={(e) => { e.stopPropagation(); onCreateTemplateFromProject(p.id); }} title="提取模版" className="text-slate-500 hover:text-blue-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M8 2a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 8 2ZM4.25 5a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H5v6.5h6v-6.5h-1.5a.75.75 0 0 1 0-1.5h1.5A1.5 1.5 0 0 1 12.5 5.75v6.5A1.5 1.5 0 0 1 11 13.75H5a1.5 1.5 0 0 1-1.5-1.5v-6.5A1.5 1.5 0 0 1 4.25 5Z" /></svg></button>
-                <button onClick={(e) => { e.stopPropagation(); onDeleteProject(p.id); }} title="彻底删除" className="text-slate-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
+                {p.archived ? (
+                  <button onClick={(e) => { e.stopPropagation(); onUnarchiveProject?.(p.id); }} title={t(language, 'fileLibrary.unarchive')} className="text-slate-500 hover:text-amber-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M3.75 2a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5h-8.5Z" /><path fillRule="evenodd" d="M3 5.25a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 .75.75v6.5A2.25 2.25 0 0 1 10.75 14h-5.5A2.25 2.25 0 0 1 3 11.75v-6.5Zm1.5.75v5.75c0 .414.336.75.75.75h5.5a.75.75 0 0 0 .75-.75V6h-7Z" clipRule="evenodd" /></svg>
+                  </button>
+                ) : (
+                  <button onClick={(e) => { e.stopPropagation(); onArchiveProject?.(p.id); }} title={t(language, 'fileLibrary.archive')} className="text-slate-500 hover:text-amber-400">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M3 2a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H3Z" /><path fillRule="evenodd" d="M3 6.75A.75.75 0 0 1 3.75 6h8.5a.75.75 0 0 1 .75.75v6.5A1.75 1.75 0 0 1 11.25 15h-6.5A1.75 1.75 0 0 1 3 13.25v-6.5Zm1.5.75v5.75c0 .138.112.25.25.25h6.5a.25.25 0 0 0 .25-.25V7.5h-7Z" clipRule="evenodd" /></svg>
+                  </button>
+                )}
+                <button onClick={(e) => { e.stopPropagation(); onCreateTemplateFromProject(p.id); }} title={t(language, 'fileLibrary.extractTemplate')} className="text-slate-500 hover:text-blue-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M8 2a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 8 2ZM4.25 5a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 0 1.5H5v6.5h6v-6.5h-1.5a.75.75 0 0 1 0-1.5h1.5A1.5 1.5 0 0 1 12.5 5.75v6.5A1.5 1.5 0 0 1 11 13.75H5a1.5 1.5 0 0 1-1.5-1.5v-6.5A1.5 1.5 0 0 1 4.25 5Z" /></svg></button>
+                <button onClick={(e) => { e.stopPropagation(); onDeleteProject(p.id); }} title={t(language, 'fileLibrary.deleteForever')} className="text-slate-500 hover:text-red-400"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
             </div>
           )}
         </div>
@@ -207,15 +269,15 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     <div className="absolute inset-0 bg-slate-950 z-50 flex flex-col animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="flex justify-between items-center p-6 border-b border-slate-800 bg-slate-900 shrink-0">
         <div className="flex items-center gap-4">
-             <h2 className="text-xl font-bold text-white tracking-tight">文件库</h2>
-             <span className="text-xs text-slate-500 border-l border-slate-700 pl-4 py-1">本地项目管理器</span>
+             <h2 className="text-xl font-bold text-white tracking-tight">{t(language, 'fileLibrary.title')}</h2>
+             <span className="text-xs text-slate-500 border-l border-slate-700 pl-4 py-1">{t(language, 'fileLibrary.subtitle')}</span>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 mr-4">
             <input type="file" ref={fileInputRef} onChange={handleImportFile} className="hidden" accept=".json" />
-            <button onClick={() => fileInputRef.current?.click()} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">全量恢复</button>
-            <button onClick={onOpenExport} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">备份数据</button>
-            <button onClick={() => setIsMergeModalOpen(true)} className="text-[11px] bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-500/30 px-3 py-1.5 rounded transition-all">合并数据</button>
+            <button onClick={() => fileInputRef.current?.click()} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">{t(language, 'fileLibrary.restoreAll')}</button>
+            <button onClick={onOpenExport} className="text-[11px] text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded">{t(language, 'fileLibrary.backupData')}</button>
+            <button onClick={() => setIsMergeModalOpen(true)} className="text-[11px] bg-blue-600/10 text-blue-400 hover:bg-blue-600 hover:text-white border border-blue-500/30 px-3 py-1.5 rounded transition-all">{t(language, 'fileLibrary.mergeData')}</button>
           </div>
          
         </div>
@@ -225,9 +287,9 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
           <div className="lg:col-span-8 flex flex-col">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6 pb-2 border-b border-slate-800/50">
                 <div className="flex flex-col">
-                  <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest">我的项目资产</h3>
+                  <h3 className="text-sm font-bold text-blue-400 uppercase tracking-widest">{t(language, 'fileLibrary.assetsTitle')}</h3>
                   <p className="text-[10px] text-slate-600 mt-1 uppercase font-bold tracking-tighter">
-                    {Object.values(groupedData).flat().length} 个可见项目
+                    {t(language, 'fileLibrary.visibleProjects', { count: Object.values(groupedData).flat().length })}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-4 md:gap-6">
@@ -238,18 +300,34 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                     }`}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" /></svg>
-                    {isSelectionMode ? '退出管理' : '批量管理'}
+                    {isSelectionMode ? t(language, 'fileLibrary.exitManage') : t(language, 'fileLibrary.batchManage')}
                   </button>
+                  <label className="flex items-center gap-1 text-[10px] text-slate-500 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={showArchived}
+                      onChange={(e) => setShowArchived(e.target.checked)}
+                      className="rounded"
+                    />
+                    {t(language, 'fileLibrary.showArchived')}
+                  </label>
+                  <input
+                    type="text"
+                    value={tagSearch}
+                    onChange={(e) => setTagSearch(e.target.value)}
+                    placeholder={t(language, 'fileLibrary.searchTags')}
+                    className="w-32 rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-[10px] text-slate-300 outline-none focus:border-blue-500"
+                  />
 
                   <div className="flex items-center gap-3">
-                    <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">缩放</span>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase whitespace-nowrap">{t(language, 'fileLibrary.scale')}</span>
                     <input type="range" min="150" max="500" value={cardScale} onChange={(e) => onCardScaleChange(parseInt(e.target.value))} className="w-24 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-600"/>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setIsGrouped(!isGrouped)} className={`flex items-center gap-2 px-3 py-1 text-[10px] font-bold rounded border transition-colors ${isGrouped ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75ZM2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Zm.75 3.5a.75.75 0 0 0 0 1.5h10.5a.75.75 0 0 0 0-1.5H2.75Z" /></svg>{isGrouped ? '已分组' : '平铺'}</button>
+                    <button onClick={() => setIsGrouped(!isGrouped)} className={`flex items-center gap-2 px-3 py-1 text-[10px] font-bold rounded border transition-colors ${isGrouped ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'}`}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3"><path d="M2 3.75A.75.75 0 0 1 2.75 3h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 3.75ZM2 8a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 8Zm.75 3.5a.75.75 0 0 0 0 1.5h10.5a.75.75 0 0 0 0-1.5H2.75Z" /></svg>{isGrouped ? t(language, 'fileLibrary.grouped') : t(language, 'fileLibrary.flat')}</button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <select value={sortBy} onChange={(e) => onSortChange(e.target.value as SortKey)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-400 outline-none hover:border-slate-600 transition-colors"><option value="lastModified">修改时间</option><option value="createdAt">创建时间</option><option value="name">名称</option></select>
+                    <select value={sortBy} onChange={(e) => onSortChange(e.target.value as SortKey)} className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[10px] text-slate-400 outline-none hover:border-slate-600 transition-colors"><option value="lastModified">{t(language, 'fileLibrary.sortByModified')}</option><option value="createdAt">{t(language, 'fileLibrary.sortByCreated')}</option><option value="name">{t(language, 'fileLibrary.sortByName')}</option></select>
                   </div>
                 </div>
             </div>
@@ -268,7 +346,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                           <div className={`h-4 w-1 rounded-full transition-colors ${isCollapsed ? 'bg-slate-700' : 'bg-blue-500'}`}></div>
                           <h4 className={`text-xs font-black uppercase tracking-tighter transition-colors ${isCollapsed ? 'text-slate-600' : 'text-slate-500'}`}>
                             {groupName} 
-                            <span className="ml-2 text-[10px] font-normal text-slate-700">({(projs as Project[]).length} 个项目)</span>
+                            <span className="ml-2 text-[10px] font-normal text-slate-700">({t(language, 'fileLibrary.projectCount', { count: (projs as Project[]).length })})</span>
                           </h4>
                         </div>
                         <svg 
@@ -295,26 +373,68 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                   <div className="w-16 h-16 border border-slate-700 rounded-full flex items-center justify-center mb-4">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor" className="w-8 h-8"><path strokeLinecap="round" strokeLinejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
                   </div>
-                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">未发现可见资产</h3>
-                  <p className="text-[10px] mt-2 max-w-xs text-slate-500 font-bold uppercase">当前过滤条件下无项目显示。请检查右侧模版卡片上的“眼睛”图标是否已关闭。</p>
+                  <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">{t(language, 'fileLibrary.noVisibleAssets')}</h3>
+                  <p className="text-[10px] mt-2 max-w-xs text-slate-500 font-bold uppercase">{t(language, 'fileLibrary.noVisibleAssetsHint')}</p>
                 </div>
               )}
             </div>
           </div>
           <div className="lg:col-span-4">
-             <div className="flex items-center justify-between mb-6 pb-2 border-b border-slate-800/50"><h3 className="text-sm font-bold text-emerald-400 uppercase tracking-widest">快速创建</h3><button onClick={onCreateTemplate} className="text-[10px] text-slate-500 hover:text-white transition-colors underline underline-offset-4">新建模版</button></div>
+             <div className="flex items-center justify-between mb-6 pb-2 border-b border-slate-800/50"><h3 className="text-sm font-bold text-emerald-400 uppercase tracking-widest">{t(language, 'fileLibrary.quickCreate')}</h3><button onClick={onCreateTemplate} className="text-[10px] text-slate-500 hover:text-white transition-colors underline underline-offset-4">{t(language, 'fileLibrary.newTemplate')}</button></div>
+             <div className="mb-4 rounded-xl border border-slate-800 bg-slate-900/60 p-3">
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">{t(language, 'fileLibrary.batchInstantiate')}</div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedBatchTemplateId}
+                  onChange={(event) => setSelectedBatchTemplateId(event.target.value)}
+                  className="flex-1 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-slate-300 outline-none focus:border-blue-500"
+                >
+                  <option value="">{t(language, 'fileLibrary.selectTemplate')}</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!selectedBatchTemplateId}
+                  onClick={() => setBatchCreateModalInfo({ isOpen: true, templateId: selectedBatchTemplateId })}
+                >
+                  {t(language, 'fileLibrary.batchCreate')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="success"
+                  onClick={() => setIsBatchRunModalOpen(true)}
+                >
+                  {t(language, 'fileLibrary.batchRun')}
+                </Button>
+              </div>
+             </div>
              <div className="grid grid-cols-1 gap-3">
-              {templates.map(t => (
-                <div key={t.id} className={`bg-slate-900/50 border rounded-lg p-4 transition-all relative group/tcard ${t.hideProjects ? 'opacity-60 border-slate-800' : 'border-slate-800 hover:border-slate-700'}`}>
-                  <div className="flex justify-between items-start mb-1">
-                    <h4 className={`font-bold text-sm truncate pr-8 ${t.hideProjects ? 'text-slate-500' : 'text-slate-200'}`}>{t.name}</h4>
-                    {/* 眼睛功能：切换显示/隐藏资产 */}
+              {templates.map((templateItem) => (
+                <div key={templateItem.id} className={`bg-slate-900/50 border rounded-lg p-4 transition-all relative group/tcard ${templateItem.hideProjects ? 'opacity-60 border-slate-800' : 'border-slate-800 hover:border-slate-700'}`}>
+                   <div className="flex justify-between items-start mb-1">
+                     <h4 className={`font-bold text-sm truncate pr-8 ${templateItem.hideProjects ? 'text-slate-500' : 'text-slate-200'}`}>{templateItem.name}</h4>
+                      {/* tags */}
+                      {templateItem.tags && templateItem.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {templateItem.tags.map((tag, idx) => (
+                            <span key={idx} className="text-[9px] rounded-full border border-amber-500/20 bg-amber-500/5 px-2 py-0.5 text-amber-500/70">
+                              {tag}
+                            </span>
+                         ))}
+                       </div>
+                     )}
+                    {/* Toggle asset visibility for this template */}
                     <button 
-                      onClick={(e) => { e.stopPropagation(); onUpdateTemplate(t.id, { hideProjects: !t.hideProjects }); }}
-                      className={`absolute top-4 right-4 p-1 rounded-md transition-all ${t.hideProjects ? 'text-slate-600 hover:text-blue-400' : 'text-slate-700 hover:text-blue-400 opacity-0 group-hover/tcard:opacity-100'}`}
-                      title={t.hideProjects ? "显示该模版下的资产" : "隐藏该模版下的资产"}
+                      onClick={(e) => { e.stopPropagation(); onUpdateTemplate(templateItem.id, { hideProjects: !templateItem.hideProjects }); }}
+                      className={`absolute top-4 right-4 p-1 rounded-md transition-all ${templateItem.hideProjects ? 'text-slate-600 hover:text-blue-400' : 'text-slate-700 hover:text-blue-400 opacity-0 group-hover/tcard:opacity-100'}`}
+                      title={templateItem.hideProjects ? t(language, 'fileLibrary.showTemplateAssets') : t(language, 'fileLibrary.hideTemplateAssets')}
                     >
-                      {t.hideProjects ? (
+                      {templateItem.hideProjects ? (
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
                           <path d="M12.44 11.38a6.47 6.47 0 0 1-8.88 0l-.06-.05a.75.75 0 0 1 1.01-1.11l.05.04c1.88 1.7 4.93 1.7 6.81 0l.05-.04a.75.75 0 0 1 1.01 1.11l-.05.05Z" />
                           <path d="M11.234 3.23a.75.75 0 0 0-1.06 0l-5.657 5.658a.75.75 0 1 0 1.06 1.06l5.657-5.657a.75.75 0 0 0 0-1.06Z" />
@@ -328,17 +448,17 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                       )}
                     </button>
                   </div>
-                  <div className="flex gap-2 text-[9px] text-slate-600 mb-4 font-mono"><span>{t.steps.length} STEPS</span><span>{t.inputs.length} VARS</span></div>
+                  <div className="flex gap-2 text-[9px] text-slate-600 mb-4 font-mono"><span>{templateItem.steps.length} STEPS</span><span>{templateItem.inputs.length} VARS</span></div>
                   <div className="flex gap-2">
-                      <Button onClick={() => setCreateModalInfo({ isOpen: true, templateId: t.id })} className="flex-1 h-8 text-[11px]" size="sm" variant="success">使用模版</Button>
-                      <button onClick={() => onDuplicateTemplate(t.id)} className="px-2.5 bg-slate-950 border border-slate-800 text-slate-500 hover:text-blue-400 rounded transition-colors" title="复制模版">
+                      <Button onClick={() => setCreateModalInfo({ isOpen: true, templateId: templateItem.id })} className="flex-1 h-8 text-[11px]" size="sm" variant="success">{t(language, 'fileLibrary.useTemplate')}</Button>
+                      <button onClick={() => onDuplicateTemplate(templateItem.id)} className="px-2.5 bg-slate-950 border border-slate-800 text-slate-500 hover:text-blue-400 rounded transition-colors" title={t(language, 'fileLibrary.duplicateTemplate')}>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
                           <path d="M4 4c0-1.1.9-2 2-2h4.688c.265 0 .52.105.707.293l2.312 2.312c.188.188.293.442.293.707V12c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2V4Z" />
                           <path d="M2.5 6A1.5 1.5 0 0 0 1 7.5v6A1.5 1.5 0 0 0 2.5 15h6A1.5 1.5 0 0 0 10 13.5V13H2.5V6Z" />
                         </svg>
                       </button>
-                      <button onClick={() => onEditTemplate(t.id)} className="px-3 bg-slate-950 border border-slate-800 text-[10px] text-slate-500 hover:text-white rounded" title="编辑模版结构">编辑</button>
-                      <button onClick={() => onDeleteTemplate(t.id)} className="px-2 bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 rounded transition-colors" title="删除模版"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
+                      <button onClick={() => onEditTemplate(templateItem.id)} className="px-3 bg-slate-950 border border-slate-800 text-[10px] text-slate-500 hover:text-white rounded" title={t(language, 'fileLibrary.editTemplate')}>{t(language, 'fileLibrary.editTemplate')}</button>
+                      <button onClick={() => onDeleteTemplate(templateItem.id)} className="px-2 bg-slate-950 border border-slate-800 text-slate-500 hover:text-red-400 rounded transition-colors" title={t(language, 'fileLibrary.deleteTemplate')}><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M5 3.25V4H2.75a.75.75 0 0 0 0 1.5h.3l.815 8.15A1.5 1.5 0 0 0 5.357 15h5.285a1.5 1.5 0 0 0 1.493-1.35l.815-8.15h.3a.75.75 0 0 0 0-1.5H11v-.75A2.25 2.25 0 0 0 8.75 1h-1.5A2.25 2.25 0 0 0 5 3.25Zm2.25-.75a.75.75 0 0 0-.75.75V4h3v-.75a.75.75 0 0 0-.75-.75h-1.5Z" clipRule="evenodd" /></svg></button>
                   </div>
                 </div>
               ))}
@@ -349,22 +469,49 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         {isSelectionMode && (
           <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-slate-900/80 backdrop-blur-xl border border-slate-700 rounded-2xl px-6 py-4 flex items-center gap-6 shadow-2xl z-[60] animate-in slide-in-from-bottom-4 duration-300 ring-1 ring-white/5">
               <div className="flex flex-col pr-6 border-r border-slate-800">
-                <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">已选择</span>
+                <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{t(language, 'fileLibrary.selected')}</span>
                 <span className="text-xl font-black text-blue-400">{selectedIds.size}</span>
               </div>
               <div className="flex gap-3">
                 <Button variant="ghost" size="sm" onClick={selectAll} className="text-slate-300 hover:bg-slate-800">
-                  {selectedIds.size === projects.length ? '取消全选' : '全选所有'}
+                  {selectedIds.size === projects.length ? t(language, 'fileLibrary.clearAll') : t(language, 'fileLibrary.selectAll')}
                 </Button>
                 <Button variant="danger" size="sm" onClick={handleBatchDelete} disabled={selectedIds.size === 0} className="shadow-lg shadow-red-500/20 px-6 font-bold">
-                  批量删除
+                  {t(language, 'fileLibrary.batchDelete')}
                 </Button>
-                <button onClick={() => setIsSelectionMode(false)} className="text-[11px] text-slate-500 hover:text-white px-2">取消</button>
+                <button onClick={() => setIsSelectionMode(false)} className="text-[11px] text-slate-500 hover:text-white px-2">{t(language, 'fileLibrary.cancel')}</button>
               </div>
           </div>
         )}
       </div>
       <CreateProjectModal isOpen={createModalInfo.isOpen} onConfirm={(name) => { if (createModalInfo.templateId) { onCreateProject(createModalInfo.templateId, name); setCreateModalInfo({ isOpen: false, templateId: null }); } }} onCancel={() => setCreateModalInfo({ isOpen: false, templateId: null })} />
+      <BatchCreateProjectsModal
+        isOpen={batchCreateModalInfo.isOpen}
+        template={templates.find((template) => template.id === batchCreateModalInfo.templateId) || null}
+        onConfirm={(content) => {
+          if (batchCreateModalInfo.templateId) {
+            onBatchCreateProjects(batchCreateModalInfo.templateId, content);
+            setBatchCreateModalInfo({ isOpen: false, templateId: null });
+          }
+        }}
+        onCancel={() => setBatchCreateModalInfo({ isOpen: false, templateId: null })}
+      />
+      <BatchRunStepModal
+        isOpen={isBatchRunModalOpen}
+        templates={templates}
+        projects={projects}
+        onConfirm={(templateId, stepId) => {
+          onBatchRunStep(templateId, stepId);
+          setIsBatchRunModalOpen(false);
+        }}
+        onCancel={() => setIsBatchRunModalOpen(false)}
+      />
+      <BatchRunProgressModal
+        state={batchRunProgress}
+        onRetryFailed={onRetryFailedBatchRun}
+        onClose={onCloseBatchRunProgress}
+        onExportResults={onExportBatchRunResults}
+      />
       <MergeModal 
         isOpen={isMergeModalOpen} 
         onClose={() => setIsMergeModalOpen(false)} 
