@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEEPSEEK_EXECUTION_PRESETS,
   DEEPSEEK_SYSTEM_PROMPT_PRESETS,
@@ -6,6 +6,8 @@ import {
   getRecommendedDeepSeekSystemPromptPresetByModelName,
 } from '../constants';
 import {
+  ExecutionPresetModelRefStrategy,
+  ExecutionPresetTemplate,
   ModelCatalogItem,
   ProviderConfig,
   StepExecutionAvailability,
@@ -27,9 +29,34 @@ interface TemplateEditorProps {
   template: Template;
   modelCatalog: ModelCatalogItem[];
   providerConfigs: ProviderConfig[];
+  executionPresetTemplates: ExecutionPresetTemplate[];
   onSave: (template: Template) => void;
+  onSaveExecutionPresetTemplate: (preset: {
+    label: string;
+    description?: string;
+    modelRefStrategy: ExecutionPresetModelRefStrategy;
+    modelCatalogItemId?: string;
+    temperature?: number;
+    maxTokens?: number;
+    systemPrompt?: string;
+  }) => void;
   onCancel: () => void;
   onRequestConfirm: (title: string, message: string, onConfirm: () => void) => void;
+}
+
+interface VariableAutocompleteItem {
+  key: string;
+  label: string;
+  sourceType: 'template_input' | 'step_output';
+  sourceLabel: string;
+}
+
+interface VariableAutocompleteState {
+  stepId: string;
+  start: number;
+  end: number;
+  query: string;
+  selectedIndex: number;
 }
 
 const normalizeBinding = (binding?: StepOutputBinding): StepOutputBinding => binding || {};
@@ -59,7 +86,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   template,
   modelCatalog,
   providerConfigs,
+  executionPresetTemplates,
   onSave,
+  onSaveExecutionPresetTemplate,
   onCancel,
   onRequestConfirm,
 }) => {
@@ -72,12 +101,28 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     sourceStepName: string;
     execution: StepExecutionConfig;
   } | null>(null);
+  const [selectedExecutionPresetByStepId, setSelectedExecutionPresetByStepId] = useState<Record<string, string>>({});
+  const [savingExecutionPresetStepId, setSavingExecutionPresetStepId] = useState<string | null>(null);
+  const [executionPresetDraft, setExecutionPresetDraft] = useState<{
+    label: string;
+    description: string;
+    modelRefStrategy: ExecutionPresetModelRefStrategy;
+  }>({
+    label: '新执行模板',
+    description: '',
+    modelRefStrategy: 'keep_current',
+  });
+  const [autocompleteState, setAutocompleteState] = useState<VariableAutocompleteState | null>(null);
+  const promptTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
     setEditedTemplate(cloneTemplate(template));
     setSelectedStepIds([]);
     setSelectionModelRefId('');
     setCopiedExecutionConfig(null);
+    setSelectedExecutionPresetByStepId({});
+    setSavingExecutionPresetStepId(null);
+    setAutocompleteState(null);
   }, [template]);
 
   const modelRefs = editedTemplate.modelRefs || [];
@@ -94,6 +139,68 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       ),
     [editedTemplate.inputs, editedTemplate.steps]
   );
+
+  const variableAutocompleteItems = useMemo<VariableAutocompleteItem[]>(
+    () => [
+      ...editedTemplate.inputs
+        .map((input) => input.label.trim())
+        .filter(Boolean)
+        .map((key) => ({
+          key,
+          label: key,
+          sourceType: 'template_input' as const,
+          sourceLabel: language === 'zh-CN' ? '输入变量' : 'Input',
+        })),
+      ...editedTemplate.steps
+        .map((step) => {
+          const key = step.outputBinding?.variableKey?.trim() || '';
+          if (!key) return null;
+          return {
+            key,
+            label: step.outputBinding?.variableLabel?.trim() || key,
+            sourceType: 'step_output' as const,
+            sourceLabel: language === 'zh-CN' ? '步骤输出' : 'Step output',
+          };
+        })
+        .filter((item): item is VariableAutocompleteItem => Boolean(item)),
+    ],
+    [editedTemplate.inputs, editedTemplate.steps, language]
+  );
+
+  const enabledExecutionPresetTemplates = useMemo(
+    () => executionPresetTemplates.filter((item) => item.enabled),
+    [executionPresetTemplates]
+  );
+
+  const filteredAutocompleteItems = useMemo(() => {
+    if (!autocompleteState) return [];
+    const query = autocompleteState.query.trim().toLowerCase();
+    if (!query) return variableAutocompleteItems;
+
+    return variableAutocompleteItems.filter((item) => {
+      const key = item.key.toLowerCase();
+      const label = item.label.toLowerCase();
+      return key.includes(query) || label.includes(query);
+    });
+  }, [autocompleteState, variableAutocompleteItems]);
+
+  useEffect(() => {
+    if (!autocompleteState) return;
+
+    if (filteredAutocompleteItems.length === 0) {
+      setAutocompleteState((prev) => (prev ? { ...prev, selectedIndex: 0 } : prev));
+      return;
+    }
+
+    setAutocompleteState((prev) =>
+      prev
+        ? {
+            ...prev,
+            selectedIndex: Math.min(prev.selectedIndex, filteredAutocompleteItems.length - 1),
+          }
+        : prev
+    );
+  }, [autocompleteState?.query, filteredAutocompleteItems.length]);
 
   const getCatalogItem = (itemId?: string) => modelCatalog.find((item) => item.id === itemId);
   const getModelRef = (modelRefId?: string) => modelRefs.find((item) => item.id === modelRefId);
@@ -223,6 +330,109 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     });
   };
 
+  const updateExecutionPresetDraft = (
+    updates: Partial<{
+      label: string;
+      description: string;
+      modelRefStrategy: ExecutionPresetModelRefStrategy;
+    }>
+  ) => {
+    setExecutionPresetDraft((prev) => ({ ...prev, ...updates }));
+  };
+
+  const getPromptTextarea = (stepId: string) => promptTextareaRefs.current[stepId];
+
+  const findAutocompleteMatch = (value: string, caret: number) => {
+    const safeCaret = Math.max(0, Math.min(caret, value.length));
+    const openIndex = value.lastIndexOf('{{', safeCaret - 1);
+    if (openIndex < 0) return null;
+
+    const closingIndex = value.indexOf('}}', openIndex + 2);
+    if (closingIndex >= 0 && closingIndex < safeCaret) return null;
+
+    const query = value.slice(openIndex + 2, safeCaret);
+    if (/[\s{}]/.test(query)) return null;
+
+    return {
+      start: openIndex,
+      end: safeCaret,
+      query,
+    };
+  };
+
+  const syncAutocomplete = (stepId: string, value: string) => {
+    const textarea = getPromptTextarea(stepId);
+    const caret = textarea?.selectionStart ?? value.length;
+    const match = findAutocompleteMatch(value, caret);
+
+    if (!match) {
+      setAutocompleteState((prev) => (prev?.stepId === stepId ? null : prev));
+      return;
+    }
+
+    setAutocompleteState((prev) => ({
+      stepId,
+      start: match.start,
+      end: match.end,
+      query: match.query,
+      selectedIndex: prev?.stepId === stepId ? prev.selectedIndex : 0,
+    }));
+  };
+
+  const applyExecutionPresetToStep = (index: number, presetId: string) => {
+    const preset = enabledExecutionPresetTemplates.find((item) => item.id === presetId);
+    if (!preset) return;
+
+    updateStepExecution(index, {
+      temperature: preset.temperature,
+      maxTokens: preset.maxTokens,
+      systemPrompt: preset.systemPrompt || '',
+    });
+
+    setSelectedExecutionPresetByStepId((prev) => ({
+      ...prev,
+      [editedTemplate.steps[index].id]: preset.id,
+    }));
+  };
+
+  const startSavingExecutionPreset = (step: TemplateStep) => {
+    setSavingExecutionPresetStepId(step.id);
+    setExecutionPresetDraft({
+      label: `${step.name || t(language, 'templateEditor.untitledStep')} ${language === 'zh-CN' ? '执行模板' : 'Preset'}`,
+      description: '',
+      modelRefStrategy: 'keep_current',
+    });
+  };
+
+  const cancelSavingExecutionPreset = () => {
+    setSavingExecutionPresetStepId(null);
+    setExecutionPresetDraft({
+      label: '新执行模板',
+      description: '',
+      modelRefStrategy: 'keep_current',
+    });
+  };
+
+  const saveCurrentExecutionPreset = (step: TemplateStep, currentRef?: TemplateModelRef) => {
+    const label = executionPresetDraft.label.trim();
+    if (!label) return;
+
+    onSaveExecutionPresetTemplate({
+      label,
+      description: executionPresetDraft.description.trim() || undefined,
+      modelRefStrategy: executionPresetDraft.modelRefStrategy,
+      modelCatalogItemId:
+        executionPresetDraft.modelRefStrategy === 'bind_specific_model_catalog_item'
+          ? currentRef?.modelCatalogItemId || undefined
+          : undefined,
+      temperature: normalizeExecution(step.execution).temperature,
+      maxTokens: normalizeExecution(step.execution).maxTokens,
+      systemPrompt: normalizeExecution(step.execution).systemPrompt,
+    });
+
+    cancelSavingExecutionPreset();
+  };
+
   const applyStepModelRef = (index: number, modelRefId?: string) => {
     setEditedTemplate((prev) => {
       const steps = [...prev.steps];
@@ -346,6 +556,80 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     }));
   };
 
+  const applyAutocompleteItem = (stepIndex: number, stepId: string, item: VariableAutocompleteItem) => {
+    if (!autocompleteState || autocompleteState.stepId !== stepId) return;
+
+    const step = editedTemplate.steps[stepIndex];
+    if (!step) return;
+
+    const replacement = `{{${item.key}}}`;
+    const nextContent =
+      step.content.slice(0, autocompleteState.start) +
+      replacement +
+      step.content.slice(autocompleteState.end);
+
+    updateStep(stepIndex, { content: nextContent });
+    setAutocompleteState(null);
+
+    requestAnimationFrame(() => {
+      const textarea = getPromptTextarea(stepId);
+      if (!textarea) return;
+      const caret = autocompleteState.start + replacement.length;
+      textarea.focus();
+      textarea.setSelectionRange(caret, caret);
+    });
+  };
+
+  const handlePromptKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+    stepIndex: number,
+    stepId: string
+  ) => {
+    if (!autocompleteState || autocompleteState.stepId !== stepId) return;
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setAutocompleteState(null);
+      return;
+    }
+
+    if (filteredAutocompleteItems.length === 0) return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setAutocompleteState((prev) =>
+        prev
+          ? { ...prev, selectedIndex: (prev.selectedIndex + 1) % filteredAutocompleteItems.length }
+          : prev
+      );
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setAutocompleteState((prev) =>
+        prev
+          ? {
+              ...prev,
+              selectedIndex:
+                (prev.selectedIndex - 1 + filteredAutocompleteItems.length) % filteredAutocompleteItems.length,
+            }
+          : prev
+      );
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      event.preventDefault();
+      applyAutocompleteItem(stepIndex, stepId, filteredAutocompleteItems[autocompleteState.selectedIndex]);
+    }
+  };
+
+  const handlePromptContentChange = (stepIndex: number, stepId: string, value: string) => {
+    updateStep(stepIndex, { content: value });
+    requestAnimationFrame(() => syncAutocomplete(stepId, value));
+  };
+
   return (
     <div className="h-full w-full overflow-y-auto rounded-lg bg-slate-900 p-4 md:p-6">
       <div className="sticky top-0 z-10 mb-6 flex items-center justify-between border-b border-slate-800 bg-slate-900 py-2">
@@ -433,7 +717,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                       />
                     </div>
                     <button onClick={() => removeInput(index)} className="absolute right-1 top-1 p-1 text-slate-600 hover:text-red-400">
-                      ×
+                      脳
                     </button>
                   </div>
                 ))}
@@ -486,7 +770,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           <div className="text-xs text-amber-400">{t(language, 'templateEditor.disabledModelItem')}</div>
                         )}
                         <button onClick={() => removeModelRef(index)} className="absolute right-1 top-1 p-1 text-slate-600 hover:text-red-400">
-                          ×
+                          脳
                         </button>
                       </div>
                     );
@@ -636,7 +920,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             }`}
                             title={t(language, 'templateEditor.moveUp')}
                           >
-                            ↑
+                            鈫?
                           </button>
                           <div className="h-4 w-px bg-slate-800" />
                           <button
@@ -652,7 +936,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             }`}
                             title={t(language, 'templateEditor.moveDown')}
                           >
-                            ↓
+                            鈫?
                           </button>
                         </div>
 
@@ -729,13 +1013,52 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
                         <div className="mb-4 space-y-2">
                           <label className="text-xs font-bold uppercase text-slate-400">{t(language, 'templateEditor.promptContent')}</label>
-                          <div className="flex h-auto flex-col rounded border border-slate-700 bg-slate-950 p-4">
+                          <div className="relative flex h-auto flex-col rounded border border-slate-700 bg-slate-950 p-4">
                             <AutoResizeTextarea
                               className="font-mono text-sm leading-relaxed text-slate-300"
                               value={step.content}
-                              onChange={(value) => updateStep(index, { content: value })}
+                              onChange={(value) => handlePromptContentChange(index, step.id, value)}
+                              onKeyDown={(event) => handlePromptKeyDown(event, index, step.id)}
+                              onClick={() => syncAutocomplete(step.id, step.content)}
+                              onSelect={() => syncAutocomplete(step.id, step.content)}
+                              onBlur={() => setTimeout(() => setAutocompleteState((prev) => (prev?.stepId === step.id ? null : prev)), 120)}
+                              textareaRef={(node) => {
+                                promptTextareaRefs.current[step.id] = node;
+                              }}
                               placeholder={t(language, 'templateEditor.promptPlaceholder')}
                             />
+                            {autocompleteState?.stepId === step.id && filteredAutocompleteItems.length > 0 && (
+                              <div className="absolute left-4 right-4 top-full z-20 mt-2 rounded-xl border border-slate-700 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">
+                                <div className="mb-2 px-2 text-[11px] text-slate-500">
+                                  {language === 'zh-CN' ? '变量补全' : 'Variable suggestions'}
+                                </div>
+                                <div className="max-h-56 space-y-1 overflow-y-auto">
+                                  {filteredAutocompleteItems.map((item, itemIndex) => (
+                                    <button
+                                      key={`${step.id}_${item.key}_${itemIndex}`}
+                                      type="button"
+                                      onMouseDown={(event) => {
+                                        event.preventDefault();
+                                        applyAutocompleteItem(index, step.id, item);
+                                      }}
+                                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors ${
+                                        autocompleteState.selectedIndex === itemIndex
+                                          ? 'bg-cyan-500/15 text-cyan-200'
+                                          : 'text-slate-300 hover:bg-slate-800'
+                                      }`}
+                                    >
+                                      <div>
+                                        <div className="font-mono text-xs">{`{{${item.key}}}`}</div>
+                                        <div className="text-[11px] text-slate-500">{item.label}</div>
+                                      </div>
+                                      <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] text-slate-400">
+                                        {item.sourceLabel}
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -749,6 +1072,119 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           <p className="text-xs text-slate-500">
                             {t(language, 'templateEditor.manualStepHint')}
                           </p>
+                          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                value={selectedExecutionPresetByStepId[step.id] || ''}
+                                onChange={(event) =>
+                                  setSelectedExecutionPresetByStepId((prev) => ({
+                                    ...prev,
+                                    [step.id]: event.target.value,
+                                  }))
+                                }
+                                className="min-w-[220px] flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                              >
+                                <option value="">{language === 'zh-CN' ? '选择执行模板' : 'Select execution template'}</option>
+                                {enabledExecutionPresetTemplates.map((preset) => (
+                                  <option key={preset.id} value={preset.id}>
+                                    {preset.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => applyExecutionPresetToStep(index, selectedExecutionPresetByStepId[step.id] || '')}
+                                disabled={!selectedExecutionPresetByStepId[step.id]}
+                                className={`rounded-md px-3 py-2 text-xs font-bold transition-colors ${
+                                  selectedExecutionPresetByStepId[step.id]
+                                    ? 'border border-cyan-500/20 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/40 hover:text-white'
+                                    : 'cursor-not-allowed border border-slate-800 bg-slate-900 text-slate-600'
+                                }`}
+                              >
+                                {language === 'zh-CN' ? '应用执行模板' : 'Apply preset'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startSavingExecutionPreset(step)}
+                                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                              >
+                                {language === 'zh-CN' ? '保存当前配置为模板' : 'Save as preset'}
+                              </button>
+                            </div>
+                            {savingExecutionPresetStepId === step.id && (
+                              <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/80 p-3">
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                  <div className="space-y-2">
+                                    <label className="text-[11px] font-bold uppercase text-slate-500">
+                                      {language === 'zh-CN' ? '模板名称' : 'Preset name'}
+                                    </label>
+                                    <input
+                                      value={executionPresetDraft.label}
+                                      onChange={(event) => updateExecutionPresetDraft({ label: event.target.value })}
+                                      className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                                      placeholder={language === 'zh-CN' ? '新执行模板' : 'New execution preset'}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <label className="text-[11px] font-bold uppercase text-slate-500">
+                                      {language === 'zh-CN' ? '模型策略' : 'Model strategy'}
+                                    </label>
+                                    <select
+                                      value={executionPresetDraft.modelRefStrategy}
+                                      onChange={(event) =>
+                                        updateExecutionPresetDraft({
+                                          modelRefStrategy: event.target.value as ExecutionPresetModelRefStrategy,
+                                        })
+                                      }
+                                      className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                                    >
+                                      <option value="keep_current">
+                                        {language === 'zh-CN' ? '保留当前模型' : 'Keep current model'}
+                                      </option>
+                                      <option
+                                        value="bind_specific_model_catalog_item"
+                                        disabled={!currentRef?.modelCatalogItemId}
+                                      >
+                                        {language === 'zh-CN' ? '记录当前模型目录项' : 'Bind current catalog model'}
+                                      </option>
+                                    </select>
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">
+                                    {language === 'zh-CN' ? '备注' : 'Description'}
+                                  </label>
+                                  <input
+                                    value={executionPresetDraft.description}
+                                    onChange={(event) => updateExecutionPresetDraft({ description: event.target.value })}
+                                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                                    placeholder={language === 'zh-CN' ? '可选说明' : 'Optional note'}
+                                  />
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  {currentRef?.modelCatalogItemId
+                                    ? executionPresetDraft.modelRefStrategy === 'bind_specific_model_catalog_item'
+                                      ? language === 'zh-CN'
+                                        ? '保存时会记录当前模型目录项，但应用模板时仍不会替换步骤模型引用。'
+                                        : 'The current catalog model will be recorded, but applying the preset still keeps the step model ref.'
+                                      : language === 'zh-CN'
+                                      ? '默认保留当前步骤模型，只覆盖 temperature、max tokens 和 system prompt。'
+                                      : 'The current step model stays unchanged; only temperature, max tokens, and system prompt are applied.'
+                                    : language === 'zh-CN'
+                                    ? '当前步骤没有模型引用，保存时将默认保留当前模型策略。'
+                                    : 'This step has no model ref, so the preset will default to keep current model.'}
+                                </div>
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button variant="secondary" size="sm" onClick={cancelSavingExecutionPreset}>
+                                    {language === 'zh-CN' ? '取消' : 'Cancel'}
+                                  </Button>
+                                  <Button size="sm" onClick={() => saveCurrentExecutionPreset(step, currentRef)}>
+                                    {language === 'zh-CN' ? '保存模板' : 'Save preset'}
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                           {matchedPreset && (
                             <div className="text-[11px] text-cyan-300">
                               {t(language, 'templateEditor.currentPreset')}: {matchedPreset.label}
@@ -851,6 +1287,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                                 min="0"
                                 max="2"
                                 step="0.1"
+                                value={execution.temperature ?? ''}
                                 onChange={(event) =>
                                   updateStepExecution(index, {
                                     temperature: event.target.value === '' ? undefined : Number(event.target.value),
@@ -866,6 +1303,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                                 type="number"
                                 min="1"
                                 step="1"
+                                value={execution.maxTokens ?? ''}
                                 onChange={(event) =>
                                   updateStepExecution(index, {
                                     maxTokens: event.target.value === '' ? undefined : Number(event.target.value),

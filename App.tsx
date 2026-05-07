@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { DEFAULT_TEMPLATES } from './constants';
 import { ExportModal } from './components/ExportModal';
 import { FileLibrary } from './components/FileLibrary';
@@ -32,6 +32,8 @@ import {
 } from './domain/templateDomain';
 import {
   AppSettings,
+  ExecutionPresetModelRefStrategy,
+  ExecutionPresetTemplate,
   Project,
   ProjectVariable,
   SortKey,
@@ -184,7 +186,7 @@ const App: React.FC = () => {
       .map((project) => project.id);
 
     if (matchedProjectIds.length === 0) {
-      openAlert('无法批量执行', '这个模板下没有可执行的未归档项目。');
+      openAlert("No runnable projects", "This template has no unarchived projects available for batch run.");
       return;
     }
 
@@ -217,7 +219,7 @@ const App: React.FC = () => {
         : batchRunProgress.results.filter((item) => item.status === scope);
 
     if (filteredResults.length === 0) {
-      openAlert('无法导出', '当前筛选条件下没有可导出的结果。');
+      openAlert("Nothing to export", "There are no results to export for the current filter.");
       return;
     }
 
@@ -253,7 +255,7 @@ const App: React.FC = () => {
   const showPersistError = () => {
     if (persistErrorRef.current) return;
     persistErrorRef.current = true;
-    openAlert('保存失败', '数据未能保存到本地，请检查磁盘空间和文件权限。');
+    openAlert("Save failed", "Data could not be saved locally. Please check disk space and file permissions.");
     setTimeout(() => {
       persistErrorRef.current = false;
     }, 5000);
@@ -371,6 +373,57 @@ const App: React.FC = () => {
     setSettings((prev) => ({ ...prev, ...updates }));
   };
 
+  const saveExecutionPresetTemplate = (
+    input: {
+      id?: string;
+      label: string;
+      description?: string;
+      modelRefStrategy: ExecutionPresetModelRefStrategy;
+      modelCatalogItemId?: string;
+      temperature?: number;
+      maxTokens?: number;
+      systemPrompt?: string;
+    }
+  ) => {
+    const now = Date.now();
+    const nextPreset: ExecutionPresetTemplate = {
+      id: input.id || `execution_preset_${now}`,
+      label: input.label.trim() || '新执行模板',
+      description: input.description?.trim() || '',
+      modelRefStrategy: input.modelRefStrategy,
+      modelCatalogItemId:
+        input.modelRefStrategy === 'bind_specific_model_catalog_item' ? input.modelCatalogItemId || undefined : undefined,
+      temperature: input.temperature,
+      maxTokens: input.maxTokens,
+      systemPrompt: input.systemPrompt || '',
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setSettings((prev) => {
+      const existingIndex = prev.executionPresetTemplates.findIndex((item) => item.id === nextPreset.id);
+      if (existingIndex >= 0) {
+        const current = prev.executionPresetTemplates[existingIndex];
+        const merged: ExecutionPresetTemplate = {
+          ...current,
+          ...nextPreset,
+          enabled: current.enabled,
+          createdAt: current.createdAt,
+          updatedAt: now,
+        };
+        const executionPresetTemplates = [...prev.executionPresetTemplates];
+        executionPresetTemplates[existingIndex] = merged;
+        return { ...prev, executionPresetTemplates };
+      }
+
+      return {
+        ...prev,
+        executionPresetTemplates: [...prev.executionPresetTemplates, nextPreset],
+      };
+    });
+  };
+
   const updateProjectWithSync = (projectId: string, recipe: (project: Project) => Project) => {
     setProjects((prev) =>
       prev.map((project) => {
@@ -438,15 +491,15 @@ const App: React.FC = () => {
       );
 
       if (newProjects.length === 0) {
-        openAlert('无法创建', '没有解析出任何可创建的项目。');
+        openAlert("Cannot create", "No projects could be created from the imported rows.");
         return;
       }
 
       setProjects((prev) => [...prev, ...newProjects]);
       openTab(newProjects[0].id);
-      openAlert('批量创建完成', `已创建 ${newProjects.length} 个项目。`);
+      openAlert("Batch create complete", `Created ${newProjects.length} projects.`);
     } catch (error) {
-      openAlert('批量创建失败', error instanceof Error ? error.message : '批量创建失败。');
+      openAlert("Batch create failed", error instanceof Error ? error.message : "Batch create failed.");
     }
   };
 
@@ -634,9 +687,9 @@ const App: React.FC = () => {
         };
       });
 
-      openAlert('导入完成', '变量表已导入到当前项目。');
+      openAlert("Import complete", "The variable table has been imported into the current project.");
     } catch (error) {
-      openAlert('导入失败', error instanceof Error ? error.message : '变量表导入失败。');
+      openAlert("Import failed", error instanceof Error ? error.message : "Variable table import failed.");
     }
   };
 
@@ -644,12 +697,12 @@ const App: React.FC = () => {
     const project = projects.find((item) => item.id === projectId);
     const template = templates.find((item) => item.id === project?.templateId);
     if (!project || !template) {
-      throw new Error('当前项目或模板不存在。');
+      throw new Error("Current project or template could not be found.");
     }
 
     const step = template.steps.find((item) => item.id === stepId);
     if (!step) {
-      throw new Error('未找到要执行的步骤。');
+      throw new Error("The requested step could not be found.");
     }
 
     const availability = resolveStepExecutionAvailability({
@@ -672,7 +725,7 @@ const App: React.FC = () => {
     const maxTokens = step.execution?.maxTokens;
 
     if (!userPrompt) {
-      throw new Error('当前步骤的插值结果为空，无法执行。');
+      throw new Error("The interpolated prompt is empty, so this step cannot run.");
     }
 
     const logBase = {
@@ -765,7 +818,7 @@ const App: React.FC = () => {
 
       return result.output;
     } catch (error) {
-      const message = error instanceof Error ? error.message : '执行失败';
+      const message = error instanceof Error ? error.message : "Run failed";
       const nextLog: StepRunLog = {
         ...logBase,
         status: 'error',
@@ -787,12 +840,12 @@ const App: React.FC = () => {
 
   const handleRunStep = async (stepId: string) => {
     if (!activeProject || !activeProjectTemplate) {
-      throw new Error('当前没有可执行的项目。');
+      throw new Error("There is no active project to run.");
     }
 
     const step = activeProjectTemplate.steps.find((item) => item.id === stepId);
     if (!step) {
-      throw new Error('未找到要执行的步骤。');
+      throw new Error("The requested step could not be found.");
     }
 
     const availability = resolveStepExecutionAvailability({
@@ -815,7 +868,7 @@ const App: React.FC = () => {
     const maxTokens = step.execution?.maxTokens;
 
     if (!userPrompt) {
-      throw new Error('当前步骤的插值结果为空，无法执行。');
+      throw new Error("The interpolated prompt is empty, so this step cannot run.");
     }
 
     const logBase = {
@@ -908,7 +961,7 @@ const App: React.FC = () => {
 
       return result.output;
     } catch (error) {
-      const message = error instanceof Error ? error.message : '执行失败';
+      const message = error instanceof Error ? error.message : "Run failed";
       const nextLog: StepRunLog = {
         ...logBase,
         status: 'error',
@@ -947,7 +1000,7 @@ const App: React.FC = () => {
   const handleBatchRunStep = async (templateId: string, stepId: string) => {
     const matchedProjects = projects.filter((project) => project.templateId === templateId && !project.archived);
     if (matchedProjects.length === 0) {
-      openAlert('无法批量执行', '这个模板下没有可执行的未归档项目。');
+      openAlert("No runnable projects", "This template has no unarchived projects available for batch run.");
       return;
     }
 
@@ -959,14 +1012,14 @@ const App: React.FC = () => {
         await executeProjectStep(project.id, stepId);
         successCount += 1;
       } catch (error) {
-        const message = error instanceof Error ? error.message : '执行失败';
+        const message = error instanceof Error ? error.message : "Run failed";
         failures.push(`${project.name}: ${message}`);
       }
     }
 
     const failureSummary =
-      failures.length > 0 ? `\n失败 ${failures.length} 个：\n${failures.slice(0, 5).join('\n')}` : '';
-    openAlert('批量执行完成', `成功 ${successCount} 个项目。${failureSummary}`);
+      failures.length > 0 ? `\nFailed ${failures.length}:\n${failures.slice(0, 5).join("\\n")}` : "";
+    openAlert("Batch run complete", `Succeeded for ${successCount} projects.${failureSummary}`);
   };
 
   const handleClearStepRunLogs = (stepId: string) => {
@@ -1036,11 +1089,11 @@ const App: React.FC = () => {
   const handleDeleteProvider = (providerId: string) => {
     const isReferenced = settings.modelCatalog.some((item) => item.providerConfigId === providerId);
     if (isReferenced) {
-      openAlert('无法删除提供商', '还有模型目录项在使用这个提供商。请先调整或删除相关模型目录项。');
+      openAlert("Cannot delete provider", "Some model catalog items still use this provider. Remove or update them first.");
       return;
     }
 
-    openConfirm('删除提供商', '确认删除这个提供商配置吗？', () => {
+    openConfirm("Delete provider", "Delete this provider configuration?", () => {
       updateSettings({
         providerConfigs: settings.providerConfigs.filter((provider) => provider.id !== providerId),
       });
@@ -1053,13 +1106,23 @@ const App: React.FC = () => {
     );
 
     if (isReferenced) {
-      openAlert('无法删除模型目录项', '还有模板模型引用在使用这个模型目录项。请先调整模板里的模型引用。');
+      openAlert("Cannot delete model", "Some template model refs still use this catalog item. Update the template first.");
       return;
     }
 
-    openConfirm('删除模型目录项', '确认删除这个模型目录项吗？', () => {
+    openConfirm("Delete model", "Delete this model catalog item?", () => {
       updateSettings({
         modelCatalog: settings.modelCatalog.filter((item) => item.id !== modelCatalogItemId),
+      });
+    });
+  };
+
+  const handleDeleteExecutionPresetTemplate = (executionPresetTemplateId: string) => {
+    openConfirm("Delete execution preset", "Delete this execution preset template?", () => {
+      updateSettings({
+        executionPresetTemplates: settings.executionPresetTemplates.filter(
+          (item) => item.id !== executionPresetTemplateId
+        ),
       });
     });
   };
@@ -1077,9 +1140,11 @@ const App: React.FC = () => {
             template={editingTemplate}
             modelCatalog={settings.modelCatalog}
             providerConfigs={settings.providerConfigs}
+            executionPresetTemplates={settings.executionPresetTemplates}
             onSave={(updatedTemplate) => {
               handleSaveTemplateWithHistory(updatedTemplate);
             }}
+            onSaveExecutionPresetTemplate={saveExecutionPresetTemplate}
             onCancel={() => setEditingTemplateId(null)}
             onRequestConfirm={openConfirm}
           />
@@ -1157,19 +1222,19 @@ const App: React.FC = () => {
                 setEditingTemplateId(nextId);
               }}
               onDeleteProject={(id) =>
-                openConfirm('删除项目', '确认删除这个项目？', () => {
+                openConfirm("Delete project", "Delete this project?", () => {
                   setProjects(projects.filter((project) => project.id !== id));
                   closeTab(id);
                 })
               }
               onDeleteProjects={(ids) =>
-                openConfirm('批量删除', '确认删除所选项目？', () => {
+                openConfirm("Delete selected projects", "Delete the selected projects?", () => {
                   setProjects(projects.filter((project) => !ids.includes(project.id)));
                   ids.forEach((id) => closeTab(id));
                 })
               }
               onDeleteTemplate={(id) =>
-                openConfirm('删除模板', '确认删除这个模板？', () => {
+                openConfirm("Delete template", "Delete this template?", () => {
                   setTemplates(templates.filter((template) => template.id !== id));
                 })
               }
@@ -1213,7 +1278,7 @@ const App: React.FC = () => {
               onRightPanelOpenChange={(isRightPanelOpen) => updateSettings({ isRightPanelOpen })}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-slate-700">请从文件库打开项目</div>
+            <div className="flex h-full items-center justify-center text-slate-700">Open a project from the library</div>
           )}
         </div>
       </div>
@@ -1225,6 +1290,7 @@ const App: React.FC = () => {
         onChange={updateSettings}
         onDeleteProvider={handleDeleteProvider}
         onDeleteModelCatalogItem={handleDeleteModelCatalogItem}
+        onDeleteExecutionPresetTemplate={handleDeleteExecutionPresetTemplate}
       />
       <ExportModal
         isOpen={isExportModalOpen}

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ModelCatalogItem,
   Project,
@@ -14,6 +14,7 @@ import { t } from '../services/i18n';
 import { resolveStepExecutionAvailability } from '../services/modelService';
 import { PromptEditor } from './PromptEditor';
 import { FloatingToast, useToast } from './FloatingToast';
+import { AutoResizeTextarea } from './common/AutoResizeTextarea';
 
 interface ProjectRunnerProps {
   project: Project;
@@ -33,38 +34,6 @@ interface ProjectRunnerProps {
   isRightPanelOpen: boolean;
   onRightPanelOpenChange: (isOpen: boolean) => void;
 }
-
-const AutoResizeTextarea: React.FC<{
-  value: string;
-  onChange: (val: string) => void;
-  placeholder?: string;
-  className?: string;
-}> = ({ value, onChange, placeholder, className }) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const adjustHeight = () => {
-    const element = textareaRef.current;
-    if (!element) return;
-    element.style.height = '0px';
-    element.style.height = `${element.scrollHeight}px`;
-  };
-
-  useLayoutEffect(() => {
-    adjustHeight();
-  }, [value]);
-
-  return (
-    <textarea
-      ref={textareaRef}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={placeholder}
-      className={`block w-full resize-none overflow-hidden bg-transparent p-0 m-0 outline-none focus:ring-0 ${className}`}
-      rows={1}
-      spellCheck={false}
-    />
-  );
-};
 
 type ViewMode = 'compact' | 'detail';
 
@@ -159,6 +128,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
 }) => {
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
+  const [expandedResults, setExpandedResults] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<ViewMode>('compact');
   const [isResizingRight, setIsResizingRight] = useState(false);
   const [runStates, setRunStates] = useState<Record<string, StepRunState>>({});
@@ -342,6 +312,18 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   const projectLogGroups = Object.values(project.stepRunLogs || {}) as StepRunLog[][];
   const projectLogCount = projectLogGroups.reduce((total, logs) => total + logs.length, 0);
 
+  const getResultPreview = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return language === 'zh-CN' ? '暂无结果' : 'No result yet';
+    }
+
+    const normalized = trimmed.replace(/\s+/g, ' ');
+    return `${normalized.slice(0, 96)}${normalized.length > 96 ? '...' : ''}`;
+  };
+
+  const shouldShowStatusBadge = (status: StepFlowStatus) => status !== 'empty';
+
   return (
     <div className={`flex h-full w-full ${fontSizeClass}`}>
       <div className="flex-1 min-w-0 flex flex-col">
@@ -421,12 +403,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                       className: 'bg-red-500/10 text-red-400 border-red-500/20',
                       label: t(language, 'step.missingVars', { count: dependencyState.missingKeys.length }),
                     }
-                  : dependencyState.staleKeys.length > 0
-                    ? {
-                        className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-                        label: t(language, 'step.staleDeps', { count: dependencyState.staleKeys.length }),
-                      }
-                    : null;
+                  : null;
 
               const availability = resolveStepExecutionAvailability({
                 step,
@@ -441,6 +418,8 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
               const latestLog = stepLogs[stepLogs.length - 1];
               const isLogsExpanded = expandedLogs[step.id];
               const visibleLogs = isLogsExpanded ? [...stepLogs].reverse() : latestLog ? [latestLog] : [];
+              const resultValue = project.stepOutputs[step.id] || '';
+              const isResultExpanded = expandedResults[step.id] ?? (viewMode === 'detail');
 
               const referencedSourceSteps = dependencyState.referencedKeys
                 .map((key) => getVariableByKey(key))
@@ -465,7 +444,9 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                     <div className="min-w-0 flex items-center gap-3">
                       <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-xs font-bold text-slate-500">{index + 1}</span>
                       <h3 className="truncate text-sm font-black tracking-tight text-slate-200">{step.name}</h3>
-                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${statusMeta.className}`}>{statusMeta.label}</span>
+                      {shouldShowStatusBadge(stepStatus) && (
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] ${statusMeta.className}`}>{statusMeta.label}</span>
+                      )}
                       {riskMeta && (
                         <span className={`rounded-full border px-2 py-0.5 text-[10px] ${riskMeta.className}`}>{riskMeta.label}</span>
                       )}
@@ -593,7 +574,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                           ))}
                       </div>
 
-                      {(dependencyState.missingKeys.length > 0 || dependencyState.staleKeys.length > 0) && (
+                      {viewMode === 'detail' && (dependencyState.missingKeys.length > 0 || dependencyState.staleKeys.length > 0) && (
                         <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2.5 text-xs text-slate-400">
                           {dependencyState.missingKeys.length > 0 && (
                             <div className="break-words">
@@ -603,7 +584,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                           )}
                           {dependencyState.staleKeys.length > 0 && (
                             <div className="mt-1 break-words">
-                              <span className="font-bold text-amber-400">{t(language, 'step.staleLabel')}:</span>{' '}
+                              <span className="font-bold text-amber-400">{language === 'zh-CN' ? '上游结果已变化' : 'Upstream changed'}:</span>{' '}
                               <span className="text-amber-200/80">{dependencyState.staleKeys.map((key) => `{{${key}}}`).join(' , ')}</span>
                             </div>
                           )}
@@ -615,12 +596,31 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                           <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-600">
                             {t(language, 'step.result')} ({t(language, 'step.resultHint')})
                           </label>
-                          {configuredBinding && <span className="font-mono text-[10px] text-violet-400">{`{{${configuredBinding.variableKey}}}`}</span>}
+                          <div className="flex items-center gap-2">
+                            {configuredBinding && <span className="font-mono text-[10px] text-violet-400">{`{{${configuredBinding.variableKey}}}`}</span>}
+                            <button
+                              onClick={() => setExpandedResults((prev) => ({ ...prev, [step.id]: !isResultExpanded }))}
+                              className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                            >
+                              {isResultExpanded
+                                ? language === 'zh-CN' ? '收起结果' : 'Collapse result'
+                                : language === 'zh-CN' ? '展开结果' : 'Expand result'}
+                            </button>
+                          </div>
                         </div>
-                        <div className="rounded-xl border border-slate-800/60 bg-slate-950/50 px-3 py-2.5 transition-colors hover:border-slate-700">
+                        {!isResultExpanded && (
+                          <div className="mb-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs text-slate-400">
+                            {getResultPreview(resultValue)}
+                          </div>
+                        )}
+                        <div
+                          className={`overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-950/50 px-3 py-2.5 transition-all hover:border-slate-700 ${
+                            isResultExpanded ? 'max-h-[420px]' : 'max-h-28'
+                          }`}
+                        >
                           <AutoResizeTextarea
-                            className="min-h-[52px] font-sans text-sm leading-relaxed text-slate-400"
-                            value={project.stepOutputs[step.id] || ''}
+                            className="font-sans text-sm leading-relaxed text-slate-400"
+                            value={resultValue}
                             onChange={(value) =>
                               onUpdateProject(project.id, {
                                 stepOutputs: { ...project.stepOutputs, [step.id]: value },
@@ -657,7 +657,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                         </div>
                       </div>
 
-                      {(viewMode === 'detail' || runState === 'error' || latestLog) && (
+                      {viewMode === 'detail' && (
                         <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2.5">
                           <div className="flex items-center justify-between gap-4">
                             <div>
@@ -722,19 +722,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                                     <span>{`${t(language, 'step.maxTokens')}: ${log.maxTokens ?? t(language, 'step.default')}`}</span>
                                   </div>
 
-                                  {viewMode === 'compact' && !isLogsExpanded ? (
-                                    <div className="mt-2 text-xs text-slate-400">
-                                      {log.status === 'success'
-                                        ? t(language, 'step.latestResult', {
-                                            text: `${(log.output || '').slice(0, 96)}${(log.output || '').length > 96 ? '...' : ''}`,
-                                          })
-                                        : t(language, 'step.latestError', {
-                                            text: `${(log.error || '').slice(0, 96)}${(log.error || '').length > 96 ? '...' : ''}`,
-                                          })}
-                                    </div>
-                                  ) : (
-                                    <>
-                                      <div className="mt-3 flex flex-wrap gap-2">
+                                  <div className="mt-3 flex flex-wrap gap-2">
                                         <button
                                           onClick={() => {
                                             void handleCopyLogText(log.systemPrompt || '', t(language, 'toast.systemPrompt'));
@@ -770,39 +758,37 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                                             {t(language, 'step.restoreResult')}
                                           </button>
                                         )}
-                                      </div>
+                                  </div>
 
-                                      <div className="mt-3 space-y-3 text-xs">
-                                        <div>
-                                          <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.systemPrompt')}</div>
-                                          <div className="whitespace-pre-wrap break-words rounded border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-300">
-                                            {log.systemPrompt || t(language, 'step.notSet')}
-                                          </div>
-                                        </div>
-                                        <div>
-                                          <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.userPrompt')}</div>
-                                          <div className="whitespace-pre-wrap break-words rounded border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-300">
-                                            {log.userPrompt || t(language, 'step.emptyText')}
-                                          </div>
-                                        </div>
-                                        {log.status === 'success' ? (
-                                          <div>
-                                            <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.output')}</div>
-                                            <div className="whitespace-pre-wrap break-words rounded border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-300">
-                                              {log.output || t(language, 'step.emptyText')}
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <div>
-                                            <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.error')}</div>
-                                            <div className="whitespace-pre-wrap break-words rounded border border-red-500/20 bg-red-500/5 px-3 py-2 text-red-300">
-                                              {log.error || t(language, 'step.failed')}
-                                            </div>
-                                          </div>
-                                        )}
+                                  <div className="mt-3 space-y-3 text-xs">
+                                    <div>
+                                      <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.systemPrompt')}</div>
+                                      <div className="whitespace-pre-wrap break-words rounded border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-300">
+                                        {log.systemPrompt || t(language, 'step.notSet')}
                                       </div>
-                                    </>
-                                  )}
+                                    </div>
+                                    <div>
+                                      <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.userPrompt')}</div>
+                                      <div className="whitespace-pre-wrap break-words rounded border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-300">
+                                        {log.userPrompt || t(language, 'step.emptyText')}
+                                      </div>
+                                    </div>
+                                    {log.status === 'success' ? (
+                                      <div>
+                                        <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.output')}</div>
+                                        <div className="whitespace-pre-wrap break-words rounded border border-slate-800 bg-slate-950/80 px-3 py-2 text-slate-300">
+                                          {log.output || t(language, 'step.emptyText')}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <div className="mb-1 font-bold uppercase tracking-wider text-slate-500">{t(language, 'step.error')}</div>
+                                        <div className="whitespace-pre-wrap break-words rounded border border-red-500/20 bg-red-500/5 px-3 py-2 text-red-300">
+                                          {log.error || t(language, 'step.failed')}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
                               ))}
                             </div>

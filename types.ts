@@ -81,6 +81,22 @@ export interface ModelCatalogItem {
   enabled: boolean;
 }
 
+export type ExecutionPresetModelRefStrategy = 'keep_current' | 'bind_specific_model_catalog_item';
+
+export interface ExecutionPresetTemplate {
+  id: string;
+  label: string;
+  description?: string;
+  modelRefStrategy: ExecutionPresetModelRefStrategy;
+  modelCatalogItemId?: string;
+  temperature?: number;
+  maxTokens?: number;
+  systemPrompt?: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface AppSettings {
   language: UiLanguage;
   uiScale: number;
@@ -93,6 +109,7 @@ export interface AppSettings {
   fileLibrarySortBy: SortKey;
   providerConfigs: ProviderConfig[];
   modelCatalog: ModelCatalogItem[];
+  executionPresetTemplates: ExecutionPresetTemplate[];
 }
 
 export interface Template {

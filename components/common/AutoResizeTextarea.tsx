@@ -8,6 +8,10 @@ interface AutoResizeTextareaProps {
   readOnly?: boolean;
   autoFocus?: boolean;
   onBlur?: () => void;
+  onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>;
+  onClick?: React.MouseEventHandler<HTMLTextAreaElement>;
+  onSelect?: React.ReactEventHandler<HTMLTextAreaElement>;
+  textareaRef?: React.Ref<HTMLTextAreaElement>;
 }
 
 export const AutoResizeTextarea: React.FC<AutoResizeTextareaProps> = ({
@@ -18,8 +22,22 @@ export const AutoResizeTextarea: React.FC<AutoResizeTextareaProps> = ({
   readOnly = false,
   autoFocus = false,
   onBlur,
+  onKeyDown,
+  onClick,
+  onSelect,
+  textareaRef: externalRef,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const assignRef = (node: HTMLTextAreaElement | null) => {
+    textareaRef.current = node;
+    if (!externalRef) return;
+    if (typeof externalRef === 'function') {
+      externalRef(node);
+      return;
+    }
+    (externalRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
+  };
 
   const adjustHeight = () => {
     const el = textareaRef.current;
@@ -49,11 +67,14 @@ export const AutoResizeTextarea: React.FC<AutoResizeTextareaProps> = ({
   }, []);
 
   return (
-    <textarea
-      ref={textareaRef}
+      <textarea
+      ref={assignRef}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       onBlur={onBlur}
+      onKeyDown={onKeyDown}
+      onClick={onClick}
+      onSelect={onSelect}
       placeholder={placeholder}
       readOnly={readOnly}
       className={`block w-full resize-none overflow-hidden bg-transparent outline-none focus:ring-0 p-0 m-0 ${className || ''}`}

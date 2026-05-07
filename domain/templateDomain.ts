@@ -1,5 +1,12 @@
 import { DEFAULT_MODEL_CATALOG, DEFAULT_PROVIDER_CONFIGS } from '../constants';
-import { AppSettings, ModelCatalogItem, Template, TemplateModelRef } from '../types';
+import {
+  AppSettings,
+  ExecutionPresetModelRefStrategy,
+  ExecutionPresetTemplate,
+  ModelCatalogItem,
+  Template,
+  TemplateModelRef,
+} from '../types';
 
 const LEGACY_MODEL_PRESET_MAP: Record<string, string> = {
   'openai:gpt-4.1': 'model_openai_gpt_4_1',
@@ -93,6 +100,7 @@ export const createDefaultSettings = (): AppSettings => ({
   fileLibrarySortBy: 'name',
   providerConfigs: DEFAULT_PROVIDER_CONFIGS.map((item) => ({ ...item })),
   modelCatalog: DEFAULT_MODEL_CATALOG.map((item) => ({ ...item })),
+  executionPresetTemplates: [],
 });
 
 export const normalizeSettings = (raw: any): AppSettings => {
@@ -123,6 +131,34 @@ export const normalizeSettings = (raw: any): AppSettings => {
         })
       : defaults.modelCatalog;
 
+  const executionPresetTemplates: ExecutionPresetTemplate[] =
+    Array.isArray(raw?.executionPresetTemplates)
+      ? raw.executionPresetTemplates.map((item: any, index: number) => {
+          const now = Date.now();
+          const modelRefStrategy: ExecutionPresetModelRefStrategy =
+            item?.modelRefStrategy === 'bind_specific_model_catalog_item'
+              ? 'bind_specific_model_catalog_item'
+              : 'keep_current';
+
+          return {
+            id: item?.id || `execution_preset_${now}_${index}`,
+            label: item?.label || `执行模板 ${index + 1}`,
+            description: item?.description || '',
+            modelRefStrategy,
+            modelCatalogItemId:
+              modelRefStrategy === 'bind_specific_model_catalog_item'
+                ? item?.modelCatalogItemId || undefined
+                : undefined,
+            temperature: typeof item?.temperature === 'number' ? item.temperature : undefined,
+            maxTokens: typeof item?.maxTokens === 'number' ? item.maxTokens : undefined,
+            systemPrompt: item?.systemPrompt || '',
+            enabled: item?.enabled !== false,
+            createdAt: typeof item?.createdAt === 'number' ? item.createdAt : now,
+            updatedAt: typeof item?.updatedAt === 'number' ? item.updatedAt : now,
+          };
+        })
+      : defaults.executionPresetTemplates;
+
   return {
     language: raw?.language === 'en-US' ? 'en-US' : defaults.language,
     uiScale: raw?.uiScale || defaults.uiScale,
@@ -135,5 +171,6 @@ export const normalizeSettings = (raw: any): AppSettings => {
     fileLibrarySortBy: raw?.fileLibrarySortBy || defaults.fileLibrarySortBy,
     providerConfigs,
     modelCatalog,
+    executionPresetTemplates,
   };
 };

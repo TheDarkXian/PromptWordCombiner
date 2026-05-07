@@ -46,6 +46,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [sections, setSections] = useState({ global: true, local: true, result: true });
   const [isAddingVariable, setIsAddingVariable] = useState(false);
   const [newVarName, setNewVarName] = useState('');
+  const [isVarTableMenuOpen, setIsVarTableMenuOpen] = useState(false);
+  const [expandedResultVariableIds, setExpandedResultVariableIds] = useState<Record<string, boolean>>({});
   const newVarInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -109,6 +111,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return;
     }
     await navigator.clipboard.writeText(value);
+  };
+
+  const toggleResultVariable = (variableId: string) => {
+    setExpandedResultVariableIds((prev) => ({ ...prev, [variableId]: !prev[variableId] }));
   };
 
   useEffect(() => {
@@ -208,25 +214,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     onChange={handleImportFile}
                     className="hidden"
                   />
-                  <div className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                  <div className="relative rounded-xl border border-slate-800 bg-slate-950/70 p-3">
                     <button
-                      onClick={() => importFileInputRef.current?.click()}
-                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                      onClick={() => setIsVarTableMenuOpen((prev) => !prev)}
+                      className="flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
                     >
-                      {t(language, 'sidebar.importVarTable')}
+                      <span>{language === 'zh-CN' ? '变量表' : 'Variable table'}</span>
+                      <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${isVarTableMenuOpen ? 'rotate-180' : ''}`} />
                     </button>
-                    <button
-                      onClick={() => void onExportVariableTable('json')}
-                      className="rounded-md border border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-[10px] font-bold text-blue-300 transition-colors hover:border-blue-400/40 hover:text-white"
-                    >
-                      {t(language, 'sidebar.exportJson')}
-                    </button>
-                    <button
-                      onClick={() => void onExportVariableTable('csv')}
-                      className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-bold text-emerald-300 transition-colors hover:border-emerald-400/40 hover:text-white"
-                    >
-                      {t(language, 'sidebar.exportCsv')}
-                    </button>
+                    {isVarTableMenuOpen && (
+                      <div className="mt-2 space-y-1 rounded-lg border border-slate-800 bg-slate-900/95 p-2 shadow-xl">
+                        <button
+                          onClick={() => {
+                            setIsVarTableMenuOpen(false);
+                            importFileInputRef.current?.click();
+                          }}
+                          className="block w-full rounded-md px-3 py-2 text-left text-[10px] font-bold text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
+                        >
+                          {t(language, 'sidebar.importVarTable')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsVarTableMenuOpen(false);
+                            void onExportVariableTable('json');
+                          }}
+                          className="block w-full rounded-md px-3 py-2 text-left text-[10px] font-bold text-blue-300 transition-colors hover:bg-slate-800 hover:text-white"
+                        >
+                          {t(language, 'sidebar.exportJson')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setIsVarTableMenuOpen(false);
+                            void onExportVariableTable('csv');
+                          }}
+                          className="block w-full rounded-md px-3 py-2 text-left text-[10px] font-bold text-emerald-300 transition-colors hover:bg-slate-800 hover:text-white"
+                        >
+                          {t(language, 'sidebar.exportCsv')}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-3">
@@ -321,9 +347,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             {t(language, 'sidebar.noResultVars')}
                           </div>
                         ) : (
-                          resultVariables.map((variable) => (
-                            <div key={variable.id} className="space-y-1.5">
-                              <div className="flex items-center justify-between gap-2">
+                          resultVariables.map((variable) => {
+                            const isExpanded = Boolean(expandedResultVariableIds[variable.id]);
+                            const preview = (variable.value || '').trim();
+
+                            return (
+                              <div key={variable.id} className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleResultVariable(variable.id)}
+                                className="flex w-full items-start justify-between gap-2 text-left"
+                              >
                                 <div className="min-w-0">
                                   <div className="text-[10px] text-violet-400 font-bold font-mono truncate">{`{{${variable.key}}}`}</div>
                                   <div className="text-[10px] text-slate-500 truncate">{variable.label}</div>
@@ -333,42 +367,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                       : `${t(language, 'sidebar.sourceType')}: ${variable.sourceType}`}
                                   </div>
                                 </div>
-                                <div className="flex flex-col items-end gap-1 shrink-0">
+                                <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
                                   {variable.sourceRef && (
-                                    <>
-                                      <span className={`w-2 h-2 rounded-full ${getStatusDotClass(getStepStatus(variable.sourceRef))}`}></span>
-                                      <span className="text-[9px] text-slate-600 truncate max-w-[120px]">
-                                        {getStatusLabel(getStepStatus(variable.sourceRef))}
-                                      </span>
-                                    </>
+                                    <span className={`w-2 h-2 rounded-full ${getStatusDotClass(getStepStatus(variable.sourceRef))}`}></span>
                                   )}
+                                  <ChevronDownIcon className={`h-3.5 w-3.5 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                                 </div>
+                              </button>
+                              <div className="mt-1.5 flex items-center justify-between gap-2">
+                                <div className="min-w-0 truncate text-[10px] text-slate-500">
+                                  {preview
+                                    ? `${preview.slice(0, 64)}${preview.length > 64 ? '...' : ''}`
+                                    : language === 'zh-CN'
+                                      ? '暂无内容'
+                                      : 'Empty'}
+                                </div>
+                                <button
+                                  onClick={() => toggleResultVariable(variable.id)}
+                                  className="hidden"
+                                >
+                                  {isExpanded
+                                    ? language === 'zh-CN' ? '收起' : 'Collapse'
+                                    : language === 'zh-CN' ? '展开' : 'Expand'}
+                                </button>
                               </div>
-                              <AutoResizeTextarea
-                                value={variable.value || ''}
-                                onChange={() => {}}
-                                readOnly
-                                placeholder="..."
-                                className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 cursor-default opacity-80"
-                              />
-                              <div className="flex flex-wrap gap-2">
+                              {isExpanded && (
+                                <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] leading-relaxed text-slate-300">
+                                  {variable.value || '...'}
+                                </div>
+                              )}
+                              <div className="mt-1.5 flex items-center gap-2 text-[10px] font-medium">
                                 <button
                                   onClick={() => copyVariableValue(variable.value || '')}
-                                  className="rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                                  className="text-slate-400 transition-colors hover:text-white"
                                 >
                                   {t(language, 'sidebar.copyVar')}
                                 </button>
                                 {variable.sourceRef && (
                                   <button
                                     onClick={() => scrollToStep(variable.sourceRef)}
-                                    className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[10px] font-bold text-amber-300 transition-colors hover:border-amber-400/40 hover:text-white"
+                                    className="text-amber-300 transition-colors hover:text-white"
                                   >
                                     {t(language, 'sidebar.goSource')}
                                   </button>
                                 )}
                               </div>
-                            </div>
-                          ))
+                              </div>
+                            );
+                          })
                         )}
                       </>
                     )}

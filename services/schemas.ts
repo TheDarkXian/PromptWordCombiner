@@ -26,6 +26,7 @@ export const stepOutputMetaSchema = z.object({
 
 const providerTypeSchema = z.enum(['openai', 'anthropic', 'deepseek', 'openai_compatible']);
 const uiLanguageSchema = z.enum(['zh-CN', 'en-US']);
+const executionPresetModelRefStrategySchema = z.enum(['keep_current', 'bind_specific_model_catalog_item']);
 
 export const stepRunLogSchema = z.object({
   id: z.string(),
@@ -88,6 +89,20 @@ export const modelCatalogItemSchema = z.object({
   enabled: z.boolean(),
 });
 
+export const executionPresetTemplateSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  modelRefStrategy: executionPresetModelRefStrategySchema,
+  modelCatalogItemId: z.string().optional(),
+  temperature: z.number().optional(),
+  maxTokens: z.number().optional(),
+  systemPrompt: z.string().optional(),
+  enabled: z.boolean(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
 export const sortKeySchema = z.enum(['lastModified', 'createdAt', 'name']);
 
 export const appSettingsSchema = z.object({
@@ -102,6 +117,7 @@ export const appSettingsSchema = z.object({
   fileLibrarySortBy: sortKeySchema,
   providerConfigs: z.array(providerConfigSchema),
   modelCatalog: z.array(modelCatalogItemSchema),
+  executionPresetTemplates: z.array(executionPresetTemplateSchema).optional(),
 });
 
 export const stepOutputBindingSchema = z.object({
