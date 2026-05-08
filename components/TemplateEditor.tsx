@@ -101,6 +101,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     sourceStepName: string;
     execution: StepExecutionConfig;
   } | null>(null);
+  const [openStepMenuId, setOpenStepMenuId] = useState<string | null>(null);
+  const [expandedExecutionByStepId, setExpandedExecutionByStepId] = useState<Record<string, boolean>>({});
+  const [expandedBindingByStepId, setExpandedBindingByStepId] = useState<Record<string, boolean>>({});
   const [selectedExecutionPresetByStepId, setSelectedExecutionPresetByStepId] = useState<Record<string, string>>({});
   const [savingExecutionPresetStepId, setSavingExecutionPresetStepId] = useState<string | null>(null);
   const [executionPresetDraft, setExecutionPresetDraft] = useState<{
@@ -120,6 +123,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     setSelectedStepIds([]);
     setSelectionModelRefId('');
     setCopiedExecutionConfig(null);
+    setOpenStepMenuId(null);
+    setExpandedExecutionByStepId({});
+    setExpandedBindingByStepId({});
     setSelectedExecutionPresetByStepId({});
     setSavingExecutionPresetStepId(null);
     setAutocompleteState(null);
@@ -630,6 +636,14 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     requestAnimationFrame(() => syncAutocomplete(stepId, value));
   };
 
+  const toggleExecutionSection = (stepId: string) => {
+    setExpandedExecutionByStepId((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
+  };
+
+  const toggleBindingSection = (stepId: string) => {
+    setExpandedBindingByStepId((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
+  };
+
   return (
     <div className="h-full w-full overflow-y-auto rounded-lg bg-slate-900 p-4 md:p-6">
       <div className="sticky top-0 z-10 mb-6 flex items-center justify-between border-b border-slate-800 bg-slate-900 py-2">
@@ -717,7 +731,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                       />
                     </div>
                     <button onClick={() => removeInput(index)} className="absolute right-1 top-1 p-1 text-slate-600 hover:text-red-400">
-                      脳
+                      ×
                     </button>
                   </div>
                 ))}
@@ -770,7 +784,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           <div className="text-xs text-amber-400">{t(language, 'templateEditor.disabledModelItem')}</div>
                         )}
                         <button onClick={() => removeModelRef(index)} className="absolute right-1 top-1 p-1 text-slate-600 hover:text-red-400">
-                          脳
+                          ×
                         </button>
                       </div>
                     );
@@ -863,6 +877,19 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                   (preset) => preset.content === execution.systemPrompt
                 );
                 const recommendedSystemPromptPreset = getRecommendedSystemPromptPresetForModelRef(execution.modelRefId);
+                const isExecutionExpanded =
+                  Boolean(expandedExecutionByStepId[step.id]) || savingExecutionPresetStepId === step.id;
+                const isBindingExpanded = Boolean(expandedBindingByStepId[step.id]);
+                const selectedExecutionPreset = enabledExecutionPresetTemplates.find(
+                  (preset) => preset.id === selectedExecutionPresetByStepId[step.id]
+                );
+                const executionSummaryParts = [
+                  currentRef?.label || t(language, 'step.manual'),
+                  selectedExecutionPreset?.label,
+                  execution.temperature !== undefined ? `T ${execution.temperature}` : undefined,
+                  execution.maxTokens !== undefined ? `Max ${execution.maxTokens}` : undefined,
+                  execution.systemPrompt.trim() ? t(language, 'step.systemPrompt') : t(language, 'step.notSet'),
+                ].filter(Boolean) as string[];
 
                 return (
                   <div
@@ -875,7 +902,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                       className="flex cursor-pointer select-none items-center justify-between rounded-t-lg bg-slate-800/50 p-4 transition-colors hover:bg-slate-800"
                       onClick={() => toggleStep(index)}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <button
                           type="button"
                           onClick={(event) => {
@@ -892,7 +919,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           {isSelected ? '✓' : ''}
                         </button>
                         <span className="rounded bg-slate-700 px-2 py-0.5 text-xs font-bold text-slate-300">Step {index + 1}</span>
-                        <span className="text-sm font-bold text-slate-200">{step.name || t(language, 'templateEditor.untitledStep')}</span>
+                        <span className="truncate text-sm font-bold text-slate-200">{step.name || t(language, 'templateEditor.untitledStep')}</span>
                         {execution.modelRefId && (
                           <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-300">
                             {currentRef?.label || t(language, 'templateEditor.modelRef')}
@@ -907,7 +934,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           {availability.label}
                         </span>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div className="flex items-center overflow-hidden rounded-md border border-slate-700/50 bg-slate-950/40">
                           <button
                             onClick={(event) => {
@@ -920,7 +947,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             }`}
                             title={t(language, 'templateEditor.moveUp')}
                           >
-                            鈫?
+                            ↑
                           </button>
                           <div className="h-4 w-px bg-slate-800" />
                           <button
@@ -936,7 +963,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             }`}
                             title={t(language, 'templateEditor.moveDown')}
                           >
-                            鈫?
+                            ↓
                           </button>
                         </div>
 
@@ -950,28 +977,49 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                         >
                           {t(language, 'templateEditor.delete')}
                         </button>
-                        <button
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            copyStepExecutionConfig(step);
-                          }}
-                          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-                          title={t(language, 'templateEditor.copyExecutionConfig')}
-                        >
-                          {t(language, 'templateEditor.copyExecutionConfig')}
-                        </button>
-                        {copiedExecutionConfig && copiedExecutionConfig.sourceStepId !== step.id && (
+                        <div className="relative">
                           <button
+                            type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              pasteStepExecutionConfig(index);
+                              setOpenStepMenuId((current) => (current === step.id ? null : step.id));
                             }}
-                            className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-300 transition-colors hover:border-emerald-400/40 hover:text-white"
-                            title={t(language, 'templateEditor.applyCopiedConfigFrom', { stepName: copiedExecutionConfig.sourceStepName })}
+                            className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                            title={t(language, 'templateEditor.moreActions')}
                           >
-                            {t(language, 'templateEditor.applyCopiedConfig')}
+                            {t(language, 'templateEditor.moreActions')}
                           </button>
-                        )}
+                          {openStepMenuId === step.id && (
+                            <div
+                              className="absolute right-0 top-full z-20 mt-2 min-w-[200px] rounded-lg border border-slate-700 bg-slate-950 p-1 shadow-2xl"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  copyStepExecutionConfig(step);
+                                  setOpenStepMenuId(null);
+                                }}
+                                className="block w-full rounded px-3 py-2 text-left text-xs text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
+                              >
+                                {t(language, 'templateEditor.copyExecutionConfig')}
+                              </button>
+                              {copiedExecutionConfig && copiedExecutionConfig.sourceStepId !== step.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    pasteStepExecutionConfig(index);
+                                    setOpenStepMenuId(null);
+                                  }}
+                                  className="block w-full rounded px-3 py-2 text-left text-xs text-emerald-300 transition-colors hover:bg-slate-800 hover:text-white"
+                                  title={t(language, 'templateEditor.applyCopiedConfigFrom', { stepName: copiedExecutionConfig.sourceStepName })}
+                                >
+                                  {t(language, 'templateEditor.applyCopiedConfig')}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
 
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -1062,338 +1110,357 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           </div>
                         </div>
 
-                        <div className="mb-4 space-y-3 border-t border-slate-800 pt-4">
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-bold uppercase text-cyan-400">{t(language, 'templateEditor.modelRef')}</label>
-                            {execution.modelRefId && (
-                              <span className="font-mono text-[11px] text-cyan-300">{currentRef?.label || t(language, 'templateEditor.modelRef')}</span>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-500">
-                            {t(language, 'templateEditor.manualStepHint')}
-                          </p>
-                          <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <select
-                                value={selectedExecutionPresetByStepId[step.id] || ''}
-                                onChange={(event) =>
-                                  setSelectedExecutionPresetByStepId((prev) => ({
-                                    ...prev,
-                                    [step.id]: event.target.value,
-                                  }))
-                                }
-                                className="min-w-[220px] flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                              >
-                                <option value="">{language === 'zh-CN' ? '选择执行模板' : 'Select execution template'}</option>
-                                {enabledExecutionPresetTemplates.map((preset) => (
-                                  <option key={preset.id} value={preset.id}>
-                                    {preset.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <button
-                                type="button"
-                                onClick={() => applyExecutionPresetToStep(index, selectedExecutionPresetByStepId[step.id] || '')}
-                                disabled={!selectedExecutionPresetByStepId[step.id]}
-                                className={`rounded-md px-3 py-2 text-xs font-bold transition-colors ${
-                                  selectedExecutionPresetByStepId[step.id]
-                                    ? 'border border-cyan-500/20 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/40 hover:text-white'
-                                    : 'cursor-not-allowed border border-slate-800 bg-slate-900 text-slate-600'
-                                }`}
-                              >
-                                {language === 'zh-CN' ? '应用执行模板' : 'Apply preset'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => startSavingExecutionPreset(step)}
-                                className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-                              >
-                                {language === 'zh-CN' ? '保存当前配置为模板' : 'Save as preset'}
-                              </button>
+                        <div className="mb-4 border-t border-slate-800 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => toggleExecutionSection(step.id)}
+                            className="flex w-full items-start justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-left transition-colors hover:border-slate-700"
+                          >
+                            <div>
+                              <div className="text-xs font-bold uppercase text-cyan-400">{t(language, 'templateEditor.executionSummary')}</div>
+                              <div className="mt-1 text-xs text-slate-400">{executionSummaryParts.join(' · ')}</div>
                             </div>
-                            {savingExecutionPresetStepId === step.id && (
-                              <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/80 p-3">
-                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <span className="text-[11px] font-bold text-cyan-300">
+                              {isExecutionExpanded ? t(language, 'templateEditor.collapseExecution') : t(language, 'templateEditor.expandExecution')}
+                            </span>
+                          </button>
+                          {isExecutionExpanded && (
+                            <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.executionTemplateSelect')}</label>
+                                {matchedPreset && (
+                                  <div className="text-[11px] text-cyan-300">
+                                    {t(language, 'templateEditor.currentPreset')}: {matchedPreset.label}
+                                  </div>
+                                )}
+                              </div>
+                              {!execution.modelRefId && (
+                                <div className="text-xs text-slate-500">{t(language, 'templateEditor.manualStepHint')}</div>
+                              )}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <select
+                                  value={selectedExecutionPresetByStepId[step.id] || ''}
+                                  onChange={(event) =>
+                                    setSelectedExecutionPresetByStepId((prev) => ({
+                                      ...prev,
+                                      [step.id]: event.target.value,
+                                    }))
+                                  }
+                                  className="min-w-[220px] flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                                >
+                                  <option value="">{t(language, 'templateEditor.executionTemplateSelect')}</option>
+                                  {enabledExecutionPresetTemplates.map((preset) => (
+                                    <option key={preset.id} value={preset.id}>
+                                      {preset.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => applyExecutionPresetToStep(index, selectedExecutionPresetByStepId[step.id] || '')}
+                                  disabled={!selectedExecutionPresetByStepId[step.id]}
+                                  className={`rounded-md px-3 py-2 text-xs font-bold transition-colors ${
+                                    selectedExecutionPresetByStepId[step.id]
+                                      ? 'border border-cyan-500/20 bg-cyan-500/10 text-cyan-300 hover:border-cyan-400/40 hover:text-white'
+                                      : 'cursor-not-allowed border border-slate-800 bg-slate-900 text-slate-600'
+                                  }`}
+                                >
+                                  {t(language, 'templateEditor.applyExecutionTemplate')}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => startSavingExecutionPreset(step)}
+                                  className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                                >
+                                  {t(language, 'templateEditor.saveAsPreset')}
+                                </button>
+                              </div>
+                              {savingExecutionPresetStepId === step.id && (
+                                <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/80 p-3">
+                                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                      <label className="text-[11px] font-bold uppercase text-slate-500">
+                                        {t(language, 'templateEditor.presetName')}
+                                      </label>
+                                      <input
+                                        value={executionPresetDraft.label}
+                                        onChange={(event) => updateExecutionPresetDraft({ label: event.target.value })}
+                                        className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                                        placeholder={t(language, 'templateEditor.presetName')}
+                                      />
+                                    </div>
+                                    <div className="space-y-2">
+                                      <label className="text-[11px] font-bold uppercase text-slate-500">
+                                        {t(language, 'templateEditor.modelStrategy')}
+                                      </label>
+                                      <select
+                                        value={executionPresetDraft.modelRefStrategy}
+                                        onChange={(event) =>
+                                          updateExecutionPresetDraft({
+                                            modelRefStrategy: event.target.value as ExecutionPresetModelRefStrategy,
+                                          })
+                                        }
+                                        className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                                      >
+                                        <option value="keep_current">{t(language, 'templateEditor.keepCurrentModel')}</option>
+                                        <option
+                                          value="bind_specific_model_catalog_item"
+                                          disabled={!currentRef?.modelCatalogItemId}
+                                        >
+                                          {t(language, 'templateEditor.bindCurrentCatalogModel')}
+                                        </option>
+                                      </select>
+                                    </div>
+                                  </div>
                                   <div className="space-y-2">
                                     <label className="text-[11px] font-bold uppercase text-slate-500">
-                                      {language === 'zh-CN' ? '模板名称' : 'Preset name'}
+                                      {t(language, 'templateEditor.presetDescription')}
                                     </label>
                                     <input
-                                      value={executionPresetDraft.label}
-                                      onChange={(event) => updateExecutionPresetDraft({ label: event.target.value })}
+                                      value={executionPresetDraft.description}
+                                      onChange={(event) => updateExecutionPresetDraft({ description: event.target.value })}
                                       className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                                      placeholder={language === 'zh-CN' ? '新执行模板' : 'New execution preset'}
+                                      placeholder={t(language, 'templateEditor.presetDescription')}
                                     />
                                   </div>
-                                  <div className="space-y-2">
-                                    <label className="text-[11px] font-bold uppercase text-slate-500">
-                                      {language === 'zh-CN' ? '模型策略' : 'Model strategy'}
-                                    </label>
-                                    <select
-                                      value={executionPresetDraft.modelRefStrategy}
-                                      onChange={(event) =>
-                                        updateExecutionPresetDraft({
-                                          modelRefStrategy: event.target.value as ExecutionPresetModelRefStrategy,
-                                        })
-                                      }
-                                      className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                                    >
-                                      <option value="keep_current">
-                                        {language === 'zh-CN' ? '保留当前模型' : 'Keep current model'}
-                                      </option>
-                                      <option
-                                        value="bind_specific_model_catalog_item"
-                                        disabled={!currentRef?.modelCatalogItemId}
-                                      >
-                                        {language === 'zh-CN' ? '记录当前模型目录项' : 'Bind current catalog model'}
-                                      </option>
-                                    </select>
+                                  <div className="text-[11px] text-slate-500">
+                                    {currentRef?.modelCatalogItemId
+                                      ? executionPresetDraft.modelRefStrategy === 'bind_specific_model_catalog_item'
+                                        ? t(language, 'templateEditor.presetSaveHintBound')
+                                        : t(language, 'templateEditor.presetSaveHintKeep')
+                                      : t(language, 'templateEditor.presetSaveHintNoModel')}
+                                  </div>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Button variant="secondary" size="sm" onClick={cancelSavingExecutionPreset}>
+                                      {t(language, 'templateEditor.cancel')}
+                                    </Button>
+                                    <Button size="sm" onClick={() => saveCurrentExecutionPreset(step, currentRef)}>
+                                      {t(language, 'templateEditor.savePreset')}
+                                    </Button>
                                   </div>
                                 </div>
-                                <div className="space-y-2">
-                                  <label className="text-[11px] font-bold uppercase text-slate-500">
-                                    {language === 'zh-CN' ? '备注' : 'Description'}
-                                  </label>
-                                  <input
-                                    value={executionPresetDraft.description}
-                                    onChange={(event) => updateExecutionPresetDraft({ description: event.target.value })}
-                                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
-                                    placeholder={language === 'zh-CN' ? '可选说明' : 'Optional note'}
-                                  />
-                                </div>
-                                <div className="text-[11px] text-slate-500">
-                                  {currentRef?.modelCatalogItemId
-                                    ? executionPresetDraft.modelRefStrategy === 'bind_specific_model_catalog_item'
-                                      ? language === 'zh-CN'
-                                        ? '保存时会记录当前模型目录项，但应用模板时仍不会替换步骤模型引用。'
-                                        : 'The current catalog model will be recorded, but applying the preset still keeps the step model ref.'
-                                      : language === 'zh-CN'
-                                      ? '默认保留当前步骤模型，只覆盖 temperature、max tokens 和 system prompt。'
-                                      : 'The current step model stays unchanged; only temperature, max tokens, and system prompt are applied.'
-                                    : language === 'zh-CN'
-                                    ? '当前步骤没有模型引用，保存时将默认保留当前模型策略。'
-                                    : 'This step has no model ref, so the preset will default to keep current model.'}
-                                </div>
-                                <div className="flex items-center justify-end gap-2">
-                                  <Button variant="secondary" size="sm" onClick={cancelSavingExecutionPreset}>
-                                    {language === 'zh-CN' ? '取消' : 'Cancel'}
-                                  </Button>
-                                  <Button size="sm" onClick={() => saveCurrentExecutionPreset(step, currentRef)}>
-                                    {language === 'zh-CN' ? '保存模板' : 'Save preset'}
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          {matchedPreset && (
-                            <div className="text-[11px] text-cyan-300">
-                              {t(language, 'templateEditor.currentPreset')}: {matchedPreset.label}
-                            </div>
-                          )}
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.executionPreset')}</label>
-                              <button
-                                onClick={() =>
-                                  updateStepExecution(index, {
-                                    temperature: undefined,
-                                    maxTokens: undefined,
-                                  })
-                                }
-                                className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-                              >
-                                {t(language, 'templateEditor.clearPreset')}
-                              </button>
-                            </div>
-                            <div className="flex flex-wrap gap-2">
-                              {DEEPSEEK_EXECUTION_PRESETS.map((preset) => {
-                                const isActive =
-                                  execution.temperature === preset.temperature && execution.maxTokens === preset.maxTokens;
-                                return (
+                              )}
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.executionPreset')}</label>
                                   <button
-                                    key={preset.id}
                                     onClick={() =>
                                       updateStepExecution(index, {
-                                        temperature: preset.temperature,
-                                        maxTokens: preset.maxTokens,
+                                        temperature: undefined,
+                                        maxTokens: undefined,
                                       })
                                     }
-                                    className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition-colors ${
-                                      isActive
-                                        ? 'border-cyan-400/40 bg-cyan-500/10 text-cyan-300'
-                                        : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
-                                    }`}
-                                    title={preset.description}
+                                    className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
                                   >
-                                    {preset.label}
+                                    {t(language, 'templateEditor.clearPreset')}
                                   </button>
-                                );
-                              })}
-                            </div>
-                            <div className="text-[11px] text-slate-500">
-                              {t(language, 'templateEditor.presetHelp')}
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.modelRef')}</label>
-                              <select
-                                value={execution.modelRefId || ''}
-                                onChange={(event) => applyStepModelRef(index, event.target.value || undefined)}
-                                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                              >
-                                <option value="">{t(language, 'templateEditor.noModelRefOption')}</option>
-                                {modelRefs.map((modelRef) => {
-                                  const item = getCatalogItem(modelRef.modelCatalogItemId);
-                                  return (
-                                    <option key={modelRef.id} value={modelRef.id}>
-                                      {modelRef.label}
-                                      {item && !item.enabled ? t(language, 'templateEditor.disabledSuffix') : ''}
-                                      {!item && modelRef.modelCatalogItemId ? t(language, 'templateEditor.missingSuffix') : ''}
-                                    </option>
-                                  );
-                                })}
-                              </select>
-                              {recommendedPreset && (
-                                <div className="text-[11px] text-slate-500">
-                                  {t(language, 'templateEditor.recommendedPreset')}: {recommendedPreset.label}
-                                  {execution.temperature === undefined && execution.maxTokens === undefined
-                                    ? t(language, 'templateEditor.recommendedPresetAuto')
-                                    : t(language, 'templateEditor.recommendedPresetManual')}
                                 </div>
-                              )}
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.executionStatus')}</label>
-                              <div className={`rounded border px-3 py-2 text-sm ${getExecutionBadgeClassName(availability)}`}>
-                                {availability.label}
+                                <div className="flex flex-wrap gap-2">
+                                  {DEEPSEEK_EXECUTION_PRESETS.map((preset) => {
+                                    const isActive =
+                                      execution.temperature === preset.temperature && execution.maxTokens === preset.maxTokens;
+                                    return (
+                                      <button
+                                        key={preset.id}
+                                        onClick={() =>
+                                          updateStepExecution(index, {
+                                            temperature: preset.temperature,
+                                            maxTokens: preset.maxTokens,
+                                          })
+                                        }
+                                        className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition-colors ${
+                                          isActive
+                                            ? 'border-cyan-400/40 bg-cyan-500/10 text-cyan-300'
+                                            : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
+                                        }`}
+                                        title={preset.description}
+                                      >
+                                        {preset.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  {t(language, 'templateEditor.presetHelp')}
+                                </div>
                               </div>
-                            </div>
-                          </div>
-                          <div className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
-                            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{t(language, 'templateEditor.statusNote')}</div>
-                            <div className="mt-1 text-xs text-slate-300">{availability.message}</div>
-                            {availability.modelCatalogItem && availability.providerConfig && (
-                              <div className="mt-2 text-[11px] text-slate-500">
-                                {availability.providerConfig.label} / {availability.modelCatalogItem.label}
-                              </div>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-bold uppercase text-slate-500">Temperature</label>
-                              <input
-                                type="number"
-                                min="0"
-                                max="2"
-                                step="0.1"
-                                value={execution.temperature ?? ''}
-                                onChange={(event) =>
-                                  updateStepExecution(index, {
-                                    temperature: event.target.value === '' ? undefined : Number(event.target.value),
-                                  })
-                                }
-                                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                                placeholder={t(language, 'templateEditor.defaultPlaceholder')}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-bold uppercase text-slate-500">Max Tokens</label>
-                              <input
-                                type="number"
-                                min="1"
-                                step="1"
-                                value={execution.maxTokens ?? ''}
-                                onChange={(event) =>
-                                  updateStepExecution(index, {
-                                    maxTokens: event.target.value === '' ? undefined : Number(event.target.value),
-                                  })
-                                }
-                                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                                placeholder={t(language, 'templateEditor.defaultPlaceholder')}
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-[11px] font-bold uppercase text-slate-500">System Prompt</label>
-                            {matchedSystemPromptPreset && (
-                              <div className="text-[11px] text-cyan-300">
-                                {t(language, 'templateEditor.currentTemplate')}: {matchedSystemPromptPreset.label}
-                              </div>
-                            )}
-                            {recommendedSystemPromptPreset && (
-                              <div className="text-[11px] text-slate-500">
-                                {t(language, 'templateEditor.recommendedTemplate')}: {recommendedSystemPromptPreset.label}
-                                {!execution.systemPrompt.trim() ? t(language, 'templateEditor.systemPromptAuto') : t(language, 'templateEditor.systemPromptManual')}
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-2">
-                              {DEEPSEEK_SYSTEM_PROMPT_PRESETS.map((preset) => {
-                                const isActive = execution.systemPrompt === preset.content;
-                                return (
-                                  <button
-                                    key={preset.id}
-                                    onClick={() => updateStepExecution(index, { systemPrompt: preset.content })}
-                                    className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition-colors ${
-                                      isActive
-                                        ? 'border-cyan-400/40 bg-cyan-500/10 text-cyan-300'
-                                        : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
-                                    }`}
-                                    title={preset.description}
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.modelRef')}</label>
+                                  <select
+                                    value={execution.modelRefId || ''}
+                                    onChange={(event) => applyStepModelRef(index, event.target.value || undefined)}
+                                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
                                   >
-                                    {preset.label}
+                                    <option value="">{t(language, 'templateEditor.noModelRefOption')}</option>
+                                    {modelRefs.map((modelRef) => {
+                                      const item = getCatalogItem(modelRef.modelCatalogItemId);
+                                      return (
+                                        <option key={modelRef.id} value={modelRef.id}>
+                                          {modelRef.label}
+                                          {item && !item.enabled ? t(language, 'templateEditor.disabledSuffix') : ''}
+                                          {!item && modelRef.modelCatalogItemId ? t(language, 'templateEditor.missingSuffix') : ''}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                  {recommendedPreset && (
+                                    <div className="text-[11px] text-slate-500">
+                                      {t(language, 'templateEditor.recommendedPreset')}: {recommendedPreset.label}
+                                      {execution.temperature === undefined && execution.maxTokens === undefined
+                                        ? t(language, 'templateEditor.recommendedPresetAuto')
+                                        : t(language, 'templateEditor.recommendedPresetManual')}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.executionStatus')}</label>
+                                  <div className={`rounded border px-3 py-2 text-sm ${getExecutionBadgeClassName(availability)}`}>
+                                    {availability.label}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="rounded-xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+                                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{t(language, 'templateEditor.statusNote')}</div>
+                                <div className="mt-1 text-xs text-slate-300">{availability.message}</div>
+                                {availability.modelCatalogItem && availability.providerConfig && (
+                                  <div className="mt-2 text-[11px] text-slate-500">
+                                    {availability.providerConfig.label} / {availability.modelCatalogItem.label}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'step.temperature')}</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    max="2"
+                                    step="0.1"
+                                    value={execution.temperature ?? ''}
+                                    onChange={(event) =>
+                                      updateStepExecution(index, {
+                                        temperature: event.target.value === '' ? undefined : Number(event.target.value),
+                                      })
+                                    }
+                                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                    placeholder={t(language, 'templateEditor.defaultPlaceholder')}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'step.maxTokens')}</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={execution.maxTokens ?? ''}
+                                    onChange={(event) =>
+                                      updateStepExecution(index, {
+                                        maxTokens: event.target.value === '' ? undefined : Number(event.target.value),
+                                      })
+                                    }
+                                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                    placeholder={t(language, 'templateEditor.defaultPlaceholder')}
+                                  />
+                                </div>
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'step.systemPrompt')}</label>
+                                {matchedSystemPromptPreset && (
+                                  <div className="text-[11px] text-cyan-300">
+                                    {t(language, 'templateEditor.currentTemplate')}: {matchedSystemPromptPreset.label}
+                                  </div>
+                                )}
+                                {recommendedSystemPromptPreset && (
+                                  <div className="text-[11px] text-slate-500">
+                                    {t(language, 'templateEditor.recommendedTemplate')}: {recommendedSystemPromptPreset.label}
+                                    {!execution.systemPrompt.trim() ? t(language, 'templateEditor.systemPromptAuto') : t(language, 'templateEditor.systemPromptManual')}
+                                  </div>
+                                )}
+                                <div className="flex flex-wrap gap-2">
+                                  {DEEPSEEK_SYSTEM_PROMPT_PRESETS.map((preset) => {
+                                    const isActive = execution.systemPrompt === preset.content;
+                                    return (
+                                      <button
+                                        key={preset.id}
+                                        onClick={() => updateStepExecution(index, { systemPrompt: preset.content })}
+                                        className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition-colors ${
+                                          isActive
+                                            ? 'border-cyan-400/40 bg-cyan-500/10 text-cyan-300'
+                                            : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
+                                        }`}
+                                        title={preset.description}
+                                      >
+                                        {preset.label}
+                                      </button>
+                                    );
+                                  })}
+                                  <button
+                                    onClick={() => updateStepExecution(index, { systemPrompt: '' })}
+                                    className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
+                                  >
+                                    {t(language, 'templateEditor.clearTemplate')}
                                   </button>
-                                );
-                              })}
-                              <button
-                                onClick={() => updateStepExecution(index, { systemPrompt: '' })}
-                                className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[10px] font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-                              >
-                                {t(language, 'templateEditor.clearTemplate')}
-                              </button>
+                                </div>
+                                <div className="rounded border border-slate-700 bg-slate-950 p-4">
+                                  <AutoResizeTextarea
+                                    className="text-sm leading-relaxed text-slate-300"
+                                    value={execution.systemPrompt}
+                                    onChange={(value) => updateStepExecution(index, { systemPrompt: value })}
+                                    placeholder={t(language, 'templateEditor.systemPromptPlaceholder')}
+                                  />
+                                </div>
+                              </div>
                             </div>
-                            <div className="rounded border border-slate-700 bg-slate-950 p-4">
-                              <AutoResizeTextarea
-                                className="text-sm leading-relaxed text-slate-300"
-                                value={execution.systemPrompt}
-                                onChange={(value) => updateStepExecution(index, { systemPrompt: value })}
-                                placeholder={t(language, 'templateEditor.systemPromptPlaceholder')}
-                              />
-                            </div>
-                          </div>
+                          )}
                         </div>
 
-                        <div className="space-y-3 border-t border-slate-800 pt-4">
-                          <div className="flex items-center justify-between">
-                            <label className="text-xs font-bold uppercase text-violet-400">{t(language, 'templateEditor.outputToVar')}</label>
-                            {bindingKey && <span className="font-mono text-[11px] text-violet-300">{`{{${bindingKey}}}`}</span>}
-                          </div>
-                          <p className="text-xs text-slate-500">
-                            {t(language, 'templateEditor.bindingHelp')}
-                          </p>
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.varKey')}</label>
-                              <input
-                                value={binding.variableKey || ''}
-                                onChange={(event) => updateStepBinding(index, { variableKey: event.target.value })}
-                                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                                placeholder="scene_description"
-                              />
+                        <div className="border-t border-slate-800 pt-4">
+                          <button
+                            type="button"
+                            onClick={() => toggleBindingSection(step.id)}
+                            className="flex w-full items-start justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-left transition-colors hover:border-slate-700"
+                          >
+                            <div>
+                              <div className="text-xs font-bold uppercase text-violet-400">{t(language, 'templateEditor.outputToVar')}</div>
+                              <div className="mt-1 text-xs text-slate-400">
+                                {bindingKey
+                                  ? t(language, 'templateEditor.bindingSummaryBound', { key: bindingKey })
+                                  : t(language, 'templateEditor.bindingSummaryUnbound')}
+                              </div>
                             </div>
-                            <div className="space-y-2">
-                              <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.displayName')}</label>
-                              <input
-                                value={binding.variableLabel || ''}
-                                onChange={(event) => updateStepBinding(index, { variableLabel: event.target.value })}
-                                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                                placeholder={t(language, 'templateEditor.displayName')}
-                              />
-                            </div>
-                          </div>
-                          {bindingKey && (
-                            <div className={`text-xs ${isKnownVariable ? 'text-emerald-400' : 'text-amber-400'}`}>
-                              {isKnownVariable ? t(language, 'templateEditor.bindingKnown') : t(language, 'templateEditor.bindingNew')}
+                            <span className="text-[11px] font-bold text-violet-300">
+                              {isBindingExpanded ? t(language, 'templateEditor.collapseBinding') : t(language, 'templateEditor.expandBinding')}
+                            </span>
+                          </button>
+                          {isBindingExpanded && (
+                            <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+                              <div className="text-xs text-slate-500">{t(language, 'templateEditor.bindingHelp')}</div>
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.varKey')}</label>
+                                  <input
+                                    value={binding.variableKey || ''}
+                                    onChange={(event) => updateStepBinding(index, { variableKey: event.target.value })}
+                                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                    placeholder="scene_description"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[11px] font-bold uppercase text-slate-500">{t(language, 'templateEditor.displayName')}</label>
+                                  <input
+                                    value={binding.variableLabel || ''}
+                                    onChange={(event) => updateStepBinding(index, { variableLabel: event.target.value })}
+                                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                    placeholder={t(language, 'templateEditor.displayName')}
+                                  />
+                                </div>
+                              </div>
+                              {bindingKey && (
+                                <div className={`text-xs ${isKnownVariable ? 'text-emerald-400' : 'text-amber-400'}`}>
+                                  {isKnownVariable ? t(language, 'templateEditor.bindingKnown') : t(language, 'templateEditor.bindingNew')}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

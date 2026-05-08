@@ -247,7 +247,27 @@ type TranslationKey =
   | 'templateEditor.deleteStep'
   | 'templateEditor.delete'
   | 'templateEditor.copyExecutionConfig'
-  | 'templateEditor.applyCopiedConfigFrom';
+  | 'templateEditor.applyCopiedConfigFrom'
+  | 'templateEditor.moreActions'
+  | 'templateEditor.executionSummary'
+  | 'templateEditor.expandExecution'
+  | 'templateEditor.collapseExecution'
+  | 'templateEditor.bindingSummaryUnbound'
+  | 'templateEditor.bindingSummaryBound'
+  | 'templateEditor.expandBinding'
+  | 'templateEditor.collapseBinding'
+  | 'templateEditor.executionTemplateSelect'
+  | 'templateEditor.applyExecutionTemplate'
+  | 'templateEditor.saveAsPreset'
+  | 'templateEditor.presetName'
+  | 'templateEditor.presetDescription'
+  | 'templateEditor.modelStrategy'
+  | 'templateEditor.keepCurrentModel'
+  | 'templateEditor.bindCurrentCatalogModel'
+  | 'templateEditor.presetSaveHintBound'
+  | 'templateEditor.presetSaveHintKeep'
+  | 'templateEditor.presetSaveHintNoModel'
+  | 'templateEditor.savePreset';
 
 type TranslationValue = string | ((params: Record<string, string | number>) => string);
 
@@ -500,6 +520,26 @@ const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
     'templateEditor.delete': '删',
     'templateEditor.copyExecutionConfig': '复制执行配置',
     'templateEditor.applyCopiedConfigFrom': ({ stepName }) => `应用来自 ${stepName} 的执行配置`,
+    'templateEditor.moreActions': '更多',
+    'templateEditor.executionSummary': '执行配置',
+    'templateEditor.expandExecution': '展开执行配置',
+    'templateEditor.collapseExecution': '收起执行配置',
+    'templateEditor.bindingSummaryUnbound': '未绑定输出变量',
+    'templateEditor.bindingSummaryBound': ({ key }) => `输出同步到 {{${key}}}`,
+    'templateEditor.expandBinding': '展开变量配置',
+    'templateEditor.collapseBinding': '收起变量配置',
+    'templateEditor.executionTemplateSelect': '选择执行模板',
+    'templateEditor.applyExecutionTemplate': '应用执行模板',
+    'templateEditor.saveAsPreset': '保存当前配置为模板',
+    'templateEditor.presetName': '模板名称',
+    'templateEditor.presetDescription': '备注',
+    'templateEditor.modelStrategy': '模型策略',
+    'templateEditor.keepCurrentModel': '保留当前模型',
+    'templateEditor.bindCurrentCatalogModel': '记录当前模型目录项',
+    'templateEditor.presetSaveHintBound': '保存时会记录当前模型目录项，但应用模板时仍不会替换步骤模型引用。',
+    'templateEditor.presetSaveHintKeep': '默认保留当前步骤模型，只覆盖 temperature、max tokens 和 system prompt。',
+    'templateEditor.presetSaveHintNoModel': '当前步骤没有模型引用，保存时将默认保留当前模型策略。',
+    'templateEditor.savePreset': '保存模板',
   },
   'en-US': {
     'project.untitled': 'Untitled project',
@@ -749,6 +789,26 @@ const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
     'templateEditor.delete': 'Delete',
     'templateEditor.copyExecutionConfig': 'Copy execution config',
     'templateEditor.applyCopiedConfigFrom': ({ stepName }) => `Apply copied execution config from ${stepName}`,
+    'templateEditor.moreActions': 'More',
+    'templateEditor.executionSummary': 'Execution',
+    'templateEditor.expandExecution': 'Expand execution',
+    'templateEditor.collapseExecution': 'Collapse execution',
+    'templateEditor.bindingSummaryUnbound': 'No output variable bound',
+    'templateEditor.bindingSummaryBound': ({ key }) => `Output syncs to {{${key}}}`,
+    'templateEditor.expandBinding': 'Expand variable config',
+    'templateEditor.collapseBinding': 'Collapse variable config',
+    'templateEditor.executionTemplateSelect': 'Select execution template',
+    'templateEditor.applyExecutionTemplate': 'Apply execution template',
+    'templateEditor.saveAsPreset': 'Save current config as template',
+    'templateEditor.presetName': 'Preset name',
+    'templateEditor.presetDescription': 'Description',
+    'templateEditor.modelStrategy': 'Model strategy',
+    'templateEditor.keepCurrentModel': 'Keep current model',
+    'templateEditor.bindCurrentCatalogModel': 'Bind current catalog model',
+    'templateEditor.presetSaveHintBound': 'The current catalog model will be recorded, but applying the preset still keeps the step model ref.',
+    'templateEditor.presetSaveHintKeep': 'The current step model stays unchanged; only temperature, max tokens, and system prompt are applied.',
+    'templateEditor.presetSaveHintNoModel': 'This step has no model ref, so the preset will default to keep current model.',
+    'templateEditor.savePreset': 'Save preset',
   },
 };
 

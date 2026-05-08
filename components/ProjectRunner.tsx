@@ -158,7 +158,10 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
       case 'saved':
         return { label: t(language, 'step.synced'), className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' };
       case 'stale':
-        return { label: t(language, 'step.stale'), className: 'bg-amber-500/10 text-amber-400 border-amber-500/20' };
+        return {
+          label: language === 'zh-CN' ? '结果已更新' : 'Updated',
+          className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+        };
       case 'draft':
         return { label: t(language, 'step.draft'), className: 'bg-blue-500/10 text-blue-400 border-blue-500/20' };
       default:
@@ -324,6 +327,17 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
 
   const shouldShowStatusBadge = (status: StepFlowStatus) => status !== 'empty';
 
+  const getStaleDependencyLabel = (staleKeys: string[]) => {
+    if (staleKeys.length === 0) return '';
+    if (staleKeys.length === 1) {
+      return language === 'zh-CN' ? `变量 {{${staleKeys[0]}}} 已更新` : `{{${staleKeys[0]}}} updated`;
+    }
+
+    return language === 'zh-CN'
+      ? `引用变量已更新 ${staleKeys.length}`
+      : `${staleKeys.length} referenced vars updated`;
+  };
+
   return (
     <div className={`flex h-full w-full ${fontSizeClass}`}>
       <div className="flex-1 min-w-0 flex flex-col">
@@ -403,6 +417,11 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                       className: 'bg-red-500/10 text-red-400 border-red-500/20',
                       label: t(language, 'step.missingVars', { count: dependencyState.missingKeys.length }),
                     }
+                  : dependencyState.staleKeys.length > 0
+                    ? {
+                        className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+                        label: getStaleDependencyLabel(dependencyState.staleKeys),
+                      }
                   : null;
 
               const availability = resolveStepExecutionAvailability({
@@ -582,9 +601,17 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                               <span className="text-red-200/80">{dependencyState.missingKeys.map((key) => `{{${key}}}`).join(' , ')}</span>
                             </div>
                           )}
-                          {dependencyState.staleKeys.length > 0 && (
+                          {false && dependencyState.staleKeys.length > 0 && (
                             <div className="mt-1 break-words">
                               <span className="font-bold text-amber-400">{language === 'zh-CN' ? '上游结果已变化' : 'Upstream changed'}:</span>{' '}
+                              <span className="text-amber-200/80">{dependencyState.staleKeys.map((key) => `{{${key}}}`).join(' , ')}</span>
+                            </div>
+                          )}
+                          {dependencyState.staleKeys.length > 0 && (
+                            <div className="mt-1 break-words">
+                              <span className="font-bold text-amber-400">
+                                {language === 'zh-CN' ? '引用变量已更新，当前提示词需刷新' : 'Referenced vars changed, prompt should be refreshed'}:
+                              </span>{' '}
                               <span className="text-amber-200/80">{dependencyState.staleKeys.map((key) => `{{${key}}}`).join(' , ')}</span>
                             </div>
                           )}
