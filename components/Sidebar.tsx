@@ -48,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [newVarName, setNewVarName] = useState('');
   const [isVarTableMenuOpen, setIsVarTableMenuOpen] = useState(false);
   const [expandedResultVariableIds, setExpandedResultVariableIds] = useState<Record<string, boolean>>({});
+  const [resultVarMenuId, setResultVarMenuId] = useState<string | null>(null);
   const newVarInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -352,7 +353,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             const preview = (variable.value || '').trim();
 
                             return (
-                              <div key={variable.id} className="rounded-lg border border-slate-800 bg-slate-950/40 p-2">
+                              <div key={variable.id} className="relative rounded-lg border border-slate-800 bg-slate-950/40 p-2">
                               <button
                                 type="button"
                                 onClick={() => toggleResultVariable(variable.id)}
@@ -360,11 +361,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               >
                                 <div className="min-w-0">
                                   <div className="text-[10px] text-violet-400 font-bold font-mono truncate">{`{{${variable.key}}}`}</div>
-                                  <div className="text-[10px] text-slate-500 truncate">{variable.label}</div>
-                                  <div className="text-[9px] text-slate-600 truncate">
-                                    {variable.sourceType === 'step_output'
-                                      ? `${t(language, 'sidebar.stepSource')}: ${getStepName(variable.sourceRef) || variable.sourceRef || '-'}`
-                                      : `${t(language, 'sidebar.sourceType')}: ${variable.sourceType}`}
+                                  <div className="text-[10px] text-slate-500 truncate">
+                                    {variable.label}
+                                    {variable.sourceType === 'step_output' && (
+                                      <span className="ml-1 text-[9px] text-slate-600">
+                                        · {getStepName(variable.sourceRef) || variable.sourceRef || '-'}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
@@ -374,8 +377,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   <ChevronDownIcon className={`h-3.5 w-3.5 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                                 </div>
                               </button>
-                              <div className="mt-1.5 flex items-center justify-between gap-2">
-                                <div className="min-w-0 truncate text-[10px] text-slate-500">
+                              <div className="mt-1.5 flex items-start justify-between gap-2 text-[10px] text-slate-500">
+                                <div className="min-w-0 truncate">
                                   {preview
                                     ? `${preview.slice(0, 64)}${preview.length > 64 ? '...' : ''}`
                                     : language === 'zh-CN'
@@ -383,8 +386,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                       : 'Empty'}
                                 </div>
                                 <button
-                                  onClick={() => toggleResultVariable(variable.id)}
-                                  className="hidden"
+                                  type="button"
+                                  onClick={() => setResultVarMenuId((current) => (current === variable.id ? null : variable.id))}
+                                  className="shrink-0 w-4 overflow-hidden rounded px-0 text-[0px] leading-none text-transparent transition-colors before:text-[12px] before:text-slate-500 before:content-['⋯'] hover:before:text-white"
                                 >
                                   {isExpanded
                                     ? language === 'zh-CN' ? '收起' : 'Collapse'
@@ -396,7 +400,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   {variable.value || '...'}
                                 </div>
                               )}
-                              <div className="mt-1.5 flex items-center gap-2 text-[10px] font-medium">
+                              <div className="hidden mt-1.5 items-center gap-2 text-[10px] font-medium">
                                 <button
                                   onClick={() => copyVariableValue(variable.value || '')}
                                   className="text-slate-400 transition-colors hover:text-white"
@@ -412,6 +416,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                   </button>
                                 )}
                               </div>
+                              {resultVarMenuId === variable.id && (
+                                <div className="absolute right-2 top-[58px] z-10 min-w-[72px] rounded-md border border-slate-700 bg-slate-950/95 p-1 shadow-lg shadow-black/30">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      copyVariableValue(variable.value || '');
+                                      setResultVarMenuId(null);
+                                    }}
+                                    className="block w-full rounded px-2 py-1 text-left text-[10px] text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
+                                  >
+                                    {t(language, 'sidebar.copyVar')}
+                                  </button>
+                                  {variable.sourceRef && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        scrollToStep(variable.sourceRef);
+                                        setResultVarMenuId(null);
+                                      }}
+                                      className="block w-full rounded px-2 py-1 text-left text-[10px] text-amber-300 transition-colors hover:bg-slate-800 hover:text-white"
+                                    >
+                                      {t(language, 'sidebar.goSource')}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                               </div>
                             );
                           })

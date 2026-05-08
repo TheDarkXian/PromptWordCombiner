@@ -2,7 +2,7 @@
 title: PromptWordSplicer 鏂囨。绱㈠紩
 author: Codex
 created_at: 2026-04-30 11:50:00 +08:00
-updated_at: 2026-05-07 00:00:00 +08:00
+updated_at: 2026-05-08 00:00:00 +08:00
 type: index
 status: active
 ---
@@ -41,3 +41,4 @@ status: draft | active | archived
 - [产品路线清单.md](/E:/Project/Vscode/PromptWordSplicer/docs/产品路线清单.md:1)
 - [下一阶段升级实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/下一阶段升级实施方案.md:1)
 - [侧边栏与步骤卡片交互优化方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/侧边栏与步骤卡片交互优化方案.md:1)
+- [升级改进清单.md](/E:/Project/Vscode/PromptWordSplicer/docs/升级改进清单.md:1)
