@@ -44,3 +44,7 @@ status: draft | active | archived
 - [升级改进清单.md](/E:/Project/Vscode/PromptWordSplicer/docs/升级改进清单.md:1)
 - [TemplateEditor清理与统一实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/TemplateEditor清理与统一实施方案.md:1)
 - [技术负债调查报告.md](/E:/Project/Vscode/PromptWordSplicer/docs/技术负债调查报告.md:1)
+- [技术负债治理实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/技术负债治理实施方案.md:1)
+- [自动化深度与半自动工作流方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/自动化深度与半自动工作流方案.md:1)
+- [步骤类型与自动执行标记实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/步骤类型与自动执行标记实施方案.md:1)
+- [半自动批量文本生成实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/半自动批量文本生成实施方案.md:1)

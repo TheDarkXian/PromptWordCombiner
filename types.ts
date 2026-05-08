@@ -143,6 +143,69 @@ export interface TemplateStep {
   content: string;
   outputBinding?: StepOutputBinding;
   execution?: StepExecutionConfig;
+  stepType?: StepType;
+  autoRunEnabled?: boolean;
+}
+
+export type StepType = 'text_generation' | 'manual' | 'external';
+
+export type StepGraphNodeRole = 'producer' | 'consumer' | 'passthrough';
+
+export interface StepGraphNode {
+  stepId: string;
+  nodeRole: StepGraphNodeRole;
+  inputVariableKeys: string[];
+  outputVariableKey?: string;
+  upstreamStepIds: string[];
+  downstreamStepIds: string[];
+}
+
+export interface StepGraphEdge {
+  fromStepId: string;
+  toStepId: string;
+  variableKey: string;
+}
+
+export interface ProducerCandidate {
+  stepId: string;
+  stepName: string;
+  outputVariableKey: string;
+  inputVariableKeys: string[];
+  upstreamStepIds: string[];
+  downstreamStepIds: string[];
+}
+
+export type ProducerPreflightStatus = 'ready' | 'blocked' | 'existing_result' | 'skipped';
+
+export type ProducerRunScope = 'empty_only' | 'changed_only' | 'all';
+
+export interface ProducerPreflightItem {
+  stepId: string;
+  stepName: string;
+  outputVariableKey: string;
+  status: ProducerPreflightStatus;
+  reason?: string;
+  willOverwrite?: boolean;
+}
+
+export type ProducerRunResultStatus = 'success' | 'error' | 'skipped' | 'blocked' | 'stopped';
+
+export type ProducerAutomationStepState =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'success'
+  | 'error'
+  | 'skipped'
+  | 'blocked'
+  | 'stopped';
+
+export interface ProducerRunResultItem {
+  stepId: string;
+  stepName: string;
+  outputVariableKey: string;
+  status: ProducerRunResultStatus;
+  message: string;
 }
 
 export interface StepOutputBinding {

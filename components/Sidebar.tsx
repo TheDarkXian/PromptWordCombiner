@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Project, StepFlowStatus, Template, UiLanguage } from '../types';
 import { t } from '../services/i18n';
-import { VarsIcon, NavIcon, BuildIcon, ChevronDownIcon, DownloadIcon } from './Icons';
-import { Button } from './Button';
-import { AutoResizeTextarea } from './common/AutoResizeTextarea';
+import { BuildIcon, NavIcon, VarsIcon } from './Icons';
+import { SidebarBuildPanel } from './sidebar/SidebarBuildPanel';
+import { SidebarNavigationPanel } from './sidebar/SidebarNavigationPanel';
+import { SidebarVariablePanel } from './sidebar/SidebarVariablePanel';
 
 type SidebarTab = 'vars' | 'nav' | 'build';
+type VariableTab = 'input' | 'local' | 'result';
 
 interface SidebarProps {
   language: UiLanguage;
@@ -43,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRequestAlert,
 }) => {
   const [activeTab, setActiveTab] = useState<SidebarTab>('vars');
-  const [sections, setSections] = useState({ global: true, local: true, result: true });
+  const [activeVariableTab, setActiveVariableTab] = useState<VariableTab>('input');
   const [isAddingVariable, setIsAddingVariable] = useState(false);
   const [newVarName, setNewVarName] = useState('');
   const [isVarTableMenuOpen, setIsVarTableMenuOpen] = useState(false);
@@ -52,25 +54,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const newVarInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
-  const resultVariables = (activeProject?.variables || []).filter((variable) =>
-    ['step_output', 'derived', 'manual'].includes(variable.sourceType)
-  );
-
   const getStepName = (stepId?: string) => activeProjectTemplate?.steps.find((step) => step.id === stepId)?.name;
 
   const getStepStatus = (stepId: string): StepFlowStatus => {
     const output = activeProject?.stepOutputs?.[stepId] || '';
     if (!output.trim()) return 'empty';
 
-    const meta = activeProject?.stepOutputMeta?.[stepId];
     const boundVariable = (activeProject?.variables || []).find(
       (variable) => variable.sourceType === 'step_output' && variable.sourceRef === stepId
     );
     if (!boundVariable) return 'draft';
 
-    const lastSavedAt = meta?.lastSavedToVariableAt || 0;
-    const updatedAt = meta?.updatedAt || 0;
-    if (lastSavedAt >= updatedAt && boundVariable.updatedAt >= updatedAt) return 'saved';
+    if (String(boundVariable.value || '') === output) return 'saved';
     return 'stale';
   };
 
@@ -87,31 +82,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const getStatusLabel = (status: StepFlowStatus) => {
-    switch (status) {
-      case 'saved':
-        return language === 'zh-CN' ? '已写入' : 'Synced';
-      case 'stale':
-        return language === 'zh-CN' ? '待更新' : 'Stale';
-      case 'draft':
-        return language === 'zh-CN' ? '未写入' : 'Draft';
-      default:
-        return language === 'zh-CN' ? '未填写' : 'Empty';
-    }
-  };
-
-  const scrollToStep = (stepId?: string) => {
-    if (!stepId) return;
-    const el = document.getElementById(stepId);
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   const copyVariableValue = async (value: string) => {
     if (!value.trim()) {
       onRequestAlert(t(language, 'sidebar.duplicateVar'), t(language, 'sidebar.duplicateVarMessage'));
       return;
     }
     await navigator.clipboard.writeText(value);
+  };
+
+  const scrollToStep = (stepId?: string) => {
+    if (!stepId) return;
+    const el = document.getElementById(stepId);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const toggleResultVariable = (variableId: string) => {
@@ -144,29 +126,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [isResizing, onResizingChange, onWidthChange]);
 
-  const handleAddVariable = () => {
-    const trimmed = newVarName.trim();
-    if (!trimmed) {
-      setIsAddingVariable(false);
-      return;
-    }
-    if (activeProject?.customInputs?.some((input) => input.label === trimmed)) {
-      onRequestAlert(language === 'zh-CN' ? '重名警告' : 'Duplicate name', language === 'zh-CN' ? '该变量名称已经存在。' : 'A variable with this name already exists.');
-      return;
-    }
-    onAddLocalVariable(trimmed);
-    setNewVarName('');
-    setIsAddingVariable(false);
-  };
-
-  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const content = await file.text();
-    onImportVariableTable(content);
-    event.target.value = '';
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -180,21 +139,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setActiveTab('vars')}
               title={t(language, 'sidebar.vars')}
-              className={`p-2 rounded-lg transition-colors ${activeTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'}`}
+              className={`p-2 rounded-lg transition-colors ${
+                activeTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'
+              }`}
             >
               <VarsIcon className="w-5 h-5" />
             </button>
             <button
               onClick={() => setActiveTab('nav')}
               title={t(language, 'sidebar.nav')}
-              className={`p-2 rounded-lg transition-colors ${activeTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'}`}
+              className={`p-2 rounded-lg transition-colors ${
+                activeTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'
+              }`}
             >
               <NavIcon className="w-5 h-5" />
             </button>
             <button
               onClick={() => setActiveTab('build')}
               title={t(language, 'sidebar.build')}
-              className={`p-2 rounded-lg transition-colors ${activeTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'}`}
+              className={`p-2 rounded-lg transition-colors ${
+                activeTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'
+              }`}
             >
               <BuildIcon className="w-5 h-5" />
             </button>
@@ -207,279 +172,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {activeProject && activeProjectTemplate ? (
             <>
               {activeTab === 'vars' && (
-                <div className="flex flex-col h-full overflow-y-auto p-4 space-y-6 no-scrollbar">
-                  <input
-                    ref={importFileInputRef}
-                    type="file"
-                    accept=".json,.csv,text/csv,application/json"
-                    onChange={handleImportFile}
-                    className="hidden"
-                  />
-                  <div className="relative rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-                    <button
-                      onClick={() => setIsVarTableMenuOpen((prev) => !prev)}
-                      className="flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
-                    >
-                      <span>{language === 'zh-CN' ? '变量表' : 'Variable table'}</span>
-                      <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${isVarTableMenuOpen ? 'rotate-180' : ''}`} />
-                    </button>
-                    {isVarTableMenuOpen && (
-                      <div className="mt-2 space-y-1 rounded-lg border border-slate-800 bg-slate-900/95 p-2 shadow-xl">
-                        <button
-                          onClick={() => {
-                            setIsVarTableMenuOpen(false);
-                            importFileInputRef.current?.click();
-                          }}
-                          className="block w-full rounded-md px-3 py-2 text-left text-[10px] font-bold text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
-                        >
-                          {t(language, 'sidebar.importVarTable')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsVarTableMenuOpen(false);
-                            void onExportVariableTable('json');
-                          }}
-                          className="block w-full rounded-md px-3 py-2 text-left text-[10px] font-bold text-blue-300 transition-colors hover:bg-slate-800 hover:text-white"
-                        >
-                          {t(language, 'sidebar.exportJson')}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setIsVarTableMenuOpen(false);
-                            void onExportVariableTable('csv');
-                          }}
-                          className="block w-full rounded-md px-3 py-2 text-left text-[10px] font-bold text-emerald-300 transition-colors hover:bg-slate-800 hover:text-white"
-                        >
-                          {t(language, 'sidebar.exportCsv')}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSections((prev) => ({ ...prev, global: !prev.global }))}>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">{t(language, 'sidebar.inputVars')}</span>
-                      <ChevronDownIcon className={`w-3.5 h-3.5 text-slate-600 transition-transform ${sections.global ? 'rotate-180' : ''}`} />
-                    </div>
-                    {sections.global &&
-                      activeProjectTemplate.inputs.map((input, idx) => (
-                        <div key={input.id}>
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-[10px] font-mono text-blue-400 font-bold">&lt;{idx}&gt;</span>
-                            <label className="text-[10px] text-slate-500 block truncate font-medium">{input.label}</label>
-                          </div>
-                          <AutoResizeTextarea
-                            value={activeProject.inputValues[input.id] || ''}
-                            onChange={(val) => onInputChange(input.id, val)}
-                            placeholder="..."
-                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                          />
-                        </div>
-                      ))}
-                  </div>
-
-                  <div className="space-y-3 border-t border-slate-800 pt-4">
-                    <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSections((prev) => ({ ...prev, local: !prev.local }))}>
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider group-hover:text-emerald-400 transition-colors">{t(language, 'sidebar.localVars')}</span>
-                      <ChevronDownIcon className={`w-3.5 h-3.5 text-emerald-600/50 transition-transform ${sections.local ? 'rotate-180' : ''}`} />
-                    </div>
-                    {sections.local && (
-                      <>
-                        {(activeProject.customInputs || []).map((input, idx) => (
-                          <div key={input.id} className="group relative">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <span className="text-[10px] font-mono text-emerald-400 font-bold">&lt;l{idx + 1}&gt;</span>
-                              <label className="text-[10px] text-slate-500 block truncate font-medium">{input.label}</label>
-                            </div>
-                            <AutoResizeTextarea
-                              value={activeProject.inputValues[input.id] || ''}
-                              onChange={(val) => onInputChange(input.id, val)}
-                              placeholder="..."
-                              className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all"
-                            />
-                            <button
-                              onClick={() => onDeleteLocalVariable(input.id)}
-                              className="absolute top-0 right-0 text-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                        {isAddingVariable ? (
-                          <div className="bg-slate-950 border border-emerald-900/50 rounded-lg p-3 animate-in slide-in-from-top-1 duration-150">
-                            <input
-                              ref={newVarInputRef}
-                              type="text"
-                              className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-xs text-white focus:border-emerald-500 outline-none"
-                              placeholder={t(language, 'sidebar.varNamePlaceholder')}
-                              value={newVarName}
-                              onChange={(e) => setNewVarName(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleAddVariable();
-                                if (e.key === 'Escape') setIsAddingVariable(false);
-                              }}
-                            />
-                            <div className="flex justify-end gap-2 mt-3">
-                              <button onClick={() => setIsAddingVariable(false)} className="text-[10px] text-slate-500 px-2 py-1 hover:text-white">{t(language, 'sidebar.cancel')}</button>
-                              <button onClick={handleAddVariable} className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1 rounded-md transition-colors">{t(language, 'sidebar.add')}</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => setIsAddingVariable(true)}
-                            className="w-full py-2 border border-dashed border-slate-800 rounded-lg text-[10px] text-slate-500 hover:border-emerald-500/50 hover:text-emerald-500 transition-all"
-                          >
-                            {t(language, 'sidebar.addLocalVar')}
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-
-                  <div className="space-y-3 border-t border-slate-800 pt-4">
-                    <div className="flex items-center justify-between cursor-pointer group" onClick={() => setSections((prev) => ({ ...prev, result: !prev.result }))}>
-                      <span className="text-[10px] font-bold text-violet-500 uppercase tracking-wider group-hover:text-violet-300 transition-colors">{t(language, 'sidebar.resultVars')}</span>
-                      <ChevronDownIcon className={`w-3.5 h-3.5 text-violet-500/50 transition-transform ${sections.result ? 'rotate-180' : ''}`} />
-                    </div>
-                    {sections.result && (
-                      <>
-                        {resultVariables.length === 0 ? (
-                          <div className="text-[10px] text-slate-600 border border-dashed border-slate-800 rounded-lg px-3 py-3">
-                            {t(language, 'sidebar.noResultVars')}
-                          </div>
-                        ) : (
-                          resultVariables.map((variable) => {
-                            const isExpanded = Boolean(expandedResultVariableIds[variable.id]);
-                            const preview = (variable.value || '').trim();
-
-                            return (
-                              <div key={variable.id} className="relative rounded-lg border border-slate-800 bg-slate-950/40 p-2">
-                              <button
-                                type="button"
-                                onClick={() => toggleResultVariable(variable.id)}
-                                className="flex w-full items-start justify-between gap-2 text-left"
-                              >
-                                <div className="min-w-0">
-                                  <div className="text-[10px] text-violet-400 font-bold font-mono truncate">{`{{${variable.key}}}`}</div>
-                                  <div className="text-[10px] text-slate-500 truncate">
-                                    {variable.label}
-                                    {variable.sourceType === 'step_output' && (
-                                      <span className="ml-1 text-[9px] text-slate-600">
-                                        · {getStepName(variable.sourceRef) || variable.sourceRef || '-'}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
-                                  {variable.sourceRef && (
-                                    <span className={`w-2 h-2 rounded-full ${getStatusDotClass(getStepStatus(variable.sourceRef))}`}></span>
-                                  )}
-                                  <ChevronDownIcon className={`h-3.5 w-3.5 text-slate-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                </div>
-                              </button>
-                              <div className="mt-1.5 flex items-start justify-between gap-2 text-[10px] text-slate-500">
-                                <div className="min-w-0 truncate">
-                                  {preview
-                                    ? `${preview.slice(0, 64)}${preview.length > 64 ? '...' : ''}`
-                                    : language === 'zh-CN'
-                                      ? '暂无内容'
-                                      : 'Empty'}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => setResultVarMenuId((current) => (current === variable.id ? null : variable.id))}
-                                  className="shrink-0 w-4 overflow-hidden rounded px-0 text-[0px] leading-none text-transparent transition-colors before:text-[12px] before:text-slate-500 before:content-['⋯'] hover:before:text-white"
-                                >
-                                  {isExpanded
-                                    ? language === 'zh-CN' ? '收起' : 'Collapse'
-                                    : language === 'zh-CN' ? '展开' : 'Expand'}
-                                </button>
-                              </div>
-                              {isExpanded && (
-                                <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] leading-relaxed text-slate-300">
-                                  {variable.value || '...'}
-                                </div>
-                              )}
-                              <div className="hidden mt-1.5 items-center gap-2 text-[10px] font-medium">
-                                <button
-                                  onClick={() => copyVariableValue(variable.value || '')}
-                                  className="text-slate-400 transition-colors hover:text-white"
-                                >
-                                  {t(language, 'sidebar.copyVar')}
-                                </button>
-                                {variable.sourceRef && (
-                                  <button
-                                    onClick={() => scrollToStep(variable.sourceRef)}
-                                    className="text-amber-300 transition-colors hover:text-white"
-                                  >
-                                    {t(language, 'sidebar.goSource')}
-                                  </button>
-                                )}
-                              </div>
-                              {resultVarMenuId === variable.id && (
-                                <div className="absolute right-2 top-[58px] z-10 min-w-[72px] rounded-md border border-slate-700 bg-slate-950/95 p-1 shadow-lg shadow-black/30">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      copyVariableValue(variable.value || '');
-                                      setResultVarMenuId(null);
-                                    }}
-                                    className="block w-full rounded px-2 py-1 text-left text-[10px] text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
-                                  >
-                                    {t(language, 'sidebar.copyVar')}
-                                  </button>
-                                  {variable.sourceRef && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        scrollToStep(variable.sourceRef);
-                                        setResultVarMenuId(null);
-                                      }}
-                                      className="block w-full rounded px-2 py-1 text-left text-[10px] text-amber-300 transition-colors hover:bg-slate-800 hover:text-white"
-                                    >
-                                      {t(language, 'sidebar.goSource')}
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                              </div>
-                            );
-                          })
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
+                <SidebarVariablePanel
+                  language={language}
+                  activeProject={activeProject}
+                  activeProjectTemplate={activeProjectTemplate}
+                  activeVariableTab={activeVariableTab}
+                  isVarTableMenuOpen={isVarTableMenuOpen}
+                  isAddingVariable={isAddingVariable}
+                  newVarName={newVarName}
+                  expandedResultVariableIds={expandedResultVariableIds}
+                  resultVarMenuId={resultVarMenuId}
+                  newVarInputRef={newVarInputRef}
+                  importFileInputRef={importFileInputRef}
+                  onInputChange={onInputChange}
+                  onAddLocalVariable={onAddLocalVariable}
+                  onDeleteLocalVariable={onDeleteLocalVariable}
+                  onImportVariableTable={onImportVariableTable}
+                  onExportVariableTable={onExportVariableTable}
+                  onRequestAlert={onRequestAlert}
+                  setActiveVariableTab={setActiveVariableTab}
+                  setIsVarTableMenuOpen={setIsVarTableMenuOpen}
+                  setIsAddingVariable={setIsAddingVariable}
+                  setNewVarName={setNewVarName}
+                  setResultVarMenuId={setResultVarMenuId}
+                  toggleResultVariable={toggleResultVariable}
+                  copyVariableValue={copyVariableValue}
+                  getStepName={getStepName}
+                  getStepStatus={getStepStatus}
+                  getStatusDotClass={getStatusDotClass}
+                  scrollToStep={scrollToStep}
+                />
               )}
 
               {activeTab === 'nav' && (
-                <div className="h-full overflow-y-auto p-3 space-y-2 no-scrollbar">
-                  {activeProjectTemplate.steps.map((step, idx) => (
-                    <button
-                      key={step.id}
-                      onClick={() => scrollToStep(step.id)}
-                      className="w-full flex items-center gap-3 p-2.5 hover:bg-slate-800 rounded-lg text-left transition-all group"
-                    >
-                      <span className="w-5 h-5 flex items-center justify-center shrink-0 bg-slate-800 border border-slate-700 text-[10px] font-bold text-slate-500 group-hover:border-amber-500 group-hover:text-amber-500 rounded transition-all">{idx + 1}</span>
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${getStatusDotClass(getStepStatus(step.id))}`}></span>
-                      <span className="text-xs text-slate-300 truncate font-medium">{step.name}</span>
-                    </button>
-                  ))}
-                </div>
+                <SidebarNavigationPanel
+                  activeProjectTemplate={activeProjectTemplate}
+                  language={language}
+                  getStatusDotClass={getStatusDotClass}
+                  getStepStatus={getStepStatus}
+                  scrollToStep={scrollToStep}
+                />
               )}
 
-              {activeTab === 'build' && (
-                <div className="p-6 flex flex-col items-center justify-center text-center h-full">
-                  <div className="w-14 h-14 bg-purple-900/30 text-purple-400 rounded-2xl flex items-center justify-center mb-4 shadow-xl shadow-purple-950/20">
-                    <DownloadIcon className="w-7 h-7" />
-                  </div>
-                  <h4 className="text-xs font-bold text-white mb-2 uppercase tracking-wider">{t(language, 'sidebar.bakeTitle')}</h4>
-                  <p className="text-[10px] text-slate-500 mb-6 px-4 leading-relaxed">{t(language, 'sidebar.bakeDescription')}</p>
-                  <Button variant="primary" size="sm" onClick={onBakeDownload} className="w-full bg-purple-600 hover:bg-purple-500 shadow-lg shadow-purple-600/30 font-bold">
-                    {t(language, 'sidebar.startExport')}
-                  </Button>
-                </div>
-              )}
+              {activeTab === 'build' && <SidebarBuildPanel language={language} onBakeDownload={onBakeDownload} />}
             </>
           ) : (
             <div className="p-10 text-center text-slate-600 text-[10px] flex flex-col items-center gap-3">

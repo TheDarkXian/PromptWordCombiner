@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Project, Template } from '../types';
 import { Button } from './Button';
 import { ioService } from '../services/ioService';
@@ -86,7 +86,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
       setInventory(analyzedInventory);
       setQueue([]);
       setImportedData(data);
-    } catch (e) {
+    } catch {
       onRequestAlert('解析失败', '无法读取或解析该 JSON 文件。');
     }
   };

@@ -9,6 +9,32 @@ type TranslationKey =
   | 'project.clearLogs'
   | 'project.clearLogsTitle'
   | 'project.clearLogsMessage'
+  | 'project.updateProducers'
+  | 'project.producerPreflightTitle'
+  | 'project.producerPreflightSubtitle'
+  | 'project.producerReady'
+  | 'project.producerBlocked'
+  | 'project.producerExisting'
+  | 'project.producerOverwriteAll'
+  | 'project.producerSkipAll'
+  | 'project.producerStart'
+  | 'project.producerNothingToRun'
+  | 'project.producerResultTitle'
+  | 'project.producerStop'
+  | 'project.producerStopping'
+  | 'project.producerCurrent'
+  | 'project.producerProgress'
+  | 'project.producerSkipped'
+  | 'project.producerStopped'
+  | 'project.producerWillOverwrite'
+  | 'project.producerOutputVar'
+  | 'project.producerBlockedReason'
+  | 'project.producerNoReady'
+  | 'project.producerSummary'
+  | 'project.producerScope'
+  | 'project.producerScopeEmpty'
+  | 'project.producerScopeChanged'
+  | 'project.producerScopeAll'
   | 'project.liveOutline'
   | 'project.show'
   | 'project.hide'
@@ -83,6 +109,18 @@ type TranslationKey =
   | 'step.output'
   | 'step.error'
   | 'step.emptyText'
+  | 'step.roleText'
+  | 'step.roleManual'
+  | 'step.roleExternal'
+  | 'step.autoRun'
+  | 'step.autoRunOff'
+  | 'step.roleInfo'
+  | 'step.autoRunInfo'
+  | 'step.autoQueued'
+  | 'step.autoBlocked'
+  | 'step.autoSkipped'
+  | 'step.autoStopped'
+  | 'step.autoStateInfo'
   | 'toast.copied'
   | 'toast.restored'
   | 'toast.generated'
@@ -259,6 +297,16 @@ type TranslationKey =
   | 'templateEditor.executionTemplateSelect'
   | 'templateEditor.applyExecutionTemplate'
   | 'templateEditor.saveAsPreset'
+  | 'templateEditor.stepType'
+  | 'templateEditor.stepTypeText'
+  | 'templateEditor.stepTypeManual'
+  | 'templateEditor.stepTypeExternal'
+  | 'templateEditor.stepTypeHelpText'
+  | 'templateEditor.stepTypeHelpManual'
+  | 'templateEditor.stepTypeHelpExternal'
+  | 'templateEditor.autoRunEnabled'
+  | 'templateEditor.autoRunHelp'
+  | 'templateEditor.autoRunDisabledHelp'
   | 'templateEditor.presetName'
   | 'templateEditor.presetDescription'
   | 'templateEditor.modelStrategy'
@@ -271,7 +319,7 @@ type TranslationKey =
 
 type TranslationValue = string | ((params: Record<string, string | number>) => string);
 
-const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
+const messages: Record<UiLanguage, Partial<Record<TranslationKey, TranslationValue>>> = {
   'zh-CN': {
     'project.untitled': '未命名项目',
     'project.template': '模板',
@@ -355,6 +403,13 @@ const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
     'step.output': '输出',
     'step.error': '错误',
     'step.emptyText': '空',
+    'step.roleText': '文本',
+    'step.roleManual': '人工',
+    'step.roleExternal': '外部',
+    'step.autoRun': '自动',
+    'step.autoRunOff': '手动',
+    'step.roleInfo': ({ role }) => `步骤类型：${role}`,
+    'step.autoRunInfo': ({ status }) => `自动执行：${status}`,
     'toast.copied': ({ label }) => `${label}已复制`,
     'toast.restored': '已恢复',
     'toast.generated': '已生成',
@@ -531,6 +586,16 @@ const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
     'templateEditor.executionTemplateSelect': '选择执行模板',
     'templateEditor.applyExecutionTemplate': '应用执行模板',
     'templateEditor.saveAsPreset': '保存当前配置为模板',
+    'templateEditor.stepType': '步骤类型',
+    'templateEditor.stepTypeText': '文本生成',
+    'templateEditor.stepTypeManual': '人工确认',
+    'templateEditor.stepTypeExternal': '外部执行',
+    'templateEditor.stepTypeHelpText': '适合语言模型自动批量执行。',
+    'templateEditor.stepTypeHelpManual': '自动流程到这里必须停下，由用户人工确认或编辑。',
+    'templateEditor.stepTypeHelpExternal': '当前只生成提示词，不自动调用图像或视频模型。',
+    'templateEditor.autoRunEnabled': '允许自动执行',
+    'templateEditor.autoRunHelp': '只有文本生成步骤才会进入后续半自动执行范围。',
+    'templateEditor.autoRunDisabledHelp': '只有文本生成步骤可以开启自动执行。',
     'templateEditor.presetName': '模板名称',
     'templateEditor.presetDescription': '备注',
     'templateEditor.modelStrategy': '模型策略',
@@ -624,6 +689,13 @@ const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
     'step.output': 'Output',
     'step.error': 'Error',
     'step.emptyText': 'Empty',
+    'step.roleText': 'Text',
+    'step.roleManual': 'Manual',
+    'step.roleExternal': 'External',
+    'step.autoRun': 'Auto',
+    'step.autoRunOff': 'Manual',
+    'step.roleInfo': ({ role }) => `Step type: ${role}`,
+    'step.autoRunInfo': ({ status }) => `Auto run: ${status}`,
     'toast.copied': ({ label }) => `${label} copied`,
     'toast.restored': 'Restored',
     'toast.generated': 'Generated',
@@ -800,6 +872,16 @@ const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
     'templateEditor.executionTemplateSelect': 'Select execution template',
     'templateEditor.applyExecutionTemplate': 'Apply execution template',
     'templateEditor.saveAsPreset': 'Save current config as template',
+    'templateEditor.stepType': 'Step type',
+    'templateEditor.stepTypeText': 'Text generation',
+    'templateEditor.stepTypeManual': 'Manual confirmation',
+    'templateEditor.stepTypeExternal': 'External execution',
+    'templateEditor.stepTypeHelpText': 'Suitable for later batch execution with language models.',
+    'templateEditor.stepTypeHelpManual': 'The automatic flow must stop here for user review or edits.',
+    'templateEditor.stepTypeHelpExternal': 'Currently only prepares the prompt; it does not call image or video models.',
+    'templateEditor.autoRunEnabled': 'Allow automatic execution',
+    'templateEditor.autoRunHelp': 'Only text-generation steps can join later semi-automatic runs.',
+    'templateEditor.autoRunDisabledHelp': 'Only text-generation steps can enable automatic execution.',
     'templateEditor.presetName': 'Preset name',
     'templateEditor.presetDescription': 'Description',
     'templateEditor.modelStrategy': 'Model strategy',
@@ -812,6 +894,84 @@ const messages: Record<UiLanguage, Record<TranslationKey, TranslationValue>> = {
   },
 };
 
+Object.assign(messages['zh-CN'], {
+  'project.untitled': '未命名项目',
+  'project.template': '模板',
+  'project.id': 'ID',
+  'project.compact': '紧凑',
+  'project.detail': '详细',
+  'project.clearLogs': '清空日志',
+  'project.clearLogsTitle': '清空项目日志',
+  'project.clearLogsMessage': '清空这个项目的全部运行日志吗？步骤结果会保留。',
+  'project.updateProducers': '更新生产节点',
+  'project.producerPreflightTitle': '更新生产节点',
+  'project.producerPreflightSubtitle':
+    '先检查当前项目中的生产节点，再决定哪些已有结果需要覆盖。',
+  'project.producerReady': '可执行',
+  'project.producerBlocked': '被阻塞',
+  'project.producerExisting': '已有结果',
+  'project.producerOverwriteAll': '全部覆盖',
+  'project.producerSkipAll': '全部跳过',
+  'project.producerStart': '开始更新',
+  'project.producerNothingToRun': '当前没有可执行的生产节点。',
+  'project.producerResultTitle': '生产节点更新结果',
+  'project.producerStop': '停止',
+  'project.producerStopping': '停止中…',
+  'project.producerCurrent': '当前节点',
+  'project.producerProgress': '执行进度',
+  'project.producerSkipped': '已跳过',
+  'project.producerStopped': '已停止',
+  'project.producerWillOverwrite': '将覆盖现有结果',
+  'project.producerOutputVar': '输出变量',
+  'project.producerBlockedReason': '阻塞原因',
+  'project.producerNoReady': '本次没有节点会进入执行。',
+  'project.producerSummary': '汇总',
+  'project.producerScope': '执行范围',
+  'project.producerScopeEmpty': '仅更新空结果',
+  'project.producerScopeChanged': '仅更新已变化节点',
+  'project.producerScopeAll': '全量更新生产节点',
+  'step.autoQueued': '队列中',
+  'step.autoBlocked': '已阻塞',
+  'step.autoSkipped': '已跳过',
+  'step.autoStopped': '已停止',
+  'step.autoStateInfo': ({ state }) => `自动化状态: ${state}`,
+});
+
+Object.assign(messages['en-US'], {
+  'project.updateProducers': 'Update producers',
+  'project.producerPreflightTitle': 'Update producer nodes',
+  'project.producerPreflightSubtitle':
+    'Check producer nodes in the current project first, then choose which existing results should be overwritten.',
+  'project.producerReady': 'Ready',
+  'project.producerBlocked': 'Blocked',
+  'project.producerExisting': 'Existing result',
+  'project.producerOverwriteAll': 'Overwrite all',
+  'project.producerSkipAll': 'Skip all',
+  'project.producerStart': 'Start update',
+  'project.producerNothingToRun': 'There are no runnable producer nodes in the current project.',
+  'project.producerResultTitle': 'Producer update results',
+  'project.producerStop': 'Stop',
+  'project.producerStopping': 'Stopping…',
+  'project.producerCurrent': 'Current node',
+  'project.producerProgress': 'Progress',
+  'project.producerSkipped': 'Skipped',
+  'project.producerStopped': 'Stopped',
+  'project.producerWillOverwrite': 'Will overwrite the existing result',
+  'project.producerOutputVar': 'Output variable',
+  'project.producerBlockedReason': 'Blocked reason',
+  'project.producerNoReady': 'No node will enter this run.',
+  'project.producerSummary': 'Summary',
+  'project.producerScope': 'Run scope',
+  'project.producerScopeEmpty': 'Empty results only',
+  'project.producerScopeChanged': 'Changed nodes only',
+  'project.producerScopeAll': 'All producer nodes',
+  'step.autoQueued': 'Queued',
+  'step.autoBlocked': 'Blocked',
+  'step.autoSkipped': 'Skipped',
+  'step.autoStopped': 'Stopped',
+  'step.autoStateInfo': ({ state }) => `Automation: ${state}`,
+});
+
 export const t = (
   language: UiLanguage,
   key: TranslationKey,
@@ -821,5 +981,5 @@ export const t = (
   if (typeof entry === 'function') {
     return entry(params);
   }
-  return entry;
+  return entry ?? key;
 };

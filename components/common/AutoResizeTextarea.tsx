@@ -59,7 +59,7 @@ export const AutoResizeTextarea: React.FC<AutoResizeTextareaProps> = ({
       }
     });
     return () => cancelAnimationFrame(handle);
-  }, []);
+  }, [autoFocus, value.length]);
 
   useEffect(() => {
     window.addEventListener('resize', adjustHeight);

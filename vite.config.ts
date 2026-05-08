@@ -11,7 +11,7 @@ const require = createRequire(import.meta.url);
 const tauriConfig = require('./src-tauri/tauri.conf.json');
 
 export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
+    loadEnv(mode, '.', '');
     return {
       server: {
         port: 3004,

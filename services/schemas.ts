@@ -132,6 +132,8 @@ export const stepExecutionConfigSchema = z.object({
   maxTokens: z.number().optional(),
 });
 
+export const stepTypeSchema = z.enum(['text_generation', 'manual', 'external']);
+
 export const templateModelRefSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -145,6 +147,8 @@ export const templateStepSchema = z.object({
   content: z.string(),
   outputBinding: stepOutputBindingSchema.optional(),
   execution: stepExecutionConfigSchema.optional(),
+  stepType: stepTypeSchema.optional(),
+  autoRunEnabled: z.boolean().optional(),
 });
 
 export const templateSchema = z.object({

@@ -1,5 +1,5 @@
 
-import React, { useRef, useState, useMemo, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import { Project, Template, SortKey, UiLanguage } from '../types';
 import { t } from '../services/i18n';
 import { Button } from './Button';
@@ -101,13 +101,13 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   const [showArchived, setShowArchived] = useState(false);
   const [tagSearch, setTagSearch] = useState('');
 
-  const sortProjects = (projs: Project[]) => {
+  const sortProjects = useCallback((projs: Project[]) => {
     return [...projs].sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'createdAt') return (b.createdAt || 0) - (a.createdAt || 0);
       return (b.lastModifiedAt || 0) - (a.lastModifiedAt || 0);
     });
-  };
+  }, [sortBy]);
 
   useEffect(() => {
     if (projects.length > 0) {
@@ -116,7 +116,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         setLastCreatedId(latest.id);
       }
     }
-  }, [projects.length]);
+  }, [projects]);
 
   const groupedData = useMemo(() => {
     let visibleProjects = projects.filter(p => {
@@ -149,7 +149,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
       groups[groupName].push(p);
     });
     return groups;
-  }, [projects, sortBy, isGrouped, templates]);
+  }, [isGrouped, language, projects, showArchived, sortProjects, tagSearch, templates]);
 
   const toggleGroup = (groupName: string) => {
     const next = new Set(collapsedGroups);
@@ -183,7 +183,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         return;
       }
       onImportData(validation.data.projects, validation.data.templates);
-    } catch (err) {
+    } catch {
       onRequestAlert(t(language, 'fileLibrary.importFailed'), t(language, 'fileLibrary.importReadFailed'));
     }
     e.target.value = '';

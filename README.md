@@ -1,10 +1,102 @@
-## Run Locally
+# PromptWordSplicer
 
-**Prerequisites:** Node.js
+PromptWordSplicer is a local desktop tool built with React, Vite, and Tauri 2 for managing prompt templates, project variables, and multi-step execution flows.
 
-1. Install dependencies:
-   `npm install`
+## Prerequisites
 
-2. Run the app:
-   `npm run dev`
-   4.tauri run
+Install the following before running the project locally:
+
+- Node.js 22 or the current compatible LTS release
+- Rust toolchain via `rustup`
+- Tauri CLI 2
+
+Verify the toolchain:
+
+```bash
+node -v
+cargo -V
+npx tauri -V
+```
+
+## Dependency Policy
+
+- This repository uses `npm`
+- `package-lock.json` is committed and must stay in sync with dependency changes
+- `src-tauri` contains first-class application source and must not drift locally outside version control
+
+## Install
+
+```bash
+npm install
+```
+
+If PowerShell blocks `npm.ps1`, use:
+
+```bash
+cmd /c npm install
+```
+
+## Development
+
+Run the web app:
+
+```bash
+npm run dev
+```
+
+Run the Tauri desktop app:
+
+```bash
+npm run tauri:dev
+```
+
+## Build
+
+Frontend build:
+
+```bash
+npm run build
+```
+
+Desktop build:
+
+```bash
+npm run tauri:build
+```
+
+## Quality Checks
+
+```bash
+npm run typecheck
+npm run lint
+npm run test
+npm run verify
+```
+
+`verify` runs `typecheck`, `lint`, `test`, and `build` in sequence.
+
+## Repository Notes
+
+- `src-tauri/Cargo.toml`, `src-tauri/build.rs`, and `src-tauri/src/*.rs` are tracked source files
+- `src-tauri/target/` and `src-tauri/gen/schemas/` are generated artifacts and stay ignored
+- When scripts, dependencies, or build behavior change, update this README in the same change
+
+## Code Structure
+
+- `App.tsx`: top-level composition, modal wiring, and project/template coordination
+- `hooks/`: app-level orchestration for persistence, batch run progress, and shared state actions
+- `components/template-editor/`: TemplateEditor subpanels and step card UI
+- `components/project-runner/`: ProjectRunner shell, preview, step card, and run log panels
+- `components/settings-modal/` and `components/sidebar/`: decomposed modal/sidebar UI blocks
+- `services/`: application-facing logic for execution prep, import/export transforms, interpolation, and I/O
+- `domain/`: UI-agnostic normalization and mutation helpers
+
+## Troubleshooting
+
+### `npm` fails in PowerShell
+
+Use `cmd /c npm <command>`, or adjust the local PowerShell execution policy.
+
+### `npx tauri -V` fails
+
+Install the Tauri CLI first, then rerun `npm run tauri:dev` or `npm run tauri:build`.

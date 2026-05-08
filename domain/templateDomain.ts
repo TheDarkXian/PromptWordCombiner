@@ -4,6 +4,7 @@ import {
   ExecutionPresetModelRefStrategy,
   ExecutionPresetTemplate,
   ModelCatalogItem,
+  StepType,
   Template,
   TemplateModelRef,
 } from '../types';
@@ -67,25 +68,39 @@ export const normalizeTemplate = (
 ): Template => ({
   ...template,
   modelRefs: normalizeTemplateModelRefs(template, modelCatalog),
-  steps: template.steps.map((step) => ({
-    ...step,
-    outputBinding: {
-      variableKey: step.outputBinding?.variableKey || '',
-      variableLabel: step.outputBinding?.variableLabel || '',
-    },
-    execution: {
-      modelRefId: step.execution?.modelRefId,
-      systemPrompt: step.execution?.systemPrompt || '',
-      temperature:
-        typeof step.execution?.temperature === 'number'
-          ? step.execution.temperature
-          : undefined,
-      maxTokens:
-        typeof step.execution?.maxTokens === 'number'
-          ? step.execution.maxTokens
-          : undefined,
-    },
-  })),
+  steps: template.steps.map((step) => {
+    const normalizedStepType: StepType =
+      step.stepType === 'text_generation' ||
+      step.stepType === 'manual' ||
+      step.stepType === 'external'
+        ? step.stepType
+        : step.execution?.modelRefId
+          ? 'text_generation'
+          : 'manual';
+
+    return {
+      ...step,
+      stepType: normalizedStepType,
+      autoRunEnabled:
+        normalizedStepType === 'text_generation' ? step.autoRunEnabled === true : false,
+      outputBinding: {
+        variableKey: step.outputBinding?.variableKey || '',
+        variableLabel: step.outputBinding?.variableLabel || '',
+      },
+      execution: {
+        modelRefId: step.execution?.modelRefId,
+        systemPrompt: step.execution?.systemPrompt || '',
+        temperature:
+          typeof step.execution?.temperature === 'number'
+            ? step.execution.temperature
+            : undefined,
+        maxTokens:
+          typeof step.execution?.maxTokens === 'number'
+            ? step.execution.maxTokens
+            : undefined,
+      },
+    };
+  }),
 });
 
 export const createDefaultSettings = (): AppSettings => ({
