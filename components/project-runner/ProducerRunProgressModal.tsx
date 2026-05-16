@@ -1,5 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { ProducerRunResultItem, UiLanguage } from '../../types';
+import {
+  BatchResultExportFilter,
+  BatchResultExportFormat,
+} from '../../services/batchResultExportService';
 import { t } from '../../services/i18n';
 import { Button } from '../Button';
 
@@ -21,6 +25,7 @@ interface ProducerRunProgressModalProps {
   state: ProducerRunProgressState;
   onStop: () => void;
   onClose: () => void;
+  onExport: (format: BatchResultExportFormat, filter: BatchResultExportFilter) => void;
 }
 
 export const ProducerRunProgressModal: React.FC<ProducerRunProgressModalProps> = ({
@@ -28,10 +33,9 @@ export const ProducerRunProgressModal: React.FC<ProducerRunProgressModalProps> =
   state,
   onStop,
   onClose,
+  onExport,
 }) => {
-  const [filter, setFilter] = useState<'all' | 'success' | 'error' | 'skipped' | 'blocked'>('all');
-  if (!state.isOpen) return null;
-
+  const [filter, setFilter] = useState<BatchResultExportFilter>('all');
   const progress = state.total > 0 ? Math.round((state.processed / state.total) * 100) : 0;
   const filteredResults = useMemo(
     () =>
@@ -44,6 +48,7 @@ export const ProducerRunProgressModal: React.FC<ProducerRunProgressModalProps> =
           ),
     [filter, state.results]
   );
+  if (!state.isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[145] flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -118,7 +123,10 @@ export const ProducerRunProgressModal: React.FC<ProducerRunProgressModalProps> =
 
           <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
             {filteredResults.map((item) => (
-              <div key={`${item.stepId}_${item.status}`} className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2">
+              <div
+                key={`${item.stepId}_${item.status}`}
+                className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
+              >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-200">{item.stepName}</div>
@@ -132,25 +140,46 @@ export const ProducerRunProgressModal: React.FC<ProducerRunProgressModalProps> =
                           ? 'border-red-500/20 bg-red-500/10 text-red-300'
                           : item.status === 'blocked'
                             ? 'border-amber-500/20 bg-amber-500/10 text-amber-300'
-                          : 'border-slate-700 bg-slate-800/80 text-slate-300'
+                            : 'border-slate-700 bg-slate-800/80 text-slate-300'
                     }`}
                   >
                     {item.status === 'success'
                       ? language === 'zh-CN'
                         ? '成功'
                         : 'Success'
-                        : item.status === 'error'
-                          ? language === 'zh-CN'
-                            ? '失败'
-                            : 'Error'
+                      : item.status === 'error'
+                        ? language === 'zh-CN'
+                          ? '失败'
+                          : 'Error'
                         : item.status === 'blocked'
                           ? t(language, 'project.producerBlocked')
-                        : item.status === 'stopped'
-                          ? t(language, 'project.producerStopped')
-                          : t(language, 'project.producerSkipped')}
+                          : item.status === 'stopped'
+                            ? t(language, 'project.producerStopped')
+                            : t(language, 'project.producerSkipped')}
                   </span>
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[11px] text-slate-400">{item.message}</div>
+                {item.structuredParseStatus &&
+                  item.structuredParseStatus !== 'not_applicable' && (
+                    <div className="mt-2 flex items-center gap-2 text-[10px]">
+                      <span className="rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-2 py-0.5 text-fuchsia-300">
+                        {item.structuredParseStatus === 'success'
+                          ? language === 'zh-CN'
+                            ? '字段已更新'
+                            : 'Structured fields updated'
+                          : item.structuredParseStatus === 'skipped'
+                            ? language === 'zh-CN'
+                              ? '已跳过字段解析'
+                              : 'Structured parse skipped'
+                            : language === 'zh-CN'
+                              ? '字段解析失败'
+                              : 'Structured parse failed'}
+                      </span>
+                      {item.structuredParseMessage && (
+                        <span className="text-slate-500">{item.structuredParseMessage}</span>
+                      )}
+                    </div>
+                  )}
               </div>
             ))}
             {filteredResults.length === 0 && (
@@ -161,17 +190,35 @@ export const ProducerRunProgressModal: React.FC<ProducerRunProgressModalProps> =
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-slate-800 px-6 py-4">
-          {state.isRunning ? (
-            <Button variant="danger" onClick={onStop} disabled={state.stopRequested}>
-              {state.stopRequested
-                ? t(language, 'project.producerStopping')
-                : t(language, 'project.producerStop')}
+        <div className="flex items-center justify-between gap-3 border-t border-slate-800 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => onExport('csv', filter)}
+              disabled={filteredResults.length === 0}
+            >
+              {language === 'zh-CN' ? '导出 CSV' : 'Export CSV'}
             </Button>
-          ) : null}
-          <Button variant="secondary" onClick={onClose} disabled={state.isRunning}>
-            {language === 'zh-CN' ? '关闭' : 'Close'}
-          </Button>
+            <Button
+              variant="secondary"
+              onClick={() => onExport('json', filter)}
+              disabled={filteredResults.length === 0}
+            >
+              {language === 'zh-CN' ? '导出 JSON' : 'Export JSON'}
+            </Button>
+          </div>
+          <div className="flex items-center gap-3">
+            {state.isRunning ? (
+              <Button variant="danger" onClick={onStop} disabled={state.stopRequested}>
+                {state.stopRequested
+                  ? t(language, 'project.producerStopping')
+                  : t(language, 'project.producerStop')}
+              </Button>
+            ) : null}
+            <Button variant="secondary" onClick={onClose} disabled={state.isRunning}>
+              {language === 'zh-CN' ? '关闭' : 'Close'}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

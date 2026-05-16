@@ -75,6 +75,7 @@ describe('templateDomain', () => {
     const settings = createDefaultSettings();
 
     expect(settings.language).toBe('zh-CN');
+    expect(settings.tabOpenMode).toBe('multi');
     expect(settings.providerConfigs).toHaveLength(3);
     expect(settings.modelCatalog).toEqual(DEFAULT_MODEL_CATALOG);
     expect(settings.executionPresetTemplates).toEqual([]);
@@ -110,6 +111,7 @@ describe('templateDomain', () => {
     });
 
     expect(settings.language).toBe('en-US');
+    expect(settings.tabOpenMode).toBe('multi');
     expect(settings.providerConfigs[0]?.id).toBe('provider_123456_0');
     expect(settings.modelCatalog[0]).toEqual(
       expect.objectContaining({

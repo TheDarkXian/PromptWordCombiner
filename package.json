@@ -10,9 +10,12 @@
     "tauri:dev": "npx tauri dev",
     "tauri:build": "npx tauri build",
     "typecheck": "tsc --noEmit",
+    "check:i18n": "node scripts/check-i18n-integrity.mjs",
+    "check:i18n:strict": "node scripts/check-i18n-integrity.mjs --strict",
+    "check:garbled": "node scripts/check-garbled-text.mjs",
     "lint": "eslint .",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "verify": "npm run check:garbled && npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "PromptWordSplicer",
-  "version": "0.2.4",
+  "version": "0.2.7",
   "identifier": "com.tdksoftware.promptwordsplicer",
   "build": {
     "frontendDist": "../dist",

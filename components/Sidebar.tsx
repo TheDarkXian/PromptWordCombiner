@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Project, StepFlowStatus, Template, UiLanguage } from '../types';
 import { t } from '../services/i18n';
-import { BuildIcon, NavIcon, VarsIcon } from './Icons';
+import { BuildIcon, NavIcon, PreviewIcon, VarsIcon } from './Icons';
 import { SidebarBuildPanel } from './sidebar/SidebarBuildPanel';
 import { SidebarNavigationPanel } from './sidebar/SidebarNavigationPanel';
+import { SidebarPreviewPanel } from './sidebar/SidebarPreviewPanel';
 import { SidebarVariablePanel } from './sidebar/SidebarVariablePanel';
 
-type SidebarTab = 'vars' | 'nav' | 'build';
-type VariableTab = 'input' | 'local' | 'result';
+export type SidebarTab = 'vars' | 'preview' | 'nav' | 'build';
+export type VariableTab = 'input' | 'local' | 'result';
 
 interface SidebarProps {
   language: UiLanguage;
@@ -25,6 +26,10 @@ interface SidebarProps {
   onExportVariableTable: (format: 'json' | 'csv') => void;
   onBakeDownload: () => void;
   onRequestAlert: (title: string, message: string) => void;
+  activeTab: SidebarTab;
+  onActiveTabChange: (tab: SidebarTab) => void;
+  activeVariableTab: VariableTab;
+  onActiveVariableTabChange: (tab: VariableTab) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -43,9 +48,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onExportVariableTable,
   onBakeDownload,
   onRequestAlert,
+  activeTab,
+  onActiveTabChange,
+  activeVariableTab,
+  onActiveVariableTabChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<SidebarTab>('vars');
-  const [activeVariableTab, setActiveVariableTab] = useState<VariableTab>('input');
   const [isAddingVariable, setIsAddingVariable] = useState(false);
   const [newVarName, setNewVarName] = useState('');
   const [isVarTableMenuOpen, setIsVarTableMenuOpen] = useState(false);
@@ -54,14 +61,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const newVarInputRef = useRef<HTMLInputElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
 
-  const getStepName = (stepId?: string) => activeProjectTemplate?.steps.find((step) => step.id === stepId)?.name;
+  const resolveStepSourceId = (sourceRef?: string) => sourceRef?.split(':')[0];
+
+  const getStepName = (stepId?: string) =>
+    activeProjectTemplate?.steps.find((step) => step.id === resolveStepSourceId(stepId))?.name;
 
   const getStepStatus = (stepId: string): StepFlowStatus => {
-    const output = activeProject?.stepOutputs?.[stepId] || '';
+    const resolvedStepId = resolveStepSourceId(stepId) || stepId;
+    const output = activeProject?.stepOutputs?.[resolvedStepId] || '';
     if (!output.trim()) return 'empty';
 
     const boundVariable = (activeProject?.variables || []).find(
-      (variable) => variable.sourceType === 'step_output' && variable.sourceRef === stepId
+      (variable) => variable.sourceType === 'step_output' && variable.sourceRef === resolvedStepId
     );
     if (!boundVariable) return 'draft';
 
@@ -91,8 +102,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const scrollToStep = (stepId?: string) => {
-    if (!stepId) return;
-    const el = document.getElementById(stepId);
+    const resolvedStepId = resolveStepSourceId(stepId);
+    if (!resolvedStepId) return;
+    const el = document.getElementById(resolvedStepId);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -137,7 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {activeProject && (
           <>
             <button
-              onClick={() => setActiveTab('vars')}
+              onClick={() => onActiveTabChange('vars')}
               title={t(language, 'sidebar.vars')}
               className={`p-2 rounded-lg transition-colors ${
                 activeTab === 'vars' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30' : 'text-slate-600 hover:text-slate-300'
@@ -146,7 +158,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <VarsIcon className="w-5 h-5" />
             </button>
             <button
-              onClick={() => setActiveTab('nav')}
+              onClick={() => onActiveTabChange('preview')}
+              title={t(language, 'project.liveOutline')}
+              className={`p-2 rounded-lg transition-colors ${
+                activeTab === 'preview' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30' : 'text-slate-600 hover:text-slate-300'
+              }`}
+            >
+              <PreviewIcon className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => onActiveTabChange('nav')}
               title={t(language, 'sidebar.nav')}
               className={`p-2 rounded-lg transition-colors ${
                 activeTab === 'nav' ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30' : 'text-slate-600 hover:text-slate-300'
@@ -155,7 +176,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <NavIcon className="w-5 h-5" />
             </button>
             <button
-              onClick={() => setActiveTab('build')}
+              onClick={() => onActiveTabChange('build')}
               title={t(language, 'sidebar.build')}
               className={`p-2 rounded-lg transition-colors ${
                 activeTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'
@@ -190,7 +211,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onImportVariableTable={onImportVariableTable}
                   onExportVariableTable={onExportVariableTable}
                   onRequestAlert={onRequestAlert}
-                  setActiveVariableTab={setActiveVariableTab}
+                  setActiveVariableTab={(value) => {
+                    if (typeof value === 'function') {
+                      onActiveVariableTabChange(value(activeVariableTab));
+                    } else {
+                      onActiveVariableTabChange(value);
+                    }
+                  }}
                   setIsVarTableMenuOpen={setIsVarTableMenuOpen}
                   setIsAddingVariable={setIsAddingVariable}
                   setNewVarName={setNewVarName}
@@ -201,6 +228,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   getStepStatus={getStepStatus}
                   getStatusDotClass={getStatusDotClass}
                   scrollToStep={scrollToStep}
+                />
+              )}
+
+              {activeTab === 'preview' && (
+                <SidebarPreviewPanel
+                  language={language}
+                  activeProject={activeProject}
+                  activeProjectTemplate={activeProjectTemplate}
                 />
               )}
 
@@ -226,7 +261,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <div
-        className="absolute right-0 top-0 bottom-0 w-1.5 bg-transparent hover:bg-blue-500/30 cursor-col-resize z-40 transition-colors"
+        className="absolute right-0 top-0 bottom-0 w-2 bg-transparent hover:bg-blue-500/30 cursor-col-resize z-40 transition-colors md:w-2.5"
         onMouseDown={(e) => {
           e.preventDefault();
           onResizingChange(true);

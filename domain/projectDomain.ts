@@ -54,7 +54,7 @@ export const getVariableByKey = (project: Project, key: string) =>
   (project.variables || []).find((variable) => variable.key === key);
 
 export const syncProjectVariables = (
-  project: Pick<Project, 'variables' | 'inputValues' | 'customInputs' | 'stepOutputs'>,
+  project: Pick<Project, 'variables' | 'inputValues' | 'customInputs' | 'stepOutputs' | 'stepStructuredOutputs'>,
   template?: Pick<Template, 'inputs' | 'steps'>
 ): ProjectVariable[] => {
   const now = Date.now();
@@ -132,10 +132,57 @@ export const syncProjectVariables = (
     });
   });
 
+  const structuredOutputVariables = new Map<string, ProjectVariable>();
+
   existing
     .filter(
       (variable) =>
-        !['template_input', 'project_local', 'step_output'].includes(variable.sourceType)
+        variable.sourceType === 'structured_step_output' && variable.sourceRef
+    )
+    .forEach((variable) => {
+      structuredOutputVariables.set(variable.sourceRef as string, variable);
+    });
+
+  template?.steps?.forEach((step) => {
+    const bindings = step.structuredOutputBindings || [];
+    bindings.forEach((binding) => {
+      const fieldKey = binding.fieldKey?.trim();
+      const variableKey = binding.variableKey?.trim();
+      if (!fieldKey || !variableKey) return;
+
+      const sourceRef = `${step.id}:${fieldKey}`;
+      const previous = structuredOutputVariables.get(sourceRef);
+      const nextValue = project.stepStructuredOutputs?.[step.id]?.[fieldKey] || '';
+      const nextLabel = binding.variableLabel?.trim() || variableKey;
+
+      synced.push({
+        id: previous?.id || `var_structured_${step.id}_${fieldKey}`,
+        key: variableKey,
+        label: nextLabel,
+        value: nextValue,
+        sourceType: 'structured_step_output' as VariableSourceType,
+        sourceRef,
+        createdAt: previous?.createdAt || now,
+        updatedAt:
+          previous &&
+          previous.value === nextValue &&
+          previous.key === variableKey &&
+          previous.label === nextLabel
+            ? previous.updatedAt
+            : now,
+      });
+    });
+  });
+
+  existing
+    .filter(
+      (variable) =>
+        ![
+          'template_input',
+          'project_local',
+          'step_output',
+          'structured_step_output',
+        ].includes(variable.sourceType)
     )
     .forEach((variable) => synced.push(variable));
 
@@ -151,6 +198,7 @@ export const normalizeProject = (
     inputValues: project.inputValues || {},
     customInputs: project.customInputs || [],
     stepOutputs: project.stepOutputs || {},
+    stepStructuredOutputs: project.stepStructuredOutputs || {},
     stepOutputMeta: project.stepOutputMeta || {},
     stepRunLogs: project.stepRunLogs || {},
     stepOverrides: project.stepOverrides || {},

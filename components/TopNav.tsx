@@ -15,7 +15,8 @@ interface TopNavProps {
   activeTabId: string | null;
   openTabIds: string[];
   projects: Project[];
-  onOpenTab: (id: string) => void;
+  onOpenTab: (id: string, options?: { forceNew?: boolean }) => void;
+  tabOpenMode: 'single' | 'multi';
   onCloseTab: (id: string, e: React.MouseEvent) => void;
 }
 
@@ -27,6 +28,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   openTabIds,
   projects,
   onOpenTab,
+  tabOpenMode,
   onCloseTab
 }) => {
   return (
@@ -50,6 +52,9 @@ export const TopNav: React.FC<TopNavProps> = ({
         >
           <SettingsIcon className="w-4 h-4" />
         </button>
+        <span className="rounded border border-slate-700 px-2 py-0.5 text-[10px] font-mono text-slate-500">
+          {tabOpenMode === 'multi' ? 'multi' : 'single'}
+        </span>
       </div>
 
       {/* 标签页区域 */}

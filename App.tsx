@@ -5,6 +5,7 @@ import { FileLibrary } from './components/FileLibrary';
 import { ProjectRunner } from './components/ProjectRunner';
 import { SettingsModal } from './components/SettingsModal';
 import { Sidebar } from './components/Sidebar';
+import { SidebarTab, VariableTab } from './components/Sidebar';
 import { TemplateEditor } from './components/TemplateEditor';
 import { TopNav } from './components/TopNav';
 import { ConfirmationModal } from './components/ConfirmationModal';
@@ -32,8 +33,11 @@ import {
 } from './domain/templateDomain';
 import {
   AppSettings,
+  ExecuteProjectStepOptions,
+  ExecuteProjectStepResult,
   Project,
   SortKey,
+  StepStructuredParseSummary,
   Template,
   TemplateInput,
 } from './types';
@@ -41,6 +45,11 @@ import { useAppPersistence } from './hooks/useAppPersistence';
 import { useBatchRun } from './hooks/useBatchRun';
 import { useModalState } from './hooks/useModalState';
 import { useProjectTemplateActions } from './hooks/useProjectTemplateActions';
+import {
+  buildStructuredParsePrompt,
+  hasStructuredFieldValues,
+  parseStructuredOutputResponse,
+} from './services/structuredOutputService';
 
 const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -134,38 +143,17 @@ const App: React.FC = () => {
     settingsRef.current = settings;
   }, [settings]);
 
-  useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!isResizingSidebar) return;
-      const newWidth = event.clientX;
-      if (newWidth > 180 && newWidth < 600) {
-        setSettings((prev) => ({ ...prev, sidebarWidth: newWidth }));
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizingSidebar(false);
-      document.body.style.cursor = 'default';
-    };
-
-    if (isResizingSidebar) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-    }
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizingSidebar]);
-
-  const openTab = (id: string) => {
+  const openTab = (id: string, options?: { forceNew?: boolean }) => {
     if (id === 'library') {
       setActiveTabId('library');
       return;
     }
-    setOpenTabIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setOpenTabIds((prev) => {
+      if (settings.tabOpenMode === 'single' && !options?.forceNew) {
+        return [id];
+      }
+      return prev.includes(id) ? prev : [...prev, id];
+    });
     setActiveTabId(id);
   };
 
@@ -259,7 +247,149 @@ const App: React.FC = () => {
     }
   };
 
-  const executeProjectStep = async (projectId: string, stepId: string) => {
+  const runStructuredOutputParse = async ({
+    project,
+    step,
+    rawOutput,
+    providerType,
+    apiKey,
+    baseUrl,
+    modelName,
+    temperature,
+    maxTokens,
+    options,
+  }: {
+    project: Project;
+    step: Template['steps'][number];
+    rawOutput: string;
+    providerType: AppSettings['providerConfigs'][number]['providerType'];
+    apiKey: string;
+    baseUrl?: string;
+    modelName: string;
+    temperature?: number;
+    maxTokens?: number;
+    options?: ExecuteProjectStepOptions;
+  }): Promise<StepStructuredParseSummary> => {
+    const structuredFields = (step.structuredOutputFields || []).filter(
+      (field) => field.key.trim() && field.label.trim()
+    );
+
+    if (structuredFields.length === 0 || !rawOutput.trim()) {
+      return {
+        status: 'not_applicable',
+        message: 'No structured fields configured.',
+      };
+    }
+
+    const existingValues = project.stepStructuredOutputs?.[step.id] || {};
+    const hasExistingValues = hasStructuredFieldValues({
+      values: existingValues,
+      fields: structuredFields,
+    });
+
+    if (hasExistingValues) {
+      options?.onStructuredParseStateChange?.(
+        'awaiting_confirm',
+        'Structured fields already have values and need overwrite confirmation.'
+      );
+
+      if (!options?.confirmStructuredOverwrite) {
+        options?.onStructuredParseStateChange?.(
+          'skipped',
+          'Structured parse skipped because no overwrite confirmation handler was available.'
+        );
+        return {
+          status: 'skipped',
+          message:
+            'Structured parse skipped because existing field values were kept.',
+        };
+      }
+
+      const decision = await options.confirmStructuredOverwrite({
+        stepId: step.id,
+        stepName: step.name || step.id,
+        fieldLabels: structuredFields.map((field) => field.label || field.key),
+        mode: options.structuredParseMode === 'automation' ? 'automation' : 'single',
+      });
+
+      if (decision !== 'overwrite') {
+        options?.onStructuredParseStateChange?.(
+          'skipped',
+          'Structured parse skipped and existing field values were kept.'
+        );
+        return {
+          status: 'skipped',
+          message: 'Structured parse skipped and existing field values were kept.',
+        };
+      }
+    }
+
+    options?.onStructuredParseStateChange?.(
+      'running',
+      'Parsing the generated result into structured fields.'
+    );
+
+    try {
+      const parsePrompt = buildStructuredParsePrompt({
+        step,
+        rawOutput,
+      });
+
+      const parseResult = await executeModelText({
+        providerType,
+        apiKey,
+        baseUrl,
+        modelName,
+        systemPrompt: parsePrompt.systemPrompt,
+        userPrompt: parsePrompt.userPrompt,
+        temperature,
+        maxTokens,
+      });
+
+      const parsedFields = parseStructuredOutputResponse({
+        responseText: parseResult.output,
+        fields: structuredFields,
+      });
+
+      updateProjectWithSync(project.id, (currentProject) => ({
+        ...currentProject,
+        stepStructuredOutputs: {
+          ...(currentProject.stepStructuredOutputs || {}),
+          [step.id]: {
+            ...(currentProject.stepStructuredOutputs?.[step.id] || {}),
+            ...parsedFields,
+          },
+        },
+      }));
+
+      options?.onStructuredParseStateChange?.(
+        'success',
+        'Structured fields were updated from the generated result.'
+      );
+
+      return {
+        status: 'success',
+        message: 'Structured fields were updated from the generated result.',
+        updatedFieldKeys: structuredFields.map((field) => field.key),
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Structured parse failed.';
+      options?.onStructuredParseStateChange?.('error', message);
+      return {
+        status: 'error',
+        message,
+      };
+    }
+  };
+
+  const executeProjectStep = async (
+    projectId: string,
+    stepId: string,
+    options?: ExecuteProjectStepOptions
+  ): Promise<ExecuteProjectStepResult> => {
     const project = projectsRef.current.find((item) => item.id === projectId);
     const template = templatesRef.current.find((item) => item.id === project?.templateId);
     if (!project || !template) {
@@ -284,17 +414,41 @@ const App: React.FC = () => {
         maxTokens: prepared.maxTokens,
       });
 
+      let projectAfterSuccess = project;
       updateProjectWithSync(project.id, (currentProject) => {
-        return applyProjectStepSuccess({
+        projectAfterSuccess = applyProjectStepSuccess({
           project: currentProject,
           step: prepared.step,
           output: result.output,
           logBase: prepared.logBase,
           rawResponse: result.rawResponse,
         });
+        return projectAfterSuccess;
       });
 
-      return result.output;
+      const structuredParse =
+        options?.structuredParseMode === 'library_batch'
+          ? ({
+              status: 'skipped',
+              message: 'Structured parse is skipped for library batch execution.',
+            } satisfies StepStructuredParseSummary)
+          : await runStructuredOutputParse({
+              project: projectAfterSuccess,
+              step: prepared.step,
+              rawOutput: result.output,
+              providerType: prepared.providerType,
+              apiKey: prepared.apiKey,
+              baseUrl: prepared.baseUrl,
+              modelName: prepared.modelName,
+              temperature: prepared.temperature,
+              maxTokens: prepared.maxTokens,
+              options,
+            });
+
+      return {
+        output: result.output,
+        structuredParse,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : "Run failed";
 
@@ -320,15 +474,21 @@ const App: React.FC = () => {
   } = useBatchRun({
     projects,
     templates,
-    executeProjectStep,
+    executeProjectStep: (projectId, stepId) =>
+      executeProjectStep(projectId, stepId, {
+        structuredParseMode: 'library_batch',
+      }),
     openAlert,
   });
 
-  const handleRunStep = async (stepId: string) => {
+  const handleRunStep = async (
+    stepId: string,
+    options?: ExecuteProjectStepOptions
+  ) => {
     if (!activeProject || !activeProjectTemplate) {
       throw new Error("There is no active project to run.");
     }
-    return executeProjectStep(activeProject.id, stepId);
+    return executeProjectStep(activeProject.id, stepId, options);
   };
 
   const handleBakeDownload = () => {
@@ -435,6 +595,30 @@ const App: React.FC = () => {
   const editingTemplate = templates.find((template) => template.id === editingTemplateId);
   const activeProject = activeTabId !== 'library' ? projects.find((project) => project.id === activeTabId) : null;
   const activeProjectTemplate = activeProject ? templates.find((template) => template.id === activeProject.templateId) : null;
+  const activeTemplateWorkspace =
+    activeProjectTemplate
+      ? settings.projectWorkspaceByTemplateId?.[activeProjectTemplate.id] || {}
+      : {};
+  const activeWorkspaceSelectedStepIds =
+    activeProjectTemplate
+      ? (activeTemplateWorkspace.selectedStepIds || []).filter((stepId) =>
+          activeProjectTemplate.steps.some((step) => step.id === stepId)
+        )
+      : [];
+  const updateActiveTemplateWorkspace = (
+    updates: Partial<NonNullable<AppSettings['projectWorkspaceByTemplateId']>[string]>
+  ) => {
+    if (!activeProjectTemplate) return;
+    updateSettings({
+      projectWorkspaceByTemplateId: {
+        ...(settings.projectWorkspaceByTemplateId || {}),
+        [activeProjectTemplate.id]: {
+          ...(settings.projectWorkspaceByTemplateId?.[activeProjectTemplate.id] || {}),
+          ...updates,
+        },
+      },
+    });
+  };
 
   return (
     <div className={`app-root flex h-screen flex-col overflow-hidden font-sans text-slate-200 ${settings.fontSize}`}>
@@ -446,6 +630,12 @@ const App: React.FC = () => {
             modelCatalog={settings.modelCatalog}
             providerConfigs={settings.providerConfigs}
             executionPresetTemplates={settings.executionPresetTemplates}
+            leftPanelWidth={settings.templateEditorLeftWidth}
+            onLeftPanelWidthChange={(templateEditorLeftWidth) => updateSettings({ templateEditorLeftWidth })}
+            blueprintInspectorWidth={settings.templateBlueprintInspectorWidth}
+            onBlueprintInspectorWidthChange={(templateBlueprintInspectorWidth) =>
+              updateSettings({ templateBlueprintInspectorWidth })
+            }
             onSave={(updatedTemplate) => {
               handleSaveTemplateWithHistory(updatedTemplate);
             }}
@@ -464,10 +654,11 @@ const App: React.FC = () => {
         openTabIds={openTabIds}
         projects={projects}
         onOpenTab={openTab}
+        tabOpenMode={settings.tabOpenMode}
         onCloseTab={closeTab}
       />
 
-      <div className="relative flex flex-1 overflow-hidden">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <Sidebar
           language={settings.language}
           isOpen={settings.isSidebarOpen}
@@ -484,14 +675,21 @@ const App: React.FC = () => {
           onExportVariableTable={handleExportProjectVariableTable}
           onBakeDownload={handleBakeDownload}
           onRequestAlert={openAlert}
+          activeTab={(activeTemplateWorkspace.sidebarTab as SidebarTab) || 'vars'}
+          onActiveTabChange={(sidebarTab) => updateActiveTemplateWorkspace({ sidebarTab })}
+          activeVariableTab={(activeTemplateWorkspace.sidebarVariableTab as VariableTab) || 'input'}
+          onActiveVariableTabChange={(sidebarVariableTab) =>
+            updateActiveTemplateWorkspace({ sidebarVariableTab })
+          }
         />
 
-        <div className="relative flex flex-1 flex-col overflow-hidden bg-slate-950">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-950">
           {activeTabId === 'library' ? (
             <FileLibrary
               language={settings.language}
               projects={projects}
               templates={templates}
+              modelCatalog={settings.modelCatalog}
               onOpenProject={openTab}
               onCreateProject={createProject}
               onBatchCreateProjects={createProjectsFromTable}
@@ -573,10 +771,22 @@ const App: React.FC = () => {
               onClearStepRunLogs={handleClearStepRunLogs}
               onClearProjectRunLogs={handleClearProjectRunLogs}
               onRequestConfirm={openConfirm}
-              rightPanelWidth={settings.rightPanelWidth}
-              onRightPanelWidthChange={(rightPanelWidth) => updateSettings({ rightPanelWidth })}
-              isRightPanelOpen={settings.isRightPanelOpen}
-              onRightPanelOpenChange={(isRightPanelOpen) => updateSettings({ isRightPanelOpen })}
+              structuredOutputResultView={settings.structuredOutputResultView}
+              onStructuredOutputResultViewChange={(structuredOutputResultView) =>
+                updateSettings({ structuredOutputResultView })
+              }
+              selectedStepIds={activeWorkspaceSelectedStepIds}
+              onSelectedStepIdsChange={(selectedStepIds) => updateActiveTemplateWorkspace({ selectedStepIds })}
+              blueprintViewport={activeTemplateWorkspace.blueprintViewport || { x: 0, y: 0, zoom: 1 }}
+              onBlueprintViewportChange={(blueprintViewport) => updateActiveTemplateWorkspace({ blueprintViewport })}
+              viewMode={activeTemplateWorkspace.viewMode || 'compact'}
+              onViewModeChange={(viewMode) => updateActiveTemplateWorkspace({ viewMode })}
+              blueprintInspectorWidth={
+                activeTemplateWorkspace.inspectorWidth || settings.projectRunnerInspectorWidth
+              }
+              onBlueprintInspectorWidthChange={(inspectorWidth) =>
+                updateActiveTemplateWorkspace({ inspectorWidth })
+              }
             />
           ) : (
             <div className="flex h-full items-center justify-center text-slate-700">Open a project from the library</div>

@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { BatchRunProgressState } from '../components/BatchRunProgressModal';
 import { ioService } from '../services/ioService';
 import { stringifyRowsAsCsv } from '../services/variableTableService';
-import { Project, Template } from '../types';
+import { ExecuteProjectStepResult, Project, Template } from '../types';
 
 const createEmptyBatchRunProgress = (): BatchRunProgressState => ({
   isOpen: false,
@@ -21,7 +21,10 @@ const createEmptyBatchRunProgress = (): BatchRunProgressState => ({
 interface UseBatchRunOptions {
   projects: Project[];
   templates: Template[];
-  executeProjectStep: (projectId: string, stepId: string) => Promise<string>;
+  executeProjectStep: (
+    projectId: string,
+    stepId: string
+  ) => Promise<ExecuteProjectStepResult>;
   openAlert: (title: string, message: string) => void;
 }
 

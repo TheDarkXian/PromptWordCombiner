@@ -1,6 +1,6 @@
 
 import React, { useCallback, useRef, useState, useMemo, useEffect } from 'react';
-import { Project, Template, SortKey, UiLanguage } from '../types';
+import { ModelCatalogItem, Project, Template, SortKey, UiLanguage } from '../types';
 import { t } from '../services/i18n';
 import { Button } from './Button';
 import { CreateProjectModal } from './CreateProjectModal';
@@ -10,13 +10,14 @@ import { BatchRunProgressModal, BatchRunProgressState } from './BatchRunProgress
 import { HighlightEffect } from './HighlightEffect';
 import { MergeModal } from './MergeModal';
 import { ioService } from '../services/ioService';
-import { validateBackupBundle } from '../services/schemas';
+import { buildImportReportText, prepareImportedBackupBundle } from '../services/importCompatibilityService';
 
 interface FileLibraryProps {
   language: UiLanguage;
   projects: Project[];
   templates: Template[];
-  onOpenProject: (projectId: string) => void;
+  modelCatalog: ModelCatalogItem[];
+  onOpenProject: (projectId: string, options?: { forceNew?: boolean }) => void;
   onCreateProject: (templateId: string, name: string) => void;
   onBatchCreateProjects: (templateId: string, content: string) => void;
   onBatchRunStep: (templateId: string, stepId: string) => void;
@@ -53,6 +54,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   language,
   projects,
   templates,
+  modelCatalog,
   onOpenProject,
   onCreateProject,
   onBatchCreateProjects,
@@ -162,29 +164,43 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const content = await ioService.readFileAsText(file);
-      if (!content || content.trim() === "") {
+      const bytes = await ioService.readFileAsBytes(file);
+      if (bytes.length === 0) {
         onRequestAlert(t(language, 'fileLibrary.importFailed'), t(language, 'fileLibrary.importEmpty'));
         return;
       }
-      let raw: unknown;
-      try {
-        raw = JSON.parse(content);
-      } catch {
-        onRequestAlert(t(language, 'fileLibrary.importFailed'), t(language, 'fileLibrary.importInvalidJson'));
-        return;
-      }
-      const validation = validateBackupBundle(raw);
-      if (validation.valid === false) {
-        onRequestAlert(
-          t(language, 'fileLibrary.importFailed'),
-          t(language, 'fileLibrary.importInvalidBundle', { error: String(validation.error) })
+
+      const prepared = prepareImportedBackupBundle(bytes, modelCatalog);
+      const suspiciousWarnings = prepared.report.warnings.filter(
+        (warning) => warning.code === 'suspicious_garbled_text'
+      );
+
+      if (prepared.report.allowForceImport && suspiciousWarnings.length > 0) {
+        const preview = suspiciousWarnings
+          .slice(0, 3)
+          .map((warning) => `${warning.fieldPath}: ${warning.preview}`)
+          .join('\n');
+        const shouldContinue = window.confirm(
+          `检测到导入内容中存在疑似乱码字段。\n\n${preview}\n\n是否仍然继续，并用该文件覆盖当前库？`
         );
-        return;
+        if (!shouldContinue) {
+          e.target.value = '';
+          return;
+        }
       }
-      onImportData(validation.data.projects, validation.data.templates);
-    } catch {
-      onRequestAlert(t(language, 'fileLibrary.importFailed'), t(language, 'fileLibrary.importReadFailed'));
+
+      try {
+        onImportData(prepared.projects, prepared.templates);
+      } finally {
+        if (prepared.report.warnings.length > 0) {
+          onRequestAlert('导入报告', buildImportReportText(prepared.report));
+        }
+      }
+    } catch (error) {
+      onRequestAlert(
+        t(language, 'fileLibrary.importFailed'),
+        error instanceof Error ? error.message : t(language, 'fileLibrary.importReadFailed')
+      );
     }
     e.target.value = '';
   };
@@ -215,7 +231,11 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     return (
       <HighlightEffect key={p.id} isActive={lastCreatedId === p.id}>
         <div 
-          onClick={() => isSelectionMode ? toggleSelection(p.id) : onOpenProject(p.id)} 
+          onClick={(event) =>
+            isSelectionMode
+              ? toggleSelection(p.id)
+              : onOpenProject(p.id, { forceNew: event.metaKey || event.ctrlKey })
+          } 
           className={`group bg-slate-900 hover:bg-slate-800 border transition-all relative rounded-xl p-4 cursor-pointer ${
             isSelected ? 'border-blue-500 ring-2 ring-blue-500/20 bg-slate-800' : 'border-slate-800 hover:border-blue-500/50'
           }`}
@@ -517,6 +537,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         onClose={() => setIsMergeModalOpen(false)} 
         currentProjects={projects} 
         currentTemplates={templates} 
+        modelCatalog={modelCatalog}
         onConfirmMerge={onMergeData}
         onRequestAlert={onRequestAlert}
       />

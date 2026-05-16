@@ -24,7 +24,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
   onRevert,
   onSaveToTemplate,
 }) => {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const [editContent, setEditContent] = useState(templateContent);
 
   useEffect(() => {
@@ -37,15 +37,19 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
     if (editContent !== templateContent) {
       onUpdateOverride(editContent);
     }
-    setIsEditing(false);
+    setIsFocused(false);
   };
 
   return (
-    <div className="mt-1 rounded border border-slate-800/80 bg-slate-950 px-2.5 py-2 transition-colors hover:border-slate-700">
-      <div className="mb-1.5 flex min-h-[18px] items-center justify-between gap-2">
-        <span className="select-none text-[9px] font-bold uppercase tracking-tight text-slate-500">{label}</span>
+    <div className="mt-1 rounded-lg border border-slate-800/60 bg-slate-950/40 px-2.5 py-2 transition-colors hover:border-slate-700/80">
+      <div className="mb-1.5 flex min-h-[18px] items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="select-none text-[9px] font-bold uppercase tracking-tight text-slate-500">
+            {label}
+          </div>
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-1 text-[9px]">
-          {hasChanges && !isEditing && (
+          {hasChanges && !isFocused && (
             <>
               <span className="font-bold text-amber-400">{t(language, 'editor.edited')}</span>
               <button
@@ -68,32 +72,32 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
               </button>
             </>
           )}
-          {isEditing && <span className="font-medium text-blue-400">{t(language, 'editor.editing')}</span>}
+          {isFocused && <span className="font-medium text-blue-400">{t(language, 'editor.editing')}</span>}
         </div>
       </div>
 
-      {isEditing ? (
-        <div className="rounded border border-blue-500/30 bg-slate-900/80 p-2 shadow-inner">
-          <AutoResizeTextarea
-            className="text-xs font-mono leading-relaxed text-slate-200"
-            value={editContent}
-            onChange={setEditContent}
-            onBlur={handleBlur}
-            autoFocus
-          />
+      {isFocused ? (
+        <div className="rounded-md border border-blue-500/30 bg-slate-900/80 px-2 py-2 shadow-inner transition-colors">
+          <div className="max-h-44 overflow-y-auto pr-1">
+            <AutoResizeTextarea
+              className="text-xs font-mono leading-relaxed text-slate-300"
+              value={editContent}
+              onChange={setEditContent}
+              onFocus={() => setIsFocused(true)}
+              onBlur={handleBlur}
+              autoFocus
+            />
+          </div>
         </div>
       ) : (
         <div
-          className="group/preview relative cursor-text rounded px-2 py-2 transition-colors hover:bg-slate-900/40"
-          onClick={() => setIsEditing(true)}
+          className="rounded-md border border-slate-800/40 bg-slate-950/60 px-2 py-1.5 transition-colors hover:border-slate-700/70 hover:bg-slate-950/80"
+          onClick={() => setIsFocused(true)}
         >
-          <div className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-slate-300">
-            {interpolatedContent || <span className="italic text-slate-600">{t(language, 'editor.waiting')}</span>}
-          </div>
-          <div className="absolute bottom-1 right-1 opacity-0 transition-opacity group-hover/preview:opacity-100">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-3 w-3 text-slate-700">
-              <path d="m13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z" />
-            </svg>
+          <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-400">
+            {interpolatedContent || (
+              <span className="italic text-slate-600">{t(language, 'editor.waiting')}</span>
+            )}
           </div>
         </div>
       )}

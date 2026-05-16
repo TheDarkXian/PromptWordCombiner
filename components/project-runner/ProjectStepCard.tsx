@@ -5,6 +5,7 @@ import {
   Project,
   ProviderConfig,
   StepFlowStatus,
+  StructuredParseLifecycleState,
   StepRunLog,
   StepRunState,
   Template,
@@ -128,6 +129,8 @@ interface ProjectStepCardProps {
   runError?: string;
   producerState: ProducerAutomationStepState;
   producerStateReason?: string;
+  structuredParseState: StructuredParseLifecycleState;
+  structuredParseMessage?: string;
   onToggleCollapse: () => void;
   onToggleLogs: () => void;
   onToggleResults: () => void;
@@ -139,6 +142,8 @@ interface ProjectStepCardProps {
   onQuickCopy: (content: string, label: string) => Promise<void>;
   onCopyLogText: (content: string, label: string) => Promise<void>;
   onRestoreLogOutput: (stepId: string, output: string) => void;
+  structuredOutputResultView: 'raw' | 'structured';
+  onStructuredOutputResultViewChange: (view: 'raw' | 'structured') => void;
   interpolate: (templateStr: string) => string;
   getVariableByKey: (key: string) => Project['variables'][number] | undefined;
   getStepStatus: (stepId: string) => StepFlowStatus;
@@ -163,6 +168,8 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
   runError,
   producerState,
   producerStateReason,
+  structuredParseState,
+  structuredParseMessage,
   onToggleCollapse,
   onToggleLogs,
   onToggleResults,
@@ -174,6 +181,8 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
   onQuickCopy,
   onCopyLogText,
   onRestoreLogOutput,
+  structuredOutputResultView,
+  onStructuredOutputResultViewChange,
   interpolate,
   getVariableByKey,
   getStepStatus,
@@ -205,6 +214,11 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
           label: t(language, 'step.autoQueued'),
           className: 'border-blue-500/20 bg-blue-500/10 text-blue-300',
         }
+      : producerState === 'waiting_structured_overwrite_confirm'
+        ? {
+            label: t(language, 'step.structuredAwaitingConfirm'),
+            className: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-300',
+          }
       : producerState === 'blocked'
         ? {
             label: t(language, 'step.autoBlocked'),
@@ -220,7 +234,35 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
                 label: t(language, 'step.autoStopped'),
                 className: 'border-slate-700 bg-slate-800/80 text-slate-300',
               }
-            : null;
+          : null;
+  const structuredParseMeta =
+    structuredParseState === 'running'
+      ? {
+          label: t(language, 'step.structuredParsing'),
+          className: 'border-blue-500/20 bg-blue-500/10 text-blue-300',
+        }
+      : structuredParseState === 'awaiting_confirm'
+        ? {
+            label: t(language, 'step.structuredAwaitingConfirm'),
+            className: 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-300',
+          }
+        : structuredParseState === 'success'
+          ? {
+              label: t(language, 'step.structuredUpdated'),
+              className:
+                'border-emerald-500/20 bg-emerald-500/10 text-emerald-300',
+            }
+          : structuredParseState === 'skipped'
+            ? {
+                label: t(language, 'step.structuredSkipped'),
+                className: 'border-slate-700 bg-slate-800/80 text-slate-300',
+              }
+            : structuredParseState === 'error'
+              ? {
+                  label: t(language, 'step.structuredFailed'),
+                  className: 'border-red-500/20 bg-red-500/10 text-red-300',
+                }
+              : null;
   const stepLogs = (project.stepRunLogs?.[step.id] || []) as StepRunLog[];
   const latestLog = stepLogs[stepLogs.length - 1];
   const visibleLogs = isLogsExpanded
@@ -229,6 +271,19 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
       ? [latestLog]
       : [];
   const resultValue = project.stepOutputs[step.id] || '';
+  const structuredFields = step.structuredOutputFields || [];
+  const structuredBindings = step.structuredOutputBindings || [];
+  const structuredValues = project.stepStructuredOutputs?.[step.id] || {};
+  const hasStructuredFields = structuredFields.length > 0;
+  const hasUnfilledStructuredFields =
+    hasStructuredFields &&
+    resultValue.trim().length > 0 &&
+    structuredFields.some((field) => !String(structuredValues[field.key] || '').trim());
+  const promptSectionLabel = language === 'zh-CN' ? '输入提示词' : 'Input prompt';
+  const resultSectionLabel = language === 'zh-CN' ? '输出结果' : 'Output result';
+  const flowSummary =
+    language === 'zh-CN' ? '输入提示词 -> 生成结果' : 'Input prompt -> Generated result';
+  const showFlowSummary = stepRoleMeta.stepType === 'text_generation';
   const currentStepAssetUpdatedAt = Math.max(
     project.stepOutputMeta?.[step.id]?.updatedAt || 0,
     latestLog?.createdAt || 0
@@ -310,6 +365,18 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
     }
     const normalized = trimmed.replace(/\s+/g, ' ');
     return `${normalized.slice(0, 96)}${normalized.length > 96 ? '...' : ''}`;
+  };
+
+  const updateStructuredValue = (fieldKey: string, value: string) => {
+    onUpdateProject(project.id, {
+      stepStructuredOutputs: {
+        ...(project.stepStructuredOutputs || {}),
+        [step.id]: {
+          ...(project.stepStructuredOutputs?.[step.id] || {}),
+          [fieldKey]: value,
+        },
+      },
+    });
   };
 
   return (
@@ -526,7 +593,7 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
 
           <PromptEditor
             language={language}
-            label={t(language, 'step.prompt')}
+            label={promptSectionLabel}
             templateContent={rawContent}
             interpolatedContent={interpolated}
             originalTemplateContent={step.content || ''}
@@ -561,23 +628,32 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
             }
           />
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
-            {configuredBinding && (
-              <span className="text-violet-400">
-                {`${t(language, 'step.outputVar')} {{${configuredBinding.variableKey}}}`}
-              </span>
-            )}
-            {viewMode === 'detail' &&
-              referencedSourceSteps.slice(0, 2).map((sourceStep) => (
-                <button
-                  key={sourceStep.stepId}
-                  onClick={() => scrollToStep(sourceStep.stepId)}
-                  className="text-amber-400 transition-colors hover:text-amber-300"
-                >
-                  {t(language, 'step.source')}: {sourceStep.stepName}
-                </button>
-              ))}
-          </div>
+          {(showFlowSummary ||
+            configuredBinding ||
+            (viewMode === 'detail' && referencedSourceSteps.length > 0)) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-slate-800/40 bg-slate-950/30 px-2.5 py-1.5 text-[10px]">
+              {showFlowSummary && (
+                <span className="font-bold uppercase tracking-tight text-slate-500">
+                  {flowSummary}
+                </span>
+              )}
+              {configuredBinding && (
+                <span className="text-violet-400">
+                  {`${resultSectionLabel} -> {{${configuredBinding.variableKey}}}`}
+                </span>
+              )}
+              {viewMode === 'detail' &&
+                referencedSourceSteps.slice(0, 2).map((sourceStep) => (
+                  <button
+                    key={sourceStep.stepId}
+                    onClick={() => scrollToStep(sourceStep.stepId)}
+                    className="text-amber-400 transition-colors hover:text-amber-300"
+                  >
+                    {t(language, 'step.source')}: {sourceStep.stepName}
+                  </button>
+                ))}
+            </div>
+          )}
 
           {viewMode === 'detail' &&
             (missingKeys.length > 0 || staleKeys.length > 0) && (
@@ -610,11 +686,37 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
 
           <div className="mt-4 border-t border-slate-800/50 pt-4">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-600">
-                {t(language, 'step.result')} ({t(language, 'step.resultHint')})
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                {resultSectionLabel} ({t(language, 'step.resultHint')})
               </label>
               <div className="flex items-center gap-2">
-                {configuredBinding && (
+                {hasStructuredFields && (
+                  <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1">
+                    <button
+                      type="button"
+                      onClick={() => onStructuredOutputResultViewChange('raw')}
+                      className={`rounded px-2 py-1 text-[10px] font-bold transition-colors ${
+                        structuredOutputResultView === 'raw'
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-500 hover:text-white'
+                      }`}
+                    >
+                      {language === 'zh-CN' ? '整段' : 'Raw'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onStructuredOutputResultViewChange('structured')}
+                      className={`rounded px-2 py-1 text-[10px] font-bold transition-colors ${
+                        structuredOutputResultView === 'structured'
+                          ? 'bg-fuchsia-500/15 text-fuchsia-200'
+                          : 'text-slate-500 hover:text-white'
+                      }`}
+                    >
+                      {language === 'zh-CN' ? '字段' : 'Fields'}
+                    </button>
+                  </div>
+                )}
+                {configuredBinding && structuredOutputResultView === 'raw' && (
                   <span className="font-mono text-[10px] text-violet-400">
                     {`{{${configuredBinding.variableKey}}}`}
                   </span>
@@ -633,18 +735,34 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
                 </button>
               </div>
             </div>
-            {!isResultExpanded && (
-              <div className="mb-2 rounded-xl border border-slate-800/60 bg-slate-950/40 px-3 py-2 text-xs text-slate-400">
-                {getResultPreview(resultValue)}
+            {hasStructuredFields && hasUnfilledStructuredFields && (
+              <div className="mb-2 rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 px-3 py-2 text-[11px] text-fuchsia-200/90">
+                {language === 'zh-CN'
+                  ? '当前步骤已有整段结果，但结构化字段还未整理完成。'
+                  : 'This step already has a raw result, but its structured fields are not filled yet.'}
               </div>
             )}
+            {hasStructuredFields && structuredParseMeta && (
+              <div
+                className={`mb-2 rounded-lg border px-3 py-2 text-[11px] ${structuredParseMeta.className}`}
+              >
+                <div className="font-semibold">{structuredParseMeta.label}</div>
+                {structuredParseMessage && viewMode === 'detail' && (
+                  <div className="mt-1 whitespace-pre-wrap text-[11px] opacity-90">
+                    {structuredParseMessage}
+                  </div>
+                )}
+              </div>
+            )}
+            {(structuredOutputResultView === 'raw' || !hasStructuredFields) ? (
+            <>
             <div
-              className={`overflow-y-auto rounded-xl border border-slate-800/60 bg-slate-950/50 px-3 py-2.5 transition-all hover:border-slate-700 ${
-                isResultExpanded ? 'max-h-[420px]' : 'max-h-28'
+              className={`overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-950/70 px-3 py-3 transition-all hover:border-slate-600 ${
+                isResultExpanded ? 'max-h-[440px]' : 'max-h-32'
               }`}
             >
               <AutoResizeTextarea
-                className="font-sans text-sm leading-relaxed text-slate-400"
+                className="font-sans text-sm leading-relaxed text-slate-300"
                 value={resultValue}
                 onChange={(value) =>
                   onUpdateProject(project.id, {
@@ -680,6 +798,52 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
                 {t(language, 'step.clear')}
               </button>
             </div>
+            </>
+            ) : (
+              <div
+                className={`space-y-3 overflow-y-auto rounded-xl border border-fuchsia-700/40 bg-slate-950/70 px-3 py-3 transition-all hover:border-fuchsia-500/40 ${
+                  isResultExpanded ? 'max-h-[520px]' : 'max-h-40'
+                }`}
+              >
+                {structuredFields.map((field) => {
+                  const binding = structuredBindings.find((item) => item.fieldKey === field.key);
+                  return (
+                    <div
+                      key={`${step.id}_field_${field.key}`}
+                      className="rounded-lg border border-slate-800 bg-slate-950/50 p-3"
+                    >
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-bold text-fuchsia-200">
+                            {field.label || field.key}
+                          </div>
+                          {field.description?.trim() && (
+                            <div className="mt-0.5 text-[11px] text-slate-500">
+                              {field.description}
+                            </div>
+                          )}
+                        </div>
+                        {binding?.variableKey && (
+                          <span className="shrink-0 font-mono text-[10px] text-violet-400">
+                            {`{{${binding.variableKey}}}`}
+                          </span>
+                        )}
+                      </div>
+                      <AutoResizeTextarea
+                        className="font-sans text-sm leading-relaxed text-slate-300"
+                        value={structuredValues[field.key] || ''}
+                        onChange={(value) => updateStructuredValue(field.key, value)}
+                        placeholder={
+                          language === 'zh-CN'
+                            ? '填写该字段结果...'
+                            : 'Fill this field result...'
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {viewMode === 'detail' && (

@@ -8,6 +8,7 @@ export interface Project {
   inputValues: Record<string, string>;
   customInputs: TemplateInput[];
   stepOutputs: Record<string, string>;
+  stepStructuredOutputs?: Record<string, Record<string, string>>;
   stepOutputMeta: Record<string, StepOutputMeta>;
   stepRunLogs: Record<string, StepRunLog[]>;
   stepOverrides: Record<string, StepOverride>;
@@ -45,6 +46,7 @@ export type VariableSourceType =
   | 'template_input'
   | 'project_local'
   | 'step_output'
+  | 'structured_step_output'
   | 'derived'
   | 'manual';
 
@@ -81,6 +83,53 @@ export interface ModelCatalogItem {
   enabled: boolean;
 }
 
+export type ImportEncoding = 'utf-8' | 'gb18030' | 'unknown';
+
+export type ImportPayloadKind =
+  | 'backup_bundle'
+  | 'projects_array'
+  | 'templates_array'
+  | 'project_variable_table'
+  | 'unknown';
+
+export interface ImportWarningItem {
+  code:
+    | 'legacy_version'
+    | 'encoding_fallback'
+    | 'suspicious_garbled_text'
+    | 'orphan_project'
+    | 'unmapped_model_ref'
+    | 'patched_missing_fields';
+  level: 'info' | 'warning' | 'error';
+  message: string;
+  fieldPath?: string;
+  preview?: string;
+}
+
+export interface ImportMigrationReport {
+  fromVersion: string | 'legacy-unknown';
+  toVersion: string;
+  detectedKind: ImportPayloadKind;
+  encoding: ImportEncoding;
+  appliedMigrations: string[];
+  warnings: ImportWarningItem[];
+  stats: {
+    projectCount: number;
+    templateCount: number;
+    orphanProjectCount: number;
+    suspiciousTextCount: number;
+    patchedFieldCount: number;
+    unmappedModelRefCount: number;
+  };
+  allowForceImport: boolean;
+}
+
+export interface PreparedImportBundle {
+  projects: Project[];
+  templates: Template[];
+  report: ImportMigrationReport;
+}
+
 export type ExecutionPresetModelRefStrategy = 'keep_current' | 'bind_specific_model_catalog_item';
 
 export interface ExecutionPresetTemplate {
@@ -99,17 +148,30 @@ export interface ExecutionPresetTemplate {
 
 export interface AppSettings {
   language: UiLanguage;
+  tabOpenMode: 'single' | 'multi';
   uiScale: number;
   sidebarWidth: number;
   isSidebarOpen: boolean;
-  rightPanelWidth: number;
-  isRightPanelOpen: boolean;
+  templateEditorLeftWidth: number;
+  templateBlueprintInspectorWidth: number;
+  projectRunnerInspectorWidth: number;
   fontSize: 'text-xs' | 'text-sm' | 'text-base';
   cardScale: number;
   fileLibrarySortBy: SortKey;
+  structuredOutputResultView: 'raw' | 'structured';
+  projectWorkspaceByTemplateId?: Record<string, ProjectWorkspaceState>;
   providerConfigs: ProviderConfig[];
   modelCatalog: ModelCatalogItem[];
   executionPresetTemplates: ExecutionPresetTemplate[];
+}
+
+export interface ProjectWorkspaceState {
+  selectedStepIds?: string[];
+  blueprintViewport?: TemplateBlueprintViewport;
+  viewMode?: 'compact' | 'detail';
+  sidebarTab?: 'vars' | 'preview' | 'nav' | 'build';
+  sidebarVariableTab?: 'input' | 'local' | 'result';
+  inspectorWidth?: number;
 }
 
 export interface Template {
@@ -118,10 +180,45 @@ export interface Template {
   inputs: TemplateInput[];
   modelRefs?: TemplateModelRef[];
   steps: TemplateStep[];
+  blueprint?: TemplateBlueprint;
   hideProjects?: boolean;
   tags?: string[];
   version?: number;
   history?: Template[];
+}
+
+export interface TemplateBlueprintNodePosition {
+  x: number;
+  y: number;
+}
+
+export interface TemplateBlueprintViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
+export interface TemplateBlueprint {
+  version: 1 | 2;
+  nodes: Record<string, TemplateBlueprintNodePosition>;
+  viewport?: TemplateBlueprintViewport;
+  comments?: TemplateBlueprintCommentBox[];
+  selection?: {
+    stepIds?: string[];
+    edgeKeys?: string[];
+    commentIds?: string[];
+    expandedPromptStepIds?: string[];
+  };
+}
+
+export interface TemplateBlueprintCommentBox {
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  collapsed?: boolean;
 }
 
 export interface TemplateInput {
@@ -142,9 +239,23 @@ export interface TemplateStep {
   description?: string;
   content: string;
   outputBinding?: StepOutputBinding;
+  structuredOutputFields?: StructuredOutputFieldDefinition[];
+  structuredOutputBindings?: StructuredOutputVariableBinding[];
   execution?: StepExecutionConfig;
   stepType?: StepType;
   autoRunEnabled?: boolean;
+}
+
+export interface StructuredOutputFieldDefinition {
+  key: string;
+  label: string;
+  description?: string;
+}
+
+export interface StructuredOutputVariableBinding {
+  fieldKey: string;
+  variableKey: string;
+  variableLabel?: string;
 }
 
 export type StepType = 'text_generation' | 'manual' | 'external';
@@ -194,6 +305,7 @@ export type ProducerAutomationStepState =
   | 'idle'
   | 'queued'
   | 'running'
+  | 'waiting_structured_overwrite_confirm'
   | 'success'
   | 'error'
   | 'skipped'
@@ -206,6 +318,53 @@ export interface ProducerRunResultItem {
   outputVariableKey: string;
   status: ProducerRunResultStatus;
   message: string;
+  structuredParseStatus?: StepStructuredParseSummaryStatus;
+  structuredParseMessage?: string;
+}
+
+export type StructuredParseLifecycleState =
+  | 'idle'
+  | 'running'
+  | 'awaiting_confirm'
+  | 'success'
+  | 'skipped'
+  | 'error';
+
+export type StepStructuredParseSummaryStatus =
+  | 'not_applicable'
+  | 'success'
+  | 'skipped'
+  | 'error';
+
+export type StructuredOverwriteDecision = 'overwrite' | 'skip';
+
+export interface StructuredOverwriteConfirmRequest {
+  stepId: string;
+  stepName: string;
+  fieldLabels: string[];
+  mode: 'single' | 'automation';
+}
+
+export interface StepStructuredParseSummary {
+  status: StepStructuredParseSummaryStatus;
+  message: string;
+  updatedFieldKeys?: string[];
+}
+
+export interface ExecuteProjectStepOptions {
+  structuredParseMode?: 'single' | 'automation' | 'library_batch';
+  onStructuredParseStateChange?: (
+    state: StructuredParseLifecycleState,
+    message?: string
+  ) => void;
+  confirmStructuredOverwrite?: (
+    request: StructuredOverwriteConfirmRequest
+  ) => Promise<StructuredOverwriteDecision>;
+}
+
+export interface ExecuteProjectStepResult {
+  output: string;
+  structuredParse: StepStructuredParseSummary;
 }
 
 export interface StepOutputBinding {

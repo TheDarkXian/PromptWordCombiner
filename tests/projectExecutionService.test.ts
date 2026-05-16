@@ -9,14 +9,17 @@ import type { AppSettings, Project, Template } from '../types';
 
 const settings: AppSettings = {
   language: 'en-US',
+  tabOpenMode: 'single',
   uiScale: 16,
   sidebarWidth: 360,
   isSidebarOpen: true,
-  rightPanelWidth: 360,
-  isRightPanelOpen: true,
+  templateEditorLeftWidth: 360,
+  templateBlueprintInspectorWidth: 420,
+  projectRunnerInspectorWidth: 460,
   fontSize: 'text-sm',
   cardScale: 1,
   fileLibrarySortBy: 'lastModified',
+  structuredOutputResultView: 'raw',
   providerConfigs: [
     {
       id: 'provider-1',
@@ -71,6 +74,7 @@ const project: Project = {
   inputValues: { topic: 'Moonlit market' },
   customInputs: [],
   stepOutputs: {},
+  stepStructuredOutputs: {},
   stepOutputMeta: {},
   stepRunLogs: {},
   stepOverrides: {},

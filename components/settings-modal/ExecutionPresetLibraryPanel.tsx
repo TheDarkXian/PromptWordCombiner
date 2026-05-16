@@ -22,11 +22,11 @@ export const ExecutionPresetLibraryPanel: React.FC<ExecutionPresetLibraryPanelPr
   onUpdateExecutionPresetTemplate,
   onDeleteExecutionPresetTemplate,
 }) => (
-  <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/50 p-5 xl:col-span-3">
+  <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/50 p-5 xl:col-span-2">
     <div className="flex items-center justify-between">
       <div>
         <h4 className="text-sm font-bold text-slate-200">执行模板库</h4>
-        <p className="mt-1 text-xs text-slate-500">集中保存可复用的执行参数和 system prompt 方案。</p>
+        <p className="mt-1 text-xs text-slate-500">集中保存可复用的执行参数与 system prompt。</p>
       </div>
       <Button size="sm" onClick={onAddExecutionPresetTemplate}>
         新增模板
@@ -36,7 +36,7 @@ export const ExecutionPresetLibraryPanel: React.FC<ExecutionPresetLibraryPanelPr
     <div className="space-y-4">
       {executionPresetTemplates.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-900/30 px-4 py-5 text-xs text-slate-500">
-          暂无执行模板。你可以先在这里创建模板，也可以稍后从模板步骤里直接保存当前执行配置。
+          暂无执行模板。你可以先在这里创建模板，也可以稍后在模板步骤里直接保存当前执行配置。
         </div>
       ) : (
         executionPresetTemplates.map((executionPresetTemplate) => (
@@ -150,7 +150,7 @@ export const ExecutionPresetLibraryPanel: React.FC<ExecutionPresetLibraryPanelPr
                     })
                   }
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                  placeholder="留空使用默认值"
+                  placeholder="留空则使用默认值"
                 />
               </label>
 
@@ -167,7 +167,7 @@ export const ExecutionPresetLibraryPanel: React.FC<ExecutionPresetLibraryPanelPr
                     })
                   }
                   className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                  placeholder="留空使用默认值"
+                  placeholder="留空则使用默认值"
                 />
               </label>
             </div>

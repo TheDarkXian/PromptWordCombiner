@@ -19,24 +19,24 @@ export const TemplateInputsPanel: React.FC<TemplateInputsPanelProps> = ({
   onRemove,
 }) => (
   <section>
-    <div className="mb-4 flex items-center justify-between">
-      <h3 className="text-lg font-bold text-slate-200">
+    <div className="mb-2 flex items-center justify-between">
+      <h3 className="text-sm font-bold text-slate-200">
         {t(language, 'templateEditor.inputSection')}
       </h3>
       <Button size="sm" onClick={onAdd}>
         {t(language, 'templateEditor.add')}
       </Button>
     </div>
-    <p className="mb-4 text-xs text-slate-500">
+    <p className="mb-2 text-[11px] leading-snug text-slate-500">
       {t(language, 'templateEditor.inputHelp')}
     </p>
-    <div className="space-y-3">
+    <div className="space-y-2">
       {inputs.map((input, index) => (
         <div
           key={input.id}
-          className="relative rounded border border-slate-700 bg-slate-900 p-3"
+          className="relative rounded border border-slate-700 bg-slate-900 p-2"
         >
-          <div className="absolute -left-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-slate-900 bg-emerald-600 text-xs font-bold text-white shadow-sm">
+          <div className="absolute -left-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-slate-900 bg-emerald-600 text-[10px] font-bold text-white shadow-sm">
             {index}
           </div>
           <div className="mt-1 space-y-2">

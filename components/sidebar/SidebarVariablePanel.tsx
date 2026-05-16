@@ -70,7 +70,7 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
   const inputVariables = activeProjectTemplate.inputs;
   const localVariables = activeProject.customInputs || [];
   const resultVariables = (activeProject.variables || []).filter((variable) =>
-    ['step_output', 'derived', 'manual'].includes(variable.sourceType)
+    ['step_output', 'structured_step_output', 'derived', 'manual'].includes(variable.sourceType)
   );
 
   const handleAddVariable = () => {

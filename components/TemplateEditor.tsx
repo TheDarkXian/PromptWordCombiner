@@ -14,6 +14,8 @@ import {
   StepExecutionAvailability,
   StepExecutionConfig,
   StepOutputBinding,
+  StructuredOutputFieldDefinition,
+  StructuredOutputVariableBinding,
   Template,
   TemplateInput,
   TemplateModelRef,
@@ -24,9 +26,24 @@ import { resolveStepExecutionAvailability } from '../services/modelService';
 import { t } from '../services/i18n';
 import { Button } from './Button';
 import { TemplateInputsPanel } from './template-editor/TemplateInputsPanel';
-import { TemplateMetaPanel } from './template-editor/TemplateMetaPanel';
 import { TemplateModelRefsPanel } from './template-editor/TemplateModelRefsPanel';
+import { TemplateBlueprintCanvas } from './template-editor/TemplateBlueprintCanvas';
 import { TemplateStepCard } from './template-editor/TemplateStepCard';
+import { BlueprintNodeInspector } from './template-editor/BlueprintNodeInspector';
+import { SplitPane } from './common/SplitPane';
+import {
+  applyBlueprintEdgeChange,
+  buildBlueprintLayout,
+  mergeBlueprintLayout,
+  updateBlueprintNodePosition,
+  updateBlueprintViewport,
+} from '../services/templateBlueprintService';
+import {
+  createBlueprintCommandHistory,
+  pushBlueprintCommand,
+  redoBlueprintCommand,
+  undoBlueprintCommand,
+} from '../services/blueprintCommandService';
 
 interface TemplateEditorProps {
   language: UiLanguage;
@@ -46,6 +63,10 @@ interface TemplateEditorProps {
   }) => void;
   onCancel: () => void;
   onRequestConfirm: (title: string, message: string, onConfirm: () => void) => void;
+  leftPanelWidth: number;
+  onLeftPanelWidthChange: (width: number) => void;
+  blueprintInspectorWidth: number;
+  onBlueprintInspectorWidthChange: (width: number) => void;
 }
 
 interface VariableAutocompleteItem {
@@ -81,6 +102,11 @@ const getStepTypeLabel = (language: UiLanguage, stepType: StepType) =>
       ? t(language, 'templateEditor.stepTypeExternal')
       : t(language, 'templateEditor.stepTypeManual');
 
+const isEditableEventTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
+};
+
 const getExecutionBadgeClassName = (availability: StepExecutionAvailability) => {
   switch (availability.status) {
     case 'ready':
@@ -102,9 +128,12 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   onSaveExecutionPresetTemplate,
   onCancel,
   onRequestConfirm,
+  leftPanelWidth,
+  onLeftPanelWidthChange,
+  blueprintInspectorWidth,
+  onBlueprintInspectorWidthChange,
 }) => {
   const [editedTemplate, setEditedTemplate] = useState<Template>(cloneTemplate(template));
-  const [collapsedSteps, setCollapsedSteps] = useState<Record<number, boolean>>({});
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
   const [selectionModelRefId, setSelectionModelRefId] = useState<string>('');
   const [copiedExecutionConfig, setCopiedExecutionConfig] = useState<{
@@ -115,6 +144,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   const [openStepMenuId, setOpenStepMenuId] = useState<string | null>(null);
   const [expandedExecutionByStepId, setExpandedExecutionByStepId] = useState<Record<string, boolean>>({});
   const [expandedBindingByStepId, setExpandedBindingByStepId] = useState<Record<string, boolean>>({});
+  const [expandedStructuredByStepId, setExpandedStructuredByStepId] = useState<Record<string, boolean>>({});
   const [selectedExecutionPresetByStepId, setSelectedExecutionPresetByStepId] = useState<Record<string, string>>({});
   const [savingExecutionPresetStepId, setSavingExecutionPresetStepId] = useState<string | null>(null);
   const [executionPresetDraft, setExecutionPresetDraft] = useState<{
@@ -127,6 +157,8 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     modelRefStrategy: 'keep_current',
   });
   const [autocompleteState, setAutocompleteState] = useState<VariableAutocompleteState | null>(null);
+  const [showBlueprintCreatePanel, setShowBlueprintCreatePanel] = useState(false);
+  const [blueprintCommandHistory, setBlueprintCommandHistory] = useState(createBlueprintCommandHistory());
   const promptTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
@@ -137,9 +169,12 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     setOpenStepMenuId(null);
     setExpandedExecutionByStepId({});
     setExpandedBindingByStepId({});
+    setExpandedStructuredByStepId({});
     setSelectedExecutionPresetByStepId({});
     setSavingExecutionPresetStepId(null);
     setAutocompleteState(null);
+    setShowBlueprintCreatePanel(false);
+    setBlueprintCommandHistory(createBlueprintCommandHistory());
   }, [template]);
 
   const modelRefs = editedTemplate.modelRefs || [];
@@ -151,6 +186,13 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           ...editedTemplate.inputs.map((input) => input.label.trim()).filter(Boolean),
           ...editedTemplate.steps
             .map((step) => step.outputBinding?.variableKey?.trim() || '')
+            .filter(Boolean),
+          ...editedTemplate.steps
+            .flatMap((step) =>
+              (step.structuredOutputBindings || []).map(
+                (binding) => binding.variableKey?.trim() || ''
+              )
+            )
             .filter(Boolean),
         ])
       ),
@@ -179,6 +221,20 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
             sourceLabel: language === 'zh-CN' ? '步骤输出' : 'Step output',
           };
         })
+        .filter((item): item is VariableAutocompleteItem => Boolean(item)),
+      ...editedTemplate.steps
+        .flatMap((step) =>
+          (step.structuredOutputBindings || []).map((binding) => {
+            const key = binding.variableKey?.trim() || '';
+            if (!key) return null;
+            return {
+              key,
+              label: binding.variableLabel?.trim() || key,
+              sourceType: 'step_output' as const,
+              sourceLabel: language === 'zh-CN' ? '步骤输出' : 'Step output',
+            };
+          })
+        )
         .filter((item): item is VariableAutocompleteItem => Boolean(item)),
     ],
     [editedTemplate.inputs, editedTemplate.steps, language]
@@ -304,19 +360,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     });
   };
 
-  const addStep = () => {
-    const newStep: TemplateStep = {
-      id: `step_${Date.now()}`,
-      name: 'New Step',
-      content: 'Write your prompt template here...',
-      outputBinding: {},
-      execution: normalizeExecution(),
-      stepType: 'manual',
-      autoRunEnabled: false,
-    };
-    setEditedTemplate((prev) => ({ ...prev, steps: [...prev.steps, newStep] }));
-  };
-
   const updateStep = (index: number, updates: Partial<TemplateStep>) => {
     setEditedTemplate((prev) => {
       const steps = [...prev.steps];
@@ -369,6 +412,115 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
             ? updates.autoRunEnabled ?? currentStep.autoRunEnabled ?? false
             : false,
       };
+      return { ...prev, steps };
+    });
+  };
+
+  const updateStructuredOutputField = (
+    index: number,
+    fieldIndex: number,
+    updates: Partial<StructuredOutputFieldDefinition>
+  ) => {
+    setEditedTemplate((prev) => {
+      const steps = [...prev.steps];
+      const currentStep = steps[index];
+      const fields = [...(currentStep.structuredOutputFields || [])];
+      fields[fieldIndex] = { ...fields[fieldIndex], ...updates };
+      steps[index] = { ...currentStep, structuredOutputFields: fields };
+      return { ...prev, steps };
+    });
+  };
+
+  const addStructuredOutputField = (index: number) => {
+    setEditedTemplate((prev) => {
+      const steps = [...prev.steps];
+      const currentStep = steps[index];
+      const fields = [...(currentStep.structuredOutputFields || [])];
+      fields.push({
+        key: `field_${fields.length + 1}`,
+        label: language === 'zh-CN' ? `字段 ${fields.length + 1}` : `Field ${fields.length + 1}`,
+        description: '',
+      });
+      steps[index] = { ...currentStep, structuredOutputFields: fields };
+      return { ...prev, steps };
+    });
+    setExpandedStructuredByStepId((prev) => ({ ...prev, [editedTemplate.steps[index].id]: true }));
+  };
+
+  const removeStructuredOutputField = (index: number, fieldIndex: number) => {
+    setEditedTemplate((prev) => {
+      const steps = [...prev.steps];
+      const currentStep = steps[index];
+      const fields = [...(currentStep.structuredOutputFields || [])];
+      const removedField = fields[fieldIndex];
+      const nextFields = fields.filter((_, currentIndex) => currentIndex !== fieldIndex);
+      const nextBindings = (currentStep.structuredOutputBindings || []).filter(
+        (binding) => binding.fieldKey !== removedField?.key
+      );
+      steps[index] = {
+        ...currentStep,
+        structuredOutputFields: nextFields,
+        structuredOutputBindings: nextBindings,
+      };
+      return { ...prev, steps };
+    });
+  };
+
+  const moveStructuredOutputField = (
+    index: number,
+    fieldIndex: number,
+    direction: 'up' | 'down'
+  ) => {
+    setEditedTemplate((prev) => {
+      const steps = [...prev.steps];
+      const currentStep = steps[index];
+      const fields = [...(currentStep.structuredOutputFields || [])];
+      const targetIndex = direction === 'up' ? fieldIndex - 1 : fieldIndex + 1;
+      if (targetIndex < 0 || targetIndex >= fields.length) return prev;
+      [fields[fieldIndex], fields[targetIndex]] = [fields[targetIndex], fields[fieldIndex]];
+      steps[index] = { ...currentStep, structuredOutputFields: fields };
+      return { ...prev, steps };
+    });
+  };
+
+  const updateStructuredOutputBinding = (
+    index: number,
+    fieldKey: string,
+    updates: Partial<StructuredOutputVariableBinding>
+  ) => {
+    setEditedTemplate((prev) => {
+      const steps = [...prev.steps];
+      const currentStep = steps[index];
+      const bindings = [...(currentStep.structuredOutputBindings || [])];
+      const bindingIndex = bindings.findIndex((binding) => binding.fieldKey === fieldKey);
+      const currentBinding =
+        bindingIndex >= 0
+          ? bindings[bindingIndex]
+          : { fieldKey, variableKey: '', variableLabel: '' };
+      const nextBinding = {
+        ...currentBinding,
+        ...updates,
+      };
+
+      if (!nextBinding.variableKey?.trim()) {
+        if (bindingIndex >= 0) {
+          bindings.splice(bindingIndex, 1);
+        }
+      } else if (bindingIndex >= 0) {
+        bindings[bindingIndex] = {
+          fieldKey,
+          variableKey: nextBinding.variableKey.trim(),
+          variableLabel: nextBinding.variableLabel || '',
+        };
+      } else {
+        bindings.push({
+          fieldKey,
+          variableKey: nextBinding.variableKey.trim(),
+          variableLabel: nextBinding.variableLabel || '',
+        });
+      }
+
+      steps[index] = { ...currentStep, structuredOutputBindings: bindings };
       return { ...prev, steps };
     });
   };
@@ -518,27 +670,20 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
       [steps[index], steps[targetIndex]] = [steps[targetIndex], steps[index]];
 
-      const nextCollapsed = { ...collapsedSteps };
-      const temp = nextCollapsed[index];
-      nextCollapsed[index] = nextCollapsed[targetIndex];
-      nextCollapsed[targetIndex] = temp;
-      setCollapsedSteps(nextCollapsed);
-
       return { ...prev, steps };
     });
   };
 
   const removeStep = (index: number) => {
     onRequestConfirm(t(language, 'templateEditor.deleteStepTitle'), t(language, 'templateEditor.deleteStepMessage'), () => {
-      setEditedTemplate((prev) => ({
-        ...prev,
-        steps: prev.steps.filter((_, currentIndex) => currentIndex !== index),
-      }));
+      setEditedTemplate((prev) => {
+        const next = {
+          ...prev,
+          steps: prev.steps.filter((_, currentIndex) => currentIndex !== index),
+        };
+        return { ...next, blueprint: mergeBlueprintLayout(next) };
+      });
     });
-  };
-
-  const toggleStep = (index: number) => {
-    setCollapsedSteps((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
   const toggleStepSelection = (stepId: string) => {
@@ -597,6 +742,32 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           : step
       ),
     }));
+  };
+
+  const isPromptCollapsedByDefault = (stepId: string) => {
+    const expandedStepIds = editedTemplate.blueprint?.selection?.expandedPromptStepIds || [];
+    return !expandedStepIds.includes(stepId);
+  };
+
+  const togglePromptCollapsed = (stepId: string) => {
+    setEditedTemplate((prev) => {
+      const expandedStepIds = prev.blueprint?.selection?.expandedPromptStepIds || [];
+      const isExpanded = expandedStepIds.includes(stepId);
+      const nextExpanded = isExpanded
+        ? expandedStepIds.filter((id) => id !== stepId)
+        : [...expandedStepIds, stepId];
+      return {
+        ...prev,
+        blueprint: {
+          ...(prev.blueprint || mergeBlueprintLayout(prev)),
+          version: 2,
+          selection: {
+            ...(prev.blueprint?.selection || {}),
+            expandedPromptStepIds: nextExpanded,
+          },
+        },
+      };
+    });
   };
 
   const applyAutocompleteItem = (stepIndex: number, stepId: string, item: VariableAutocompleteItem) => {
@@ -681,49 +852,180 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     setExpandedBindingByStepId((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
   };
 
+  const toggleStructuredSection = (stepId: string) => {
+    setExpandedStructuredByStepId((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
+  };
+
+  const commitBlueprintCommand = (
+    type:
+      | 'move_nodes'
+      | 'connect_pin'
+      | 'disconnect_pin'
+      | 'create_step'
+      | 'delete_step'
+      | 'update_step'
+      | 'move_comment'
+      | 'resize_comment'
+      | 'auto_layout',
+    updater: (prev: Template) => Template
+  ) => {
+    setEditedTemplate((prev) => {
+      const next = updater(prev);
+      if (next === prev) return prev;
+      setBlueprintCommandHistory((history) =>
+        pushBlueprintCommand(history, {
+          type,
+          before: prev,
+          after: next,
+          createdAt: Date.now(),
+        })
+      );
+      return next;
+    });
+  };
+
+  const handleBlueprintConnect = (fromStepId: string, toStepId: string, toVariableKey: string) => {
+    commitBlueprintCommand('connect_pin', (prev) => {
+      const result = applyBlueprintEdgeChange(prev, {
+        fromStepId,
+        toStepId,
+        toVariableKey,
+        mode: 'add',
+      });
+      if (!result.ok && result.message) {
+        window.alert(t(language, 'templateEditor.blueprintConnectFailed', { reason: result.message }));
+      }
+      return result.template;
+    });
+  };
+
+  const handleBlueprintRemoveEdge = (fromStepId: string, toStepId: string) => {
+    commitBlueprintCommand('disconnect_pin', (prev) =>
+      applyBlueprintEdgeChange(prev, { fromStepId, toStepId, mode: 'remove' }).template
+    );
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableEventTarget(event.target)) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault();
+        setBlueprintCommandHistory((history) => {
+          const undone = undoBlueprintCommand(history);
+          if (undone.template) setEditedTemplate(undone.template);
+          return undone.history;
+        });
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+        event.preventDefault();
+        setBlueprintCommandHistory((history) => {
+          const redone = redoBlueprintCommand(history);
+          if (redone.template) setEditedTemplate(redone.template);
+          return redone.history;
+        });
+      } else if (event.key === 'Tab') {
+        event.preventDefault();
+        setShowBlueprintCreatePanel(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const hasInspectorContent = Boolean(selectedStepIds[0]) || showBlueprintCreatePanel;
+  const effectiveBlueprintInspectorWidth = hasInspectorContent ? blueprintInspectorWidth : 220;
+  const blueprintInspectorMinWidth = hasInspectorContent ? 300 : 220;
+  const blueprintInspectorMaxWidth = hasInspectorContent ? 640 : 220;
+
   return (
-    <div className="h-full w-full overflow-y-auto rounded-lg bg-slate-900 p-4 md:p-6">
-      <div className="sticky top-0 z-10 mb-6 flex items-center justify-between border-b border-slate-800 bg-slate-900 py-2">
-        <h2 className="text-xl font-bold text-white">{t(language, 'templateEditor.title')}</h2>
-        <div className="space-x-2">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-900 p-3 md:p-4">
+      <div className="mb-3 flex shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900 pb-2">
+        <h2 className="shrink-0 text-base font-bold text-white">{t(language, 'templateEditor.title')}</h2>
+        <input
+          className="min-w-[180px] max-w-md flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm font-semibold text-white outline-none focus:border-cyan-500"
+          value={editedTemplate.name}
+          aria-label={t(language, 'templateEditor.name')}
+          onChange={(event) => setEditedTemplate({ ...editedTemplate, name: event.target.value })}
+        />
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar">
+          {(editedTemplate.tags || []).map((tag, idx) => (
+            <span
+              key={`${tag}_${idx}`}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-300"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() =>
+                  setEditedTemplate({
+                    ...editedTemplate,
+                    tags: (editedTemplate.tags || []).filter((_, i) => i !== idx),
+                  })
+                }
+                className="text-amber-600 hover:text-red-400"
+              >
+                x
+              </button>
+            </span>
+          ))}
+          <input
+            className="w-28 shrink-0 rounded border border-slate-800 bg-slate-950 px-2 py-1 text-[11px] text-slate-300 outline-none focus:border-amber-500"
+            placeholder={t(language, 'templateEditor.addTag')}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              const value = event.currentTarget.value.trim();
+              if (!value) return;
+              setEditedTemplate({
+                ...editedTemplate,
+                tags: [...(editedTemplate.tags || []), value],
+              });
+              event.currentTarget.value = '';
+            }}
+          />
+        </div>
+        <div className="shrink-0 space-x-2">
           <Button variant="secondary" onClick={onCancel}>
             {t(language, 'templateEditor.cancel')}
           </Button>
           <Button onClick={() => onSave(editedTemplate)}>{t(language, 'templateEditor.save')}</Button>
         </div>
       </div>
-      <TemplateMetaPanel
-        language={language}
-        template={editedTemplate}
-        onChange={setEditedTemplate}
-      />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <div className="space-y-4 lg:col-span-4">
-          <div className="sticky top-24 space-y-6 rounded-lg border border-slate-800 bg-slate-950/50 p-4">
-            <TemplateInputsPanel
-              language={language}
-              inputs={editedTemplate.inputs}
-              onAdd={addInput}
-              onUpdate={updateInput}
-              onRemove={removeInput}
-            />
-            <TemplateModelRefsPanel
-              language={language}
-              modelRefs={modelRefs}
-              modelCatalog={modelCatalog}
-              onAdd={addModelRef}
-              onUpdate={updateModelRef}
-              onRemove={removeModelRef}
-            />
+      <SplitPane
+        className="min-h-0 w-full flex-1"
+        direction="horizontal"
+        size={leftPanelWidth}
+        minSize={280}
+        maxSize={480}
+        onSizeChange={onLeftPanelWidthChange}
+        first={
+          <div className="h-full min-h-0 w-full overflow-y-auto pr-2 no-scrollbar">
+            <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+              <TemplateInputsPanel
+                language={language}
+                inputs={editedTemplate.inputs}
+                onAdd={addInput}
+                onUpdate={updateInput}
+                onRemove={removeInput}
+              />
+              <TemplateModelRefsPanel
+                language={language}
+                modelRefs={modelRefs}
+                modelCatalog={modelCatalog}
+                onAdd={addModelRef}
+                onUpdate={updateModelRef}
+                onRemove={removeModelRef}
+              />
+            </div>
           </div>
-        </div>
-
-        <div className="lg:col-span-8">
-          <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-4">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-200">{t(language, 'templateEditor.stepsSection')}</h3>
+        }
+        second={
+          <div className="flex h-full min-h-0 w-full flex-col rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+            <div className="mb-2 flex shrink-0 items-center justify-between">
+              <h3 className="text-base font-bold text-slate-200">{t(language, 'templateEditor.stepsSection')}</h3>
               <div className="flex flex-wrap items-center justify-end gap-2">
+                <div className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-400">
+                  Undo {blueprintCommandHistory.undoStack.length} / Redo {blueprintCommandHistory.redoStack.length}
+                </div>
                 <button
                   onClick={selectAllSteps}
                   className="rounded-md border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-bold text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
@@ -778,195 +1080,267 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               )}
             </div>
             </div>
-            <div className="space-y-4">
-              {editedTemplate.steps.map((step, index) => {
-                const isCollapsed = Boolean(collapsedSteps[index]);
-                const isSelected = selectedStepIds.includes(step.id);
-                const binding = normalizeBinding(step.outputBinding);
-                const execution = normalizeExecution(step.execution);
-                const stepType: StepType =
-                  step.stepType ||
-                  (execution.modelRefId ? 'text_generation' : 'manual');
-                const autoRunEnabled =
-                  stepType === 'text_generation' && step.autoRunEnabled === true;
-                const bindingKey = binding.variableKey?.trim() || '';
-                const isKnownVariable = !bindingKey || knownVariableKeys.includes(bindingKey);
-                const currentRef = modelRefs.find((item) => item.id === execution.modelRefId);
-                const availability = resolveStepExecutionAvailability({
-                  step,
-                  template: editedTemplate,
-                  modelCatalog,
-                  providerConfigs,
-                });
-                const matchedPreset = DEEPSEEK_EXECUTION_PRESETS.find(
-                  (preset) =>
-                    preset.temperature === execution.temperature &&
-                    preset.maxTokens === execution.maxTokens
-                );
-                const recommendedPreset = getRecommendedPresetForModelRef(
-                  execution.modelRefId
-                );
-                const matchedSystemPromptPreset = DEEPSEEK_SYSTEM_PROMPT_PRESETS.find(
-                  (preset) => preset.content === execution.systemPrompt
-                );
-                const recommendedSystemPromptPreset =
-                  getRecommendedSystemPromptPresetForModelRef(execution.modelRefId);
-                const isExecutionExpanded =
-                  Boolean(expandedExecutionByStepId[step.id]) ||
-                  savingExecutionPresetStepId === step.id;
-                const isBindingExpanded = Boolean(expandedBindingByStepId[step.id]);
-                const selectedExecutionPreset = enabledExecutionPresetTemplates.find(
-                  (preset) => preset.id === selectedExecutionPresetByStepId[step.id]
-                );
-                const executionSummaryParts = [
-                  getStepTypeLabel(language, stepType),
-                  autoRunEnabled ? t(language, 'templateEditor.autoRunEnabled') : undefined,
-                  currentRef?.label || t(language, 'step.manual'),
-                  selectedExecutionPreset?.label,
-                  execution.temperature !== undefined
-                    ? `T ${execution.temperature}`
-                    : undefined,
-                  execution.maxTokens !== undefined
-                    ? `Max ${execution.maxTokens}`
-                    : undefined,
-                  execution.systemPrompt.trim()
-                    ? t(language, 'step.systemPrompt')
-                    : t(language, 'step.notSet'),
-                ].filter(Boolean) as string[];
-
-                return (
-                  <TemplateStepCard
-                    key={step.id}
+            <SplitPane
+              className="min-h-0 w-full flex-1"
+              direction="horizontal"
+              size={effectiveBlueprintInspectorWidth}
+              sizeTarget="second"
+              minSize={blueprintInspectorMinWidth}
+              maxSize={blueprintInspectorMaxWidth}
+              onSizeChange={hasInspectorContent ? onBlueprintInspectorWidthChange : () => undefined}
+              first={
+                <div className="h-full min-h-0 w-full">
+                  <TemplateBlueprintCanvas
                     language={language}
-                    step={step}
-                    stepIndex={index}
-                    editedTemplate={editedTemplate}
-                    modelRefs={modelRefs}
-                    isCollapsed={isCollapsed}
-                    isSelected={isSelected}
-                    isExecutionExpanded={isExecutionExpanded}
-                    isBindingExpanded={isBindingExpanded}
-                    availability={availability}
-                    binding={binding}
-                    execution={execution}
-                    bindingKey={bindingKey}
-                    isKnownVariable={isKnownVariable}
-                    currentRef={currentRef}
-                    matchedPreset={matchedPreset}
-                    recommendedPreset={recommendedPreset}
-                    matchedSystemPromptPreset={matchedSystemPromptPreset}
-                    recommendedSystemPromptPreset={recommendedSystemPromptPreset}
-                    selectedExecutionPreset={selectedExecutionPreset}
-                    selectedExecutionPresetValue={
-                      selectedExecutionPresetByStepId[step.id] || ''
+                    template={
+                      editedTemplate.blueprint
+                        ? editedTemplate
+                        : { ...editedTemplate, blueprint: mergeBlueprintLayout(editedTemplate) }
                     }
-                    enabledExecutionPresetTemplates={enabledExecutionPresetTemplates}
-                    executionSummaryParts={executionSummaryParts}
-                    copiedExecutionConfigSourceStepId={
-                      copiedExecutionConfig?.sourceStepId
+                    selectedStepIds={selectedStepIds}
+                    onSelectSteps={setSelectedStepIds}
+                    onMoveNodes={(stepIds, dx, dy) =>
+                      commitBlueprintCommand('move_nodes', (prev) => {
+                        let next = prev;
+                        stepIds.forEach((stepId) => {
+                          const current = (next.blueprint?.nodes || {})[stepId];
+                          if (!current) return;
+                          next = updateBlueprintNodePosition(next, stepId, {
+                            x: current.x + dx,
+                            y: current.y + dy,
+                          });
+                        });
+                        return next;
+                      })
                     }
-                    copiedExecutionConfigSourceStepName={
-                      copiedExecutionConfig?.sourceStepName
+                    onConnect={({ fromStepId, toStepId, toVariableKey }) =>
+                      handleBlueprintConnect(fromStepId, toStepId, toVariableKey)
                     }
-                    savingExecutionPresetStepId={savingExecutionPresetStepId}
-                    executionPresetDraft={executionPresetDraft}
-                    autocompleteState={autocompleteState}
-                    filteredAutocompleteItems={filteredAutocompleteItems}
-                    onToggleSelection={() => toggleStepSelection(step.id)}
-                    onToggleCollapse={() => toggleStep(index)}
-                    onMoveStep={(direction) => moveStep(index, direction)}
-                    onRemoveStep={() => removeStep(index)}
-                    onToggleStepMenu={() =>
-                      setOpenStepMenuId((current) =>
-                        current === step.id ? null : step.id
-                      )
+                    onRemoveEdge={(fromStepId, toStepId) => handleBlueprintRemoveEdge(fromStepId, toStepId)}
+                    onViewportChange={(x, y, zoom) =>
+                      commitBlueprintCommand('move_nodes', (prev) => updateBlueprintViewport(prev, x, y, zoom))
                     }
-                    isStepMenuOpen={openStepMenuId === step.id}
-                    onCopyExecutionConfig={() => {
-                      copyStepExecutionConfig(step);
-                      setOpenStepMenuId(null);
-                    }}
-                    onPasteExecutionConfig={() => {
-                      pasteStepExecutionConfig(index);
-                      setOpenStepMenuId(null);
-                    }}
-                    onUpdateStep={(updates) => updateStep(index, updates)}
-                    onPromptChange={(value) =>
-                      handlePromptContentChange(index, step.id, value)
+                    onAutoLayout={() =>
+                      commitBlueprintCommand('auto_layout', (prev) => ({ ...prev, blueprint: buildBlueprintLayout(prev) }))
                     }
-                    onPromptKeyDown={(event) =>
-                      handlePromptKeyDown(event, index, step.id)
-                    }
-                    onSyncAutocomplete={() => syncAutocomplete(step.id, step.content)}
-                    onClearAutocompleteLater={() =>
-                      setTimeout(
-                        () =>
-                          setAutocompleteState((prev) =>
-                            prev?.stepId === step.id ? null : prev
-                          ),
-                        120
-                      )
-                    }
-                    onPromptTextareaRef={(node) => {
-                      promptTextareaRefs.current[step.id] = node;
-                    }}
-                    onApplyAutocompleteItem={(item) =>
-                      applyAutocompleteItem(index, step.id, item)
-                    }
-                    onToggleExecutionSection={() => toggleExecutionSection(step.id)}
-                    onSelectedExecutionPresetChange={(value) =>
-                      setSelectedExecutionPresetByStepId((prev) => ({
-                        ...prev,
-                        [step.id]: value,
-                      }))
-                    }
-                    onApplyExecutionPreset={() =>
-                      applyExecutionPresetToStep(
-                        index,
-                        selectedExecutionPresetByStepId[step.id] || ''
-                      )
-                    }
-                    onStartSavingExecutionPreset={() =>
-                      startSavingExecutionPreset(step)
-                    }
-                    onCancelSavingExecutionPreset={cancelSavingExecutionPreset}
-                    onSaveCurrentExecutionPreset={() =>
-                      saveCurrentExecutionPreset(step, currentRef)
-                    }
-                    onUpdateExecutionPresetDraft={updateExecutionPresetDraft}
-                    onUpdateStepExecution={(updates) =>
-                      updateStepExecution(index, updates)
-                    }
-                    onUpdateStepMeta={(updates) => updateStepMeta(index, updates)}
-                    onApplyStepModelRef={(modelRefId) =>
-                      applyStepModelRef(index, modelRefId)
-                    }
-                    onToggleBindingSection={() => toggleBindingSection(step.id)}
-                    onUpdateStepBinding={(updates) =>
-                      updateStepBinding(index, updates)
-                    }
-                    getExecutionBadgeClassName={getExecutionBadgeClassName}
+                    onCreateStepRequest={() => setShowBlueprintCreatePanel(true)}
+                    debugState={undefined}
                   />
-                );
-              })}
+                </div>
+              }
+              second={
+                <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto no-scrollbar">
+                  {showBlueprintCreatePanel && (
+                    <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
+                      <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                        {language === 'zh-CN' ? '创建节点' : 'Create node'}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(['text_generation', 'manual', 'external'] as const).map((stepType) => (
+                          <button
+                            key={stepType}
+                            onClick={() => {
+                              const nextStepId = `step_${Date.now()}`;
+                              commitBlueprintCommand('create_step', (prev) => {
+                                const next = {
+                                  ...prev,
+                                  steps: [
+                                    ...prev.steps,
+                                    {
+                                      id: nextStepId,
+                                      name:
+                                        stepType === 'text_generation'
+                                          ? language === 'zh-CN'
+                                            ? '文本生成节点'
+                                            : 'Text Node'
+                                          : stepType === 'manual'
+                                            ? language === 'zh-CN'
+                                              ? '手动节点'
+                                              : 'Manual Node'
+                                            : language === 'zh-CN'
+                                              ? '外部节点'
+                                              : 'External Node',
+                                      content: '',
+                                      outputBinding: { variableKey: '' },
+                                      execution: { systemPrompt: '' },
+                                      stepType,
+                                      autoRunEnabled: stepType === 'text_generation',
+                                    },
+                                  ],
+                                };
+                                return { ...next, blueprint: mergeBlueprintLayout(next) };
+                              });
+                              setSelectedStepIds([nextStepId]);
+                              setShowBlueprintCreatePanel(false);
+                            }}
+                            className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-cyan-500"
+                          >
+                            {stepType}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => setShowBlueprintCreatePanel(false)}
+                          className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-400"
+                        >
+                          {language === 'zh-CN' ? '关闭' : 'Close'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!selectedStepIds[0] && !showBlueprintCreatePanel && (
+                    <div className="rounded-lg border border-slate-800/90 bg-slate-900/80 p-3 text-xs text-slate-400">
+                      {language === 'zh-CN' ? '请先在蓝图中选择一个节点' : 'Select a node in blueprint first'}
+                    </div>
+                  )}
+                  <BlueprintNodeInspector language={language} selectedStepId={selectedStepIds[0]}>
+                  {(() => {
+                    const stepId = selectedStepIds[0];
+                    const stepIndex = editedTemplate.steps.findIndex((item) => item.id === stepId);
+                    if (!stepId || stepIndex < 0) return null;
+                    const step = editedTemplate.steps[stepIndex];
+                    const isCollapsed = false;
+                    const isSelected = selectedStepIds.includes(step.id);
+                    const binding = normalizeBinding(step.outputBinding);
+                    const execution = normalizeExecution(step.execution);
+                    const stepType: StepType = step.stepType || (execution.modelRefId ? 'text_generation' : 'manual');
+                    const autoRunEnabled = stepType === 'text_generation' && step.autoRunEnabled === true;
+                    const bindingKey = binding.variableKey?.trim() || '';
+                    const isKnownVariable = !bindingKey || knownVariableKeys.includes(bindingKey);
+                    const currentRef = modelRefs.find((item) => item.id === execution.modelRefId);
+                    const availability = resolveStepExecutionAvailability({
+                      step,
+                      template: editedTemplate,
+                      modelCatalog,
+                      providerConfigs,
+                    });
+                    const matchedPreset = DEEPSEEK_EXECUTION_PRESETS.find(
+                      (preset) => preset.temperature === execution.temperature && preset.maxTokens === execution.maxTokens
+                    );
+                    const recommendedPreset = getRecommendedPresetForModelRef(execution.modelRefId);
+                    const matchedSystemPromptPreset = DEEPSEEK_SYSTEM_PROMPT_PRESETS.find(
+                      (preset) => preset.content === execution.systemPrompt
+                    );
+                    const recommendedSystemPromptPreset = getRecommendedSystemPromptPresetForModelRef(execution.modelRefId);
+                    const isExecutionExpanded =
+                      Boolean(expandedExecutionByStepId[step.id]) || savingExecutionPresetStepId === step.id;
+                    const isBindingExpanded = Boolean(expandedBindingByStepId[step.id]);
+                    const isStructuredExpanded = Boolean(expandedStructuredByStepId[step.id]);
+                    const selectedExecutionPreset = enabledExecutionPresetTemplates.find(
+                      (preset) => preset.id === selectedExecutionPresetByStepId[step.id]
+                    );
+                    const structuredFields = step.structuredOutputFields || [];
+                    const structuredBindings = step.structuredOutputBindings || [];
+                    const structuredSummary = structuredBindings
+                      .filter((entry) => entry.fieldKey.trim() && entry.variableKey.trim())
+                      .map((entry) => `${entry.fieldKey} -> {{${entry.variableKey}}}`)
+                      .join(' · ');
+                    const executionSummaryParts = [
+                      getStepTypeLabel(language, stepType),
+                      autoRunEnabled ? t(language, 'templateEditor.autoRunEnabled') : undefined,
+                      currentRef?.label || t(language, 'step.manual'),
+                      selectedExecutionPreset?.label,
+                      execution.temperature !== undefined ? `T ${execution.temperature}` : undefined,
+                      execution.maxTokens !== undefined ? `Max ${execution.maxTokens}` : undefined,
+                      execution.systemPrompt.trim() ? t(language, 'step.systemPrompt') : t(language, 'step.notSet'),
+                    ].filter(Boolean) as string[];
 
-              <button
-                onClick={addStep}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-800 bg-slate-900/50 py-4 text-sm font-bold text-slate-500 transition-all hover:border-blue-500/50 hover:bg-slate-900 hover:text-blue-400"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                  <path
-                    fillRule="evenodd"
-                    d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2Z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-                {t(language, 'templateEditor.addStep')}
-              </button>
-            </div>
+                    return (
+                      <TemplateStepCard
+                        key={step.id}
+                        language={language}
+                        step={step}
+                        stepIndex={stepIndex}
+                        editedTemplate={editedTemplate}
+                        modelRefs={modelRefs}
+                        isCollapsed={isCollapsed}
+                        isSelected={isSelected}
+                        isExecutionExpanded={isExecutionExpanded}
+                        isBindingExpanded={isBindingExpanded}
+                        isStructuredExpanded={isStructuredExpanded}
+                        availability={availability}
+                        binding={binding}
+                        execution={execution}
+                        bindingKey={bindingKey}
+                        isKnownVariable={isKnownVariable}
+                        currentRef={currentRef}
+                        matchedPreset={matchedPreset}
+                        recommendedPreset={recommendedPreset}
+                        matchedSystemPromptPreset={matchedSystemPromptPreset}
+                        recommendedSystemPromptPreset={recommendedSystemPromptPreset}
+                        selectedExecutionPreset={selectedExecutionPreset}
+                        selectedExecutionPresetValue={selectedExecutionPresetByStepId[step.id] || ''}
+                        enabledExecutionPresetTemplates={enabledExecutionPresetTemplates}
+                        executionSummaryParts={executionSummaryParts}
+                        structuredFields={structuredFields}
+                        structuredBindings={structuredBindings}
+                        structuredSummary={structuredSummary}
+                        copiedExecutionConfigSourceStepId={copiedExecutionConfig?.sourceStepId}
+                        copiedExecutionConfigSourceStepName={copiedExecutionConfig?.sourceStepName}
+                        savingExecutionPresetStepId={savingExecutionPresetStepId}
+                        executionPresetDraft={executionPresetDraft}
+                        autocompleteState={autocompleteState}
+                        filteredAutocompleteItems={filteredAutocompleteItems}
+                        onToggleSelection={() => toggleStepSelection(step.id)}
+                        onToggleCollapse={() => undefined}
+                        onMoveStep={(direction) => moveStep(stepIndex, direction)}
+                        onRemoveStep={() => removeStep(stepIndex)}
+                        onToggleStepMenu={() => setOpenStepMenuId((current) => (current === step.id ? null : step.id))}
+                        isStepMenuOpen={openStepMenuId === step.id}
+                        onCopyExecutionConfig={() => {
+                          copyStepExecutionConfig(step);
+                          setOpenStepMenuId(null);
+                        }}
+                        onPasteExecutionConfig={() => {
+                          pasteStepExecutionConfig(stepIndex);
+                          setOpenStepMenuId(null);
+                        }}
+                        onUpdateStep={(updates) => updateStep(stepIndex, updates)}
+                        onPromptChange={(value) => handlePromptContentChange(stepIndex, step.id, value)}
+                        isPromptCollapsed={isPromptCollapsedByDefault(step.id)}
+                        onTogglePromptCollapsed={() => togglePromptCollapsed(step.id)}
+                        onPromptKeyDown={(event) => handlePromptKeyDown(event, stepIndex, step.id)}
+                        onSyncAutocomplete={() => syncAutocomplete(step.id, step.content)}
+                        onClearAutocompleteLater={() =>
+                          setTimeout(
+                            () => setAutocompleteState((prev) => (prev?.stepId === step.id ? null : prev)),
+                            120
+                          )
+                        }
+                        onPromptTextareaRef={(node) => {
+                          promptTextareaRefs.current[step.id] = node;
+                        }}
+                        onApplyAutocompleteItem={(item) => applyAutocompleteItem(stepIndex, step.id, item)}
+                        onToggleExecutionSection={() => toggleExecutionSection(step.id)}
+                        onSelectedExecutionPresetChange={(value) =>
+                          setSelectedExecutionPresetByStepId((prev) => ({ ...prev, [step.id]: value }))
+                        }
+                        onApplyExecutionPreset={() => applyExecutionPresetToStep(stepIndex, selectedExecutionPresetByStepId[step.id] || '')}
+                        onStartSavingExecutionPreset={() => startSavingExecutionPreset(step)}
+                        onCancelSavingExecutionPreset={cancelSavingExecutionPreset}
+                        onSaveCurrentExecutionPreset={() => saveCurrentExecutionPreset(step, currentRef)}
+                        onUpdateExecutionPresetDraft={updateExecutionPresetDraft}
+                        onUpdateStepExecution={(updates) => updateStepExecution(stepIndex, updates)}
+                        onUpdateStepMeta={(updates) => updateStepMeta(stepIndex, updates)}
+                        onApplyStepModelRef={(modelRefId) => applyStepModelRef(stepIndex, modelRefId)}
+                        onToggleBindingSection={() => toggleBindingSection(step.id)}
+                        onToggleStructuredSection={() => toggleStructuredSection(step.id)}
+                        onUpdateStepBinding={(updates) => updateStepBinding(stepIndex, updates)}
+                        onAddStructuredField={() => addStructuredOutputField(stepIndex)}
+                        onUpdateStructuredField={(fieldIndex, updates) => updateStructuredOutputField(stepIndex, fieldIndex, updates)}
+                        onMoveStructuredField={(fieldIndex, direction) => moveStructuredOutputField(stepIndex, fieldIndex, direction)}
+                        onRemoveStructuredField={(fieldIndex) => removeStructuredOutputField(stepIndex, fieldIndex)}
+                        onUpdateStructuredBinding={(fieldKey, updates) => updateStructuredOutputBinding(stepIndex, fieldKey, updates)}
+                        getExecutionBadgeClassName={getExecutionBadgeClassName}
+                      />
+                    );
+                  })()}
+                  </BlueprintNodeInspector>
+                </div>
+              }
+            />
           </div>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 };

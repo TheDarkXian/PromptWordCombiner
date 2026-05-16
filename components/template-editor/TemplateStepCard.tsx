@@ -10,6 +10,8 @@ import {
   StepExecutionAvailability,
   StepExecutionConfig,
   StepOutputBinding,
+  StructuredOutputFieldDefinition,
+  StructuredOutputVariableBinding,
   Template,
   TemplateModelRef,
   TemplateStep,
@@ -44,6 +46,7 @@ interface TemplateStepCardProps {
   isSelected: boolean;
   isExecutionExpanded: boolean;
   isBindingExpanded: boolean;
+  isStructuredExpanded: boolean;
   availability: StepExecutionAvailability;
   binding: StepOutputBinding;
   execution: StepExecutionConfig;
@@ -57,6 +60,9 @@ interface TemplateStepCardProps {
   selectedExecutionPresetValue: string;
   enabledExecutionPresetTemplates: ExecutionPresetTemplate[];
   executionSummaryParts: string[];
+  structuredFields: StructuredOutputFieldDefinition[];
+  structuredBindings: StructuredOutputVariableBinding[];
+  structuredSummary: string;
   copiedExecutionConfigSourceStepId?: string;
   copiedExecutionConfigSourceStepName?: string;
   savingExecutionPresetStepId: string | null;
@@ -77,6 +83,8 @@ interface TemplateStepCardProps {
   onPasteExecutionConfig: () => void;
   onUpdateStep: (updates: Partial<TemplateStep>) => void;
   onPromptChange: (value: string) => void;
+  isPromptCollapsed?: boolean;
+  onTogglePromptCollapsed?: () => void;
   onPromptKeyDown: (event: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onSyncAutocomplete: () => void;
   onClearAutocompleteLater: () => void;
@@ -98,6 +106,18 @@ interface TemplateStepCardProps {
   onApplyStepModelRef: (modelRefId?: string) => void;
   onToggleBindingSection: () => void;
   onUpdateStepBinding: (updates: Partial<StepOutputBinding>) => void;
+  onToggleStructuredSection: () => void;
+  onAddStructuredField: () => void;
+  onUpdateStructuredField: (
+    fieldIndex: number,
+    updates: Partial<StructuredOutputFieldDefinition>
+  ) => void;
+  onMoveStructuredField: (fieldIndex: number, direction: 'up' | 'down') => void;
+  onRemoveStructuredField: (fieldIndex: number) => void;
+  onUpdateStructuredBinding: (
+    fieldKey: string,
+    updates: Partial<StructuredOutputVariableBinding>
+  ) => void;
   getExecutionBadgeClassName: (
     availability: StepExecutionAvailability
   ) => string;
@@ -113,6 +133,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   isSelected,
   isExecutionExpanded,
   isBindingExpanded,
+  isStructuredExpanded,
   availability,
   binding,
   execution,
@@ -126,6 +147,9 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   selectedExecutionPresetValue,
   enabledExecutionPresetTemplates,
   executionSummaryParts,
+  structuredFields,
+  structuredBindings,
+  structuredSummary,
   copiedExecutionConfigSourceStepId,
   copiedExecutionConfigSourceStepName,
   savingExecutionPresetStepId,
@@ -142,6 +166,8 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   onPasteExecutionConfig,
   onUpdateStep,
   onPromptChange,
+  isPromptCollapsed = false,
+  onTogglePromptCollapsed,
   onPromptKeyDown,
   onSyncAutocomplete,
   onClearAutocompleteLater,
@@ -159,6 +185,12 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   onApplyStepModelRef,
   onToggleBindingSection,
   onUpdateStepBinding,
+  onToggleStructuredSection,
+  onAddStructuredField,
+  onUpdateStructuredField,
+  onMoveStructuredField,
+  onRemoveStructuredField,
+  onUpdateStructuredBinding,
   getExecutionBadgeClassName,
 }) => {
   const stepType = step.stepType || 'manual';
@@ -176,6 +208,8 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
       : stepType === 'external'
         ? t(language, 'templateEditor.stepTypeHelpExternal')
         : t(language, 'templateEditor.stepTypeHelpManual');
+  const getStructuredBinding = (fieldKey: string) =>
+    structuredBindings.find((binding) => binding.fieldKey === fieldKey);
 
   return (
   <div
@@ -370,9 +404,25 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
         </div>
 
         <div className="mb-4 space-y-2">
-          <label className="text-xs font-bold uppercase text-slate-400">
-            {t(language, 'templateEditor.promptContent')}
-          </label>
+          <button
+            type="button"
+            onClick={onTogglePromptCollapsed}
+            className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-2 text-left transition-colors hover:border-slate-700"
+          >
+            <span className="text-xs font-bold uppercase text-slate-400">
+              {t(language, 'templateEditor.promptContent')}
+            </span>
+            <span className="text-[11px] text-slate-500">
+              {isPromptCollapsed
+                ? language === 'zh-CN'
+                  ? '已折叠'
+                  : 'Collapsed'
+                : language === 'zh-CN'
+                  ? '已展开'
+                  : 'Expanded'}
+            </span>
+          </button>
+          {!isPromptCollapsed && (
           <div className="relative flex h-auto flex-col rounded border border-slate-700 bg-slate-950 p-4">
             <AutoResizeTextarea
               className="font-mono text-sm leading-relaxed text-slate-300"
@@ -423,6 +473,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                 </div>
               )}
           </div>
+          )}
         </div>
 
         <div className="mb-4 border-t border-slate-800 pt-4">
@@ -469,7 +520,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                   onChange={(event) =>
                     onSelectedExecutionPresetChange(event.target.value)
                   }
-                  className="min-w-[220px] flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  className="min-w-[160px] flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
                 >
                   <option value="">
                     {t(language, 'templateEditor.executionTemplateSelect')}
@@ -924,6 +975,177 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                     : t(language, 'templateEditor.bindingNew')}
                 </div>
               )}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-800 pt-4">
+          <button
+            type="button"
+            onClick={onToggleStructuredSection}
+            className="flex w-full items-start justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-left transition-colors hover:border-slate-700"
+          >
+            <div>
+              <div className="text-xs font-bold uppercase text-fuchsia-400">
+                {language === 'zh-CN' ? '结构化输出' : 'Structured output'}
+              </div>
+              <div className="mt-1 text-xs text-slate-400">
+                {structuredSummary ||
+                  (structuredFields.length > 0
+                    ? language === 'zh-CN'
+                      ? `${structuredFields.length} 个字段，尚未绑定变量`
+                      : `${structuredFields.length} fields, no variable bindings yet`
+                    : language === 'zh-CN'
+                      ? '未定义结构化字段'
+                      : 'No structured fields')}
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-fuchsia-300">
+              {isStructuredExpanded
+                ? language === 'zh-CN'
+                  ? '收起字段'
+                  : 'Collapse fields'
+                : language === 'zh-CN'
+                  ? '展开字段'
+                  : 'Expand fields'}
+            </span>
+          </button>
+          {isStructuredExpanded && (
+            <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+              {structuredFields.map((field, fieldIndex) => {
+                const bindingItem = getStructuredBinding(field.key);
+                return (
+                  <div
+                    key={`${step.id}_structured_${fieldIndex}`}
+                    className="rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-bold uppercase text-slate-500">
+                        {language === 'zh-CN' ? `字段 ${fieldIndex + 1}` : `Field ${fieldIndex + 1}`}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onMoveStructuredField(fieldIndex, 'up')}
+                          disabled={fieldIndex === 0}
+                          className={`rounded border px-2 py-1 text-[10px] font-bold ${
+                            fieldIndex === 0
+                              ? 'cursor-not-allowed border-slate-800 bg-slate-900 text-slate-700'
+                              : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
+                          }`}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onMoveStructuredField(fieldIndex, 'down')}
+                          disabled={fieldIndex === structuredFields.length - 1}
+                          className={`rounded border px-2 py-1 text-[10px] font-bold ${
+                            fieldIndex === structuredFields.length - 1
+                              ? 'cursor-not-allowed border-slate-800 bg-slate-900 text-slate-700'
+                              : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
+                          }`}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveStructuredField(fieldIndex)}
+                          className="rounded border border-red-500/20 bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-300 hover:border-red-400/40 hover:text-white"
+                        >
+                          {t(language, 'templateEditor.delete')}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase text-slate-500">
+                          Key
+                        </label>
+                        <input
+                          value={field.key}
+                          onChange={(event) =>
+                            onUpdateStructuredField(fieldIndex, {
+                              key: event.target.value,
+                            })
+                          }
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
+                          placeholder="subject_description"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase text-slate-500">
+                          {t(language, 'templateEditor.displayName')}
+                        </label>
+                        <input
+                          value={field.label}
+                          onChange={(event) =>
+                            onUpdateStructuredField(fieldIndex, {
+                              label: event.target.value,
+                            })
+                          }
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
+                          placeholder={language === 'zh-CN' ? '主体描述' : 'Subject description'}
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 space-y-2">
+                      <label className="text-[11px] font-bold uppercase text-slate-500">
+                        {t(language, 'templateEditor.description')}
+                      </label>
+                      <input
+                        value={field.description || ''}
+                        onChange={(event) =>
+                          onUpdateStructuredField(fieldIndex, {
+                            description: event.target.value,
+                          })
+                        }
+                        className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
+                        placeholder={language === 'zh-CN' ? '字段说明（可选）' : 'Field description (optional)'}
+                      />
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase text-slate-500">
+                          {t(language, 'templateEditor.varKey')}
+                        </label>
+                        <input
+                          value={bindingItem?.variableKey || ''}
+                          onChange={(event) =>
+                            onUpdateStructuredBinding(field.key, {
+                              variableKey: event.target.value,
+                            })
+                          }
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
+                          placeholder="subject_description"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[11px] font-bold uppercase text-slate-500">
+                          {t(language, 'templateEditor.displayName')}
+                        </label>
+                        <input
+                          value={bindingItem?.variableLabel || ''}
+                          onChange={(event) =>
+                            onUpdateStructuredBinding(field.key, {
+                              variableLabel: event.target.value,
+                            })
+                          }
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
+                          placeholder={language === 'zh-CN' ? '变量显示名称（可选）' : 'Variable label (optional)'}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={onAddStructuredField}
+                className="w-full rounded-lg border border-dashed border-fuchsia-500/30 bg-fuchsia-500/5 px-3 py-2 text-xs font-bold text-fuchsia-300 transition-colors hover:border-fuchsia-400/50 hover:text-white"
+              >
+                {language === 'zh-CN' ? '新增字段' : 'Add field'}
+              </button>
             </div>
           )}
         </div>

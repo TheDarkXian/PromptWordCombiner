@@ -160,7 +160,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleTestConnectivity = async (provider: ProviderConfig) => {
-    setProviderTests((prev) => ({ ...prev, [provider.id]: { status: 'testing', message: '娴嬭瘯涓?..' } }));
+    setProviderTests((prev) => ({ ...prev, [provider.id]: { status: 'testing', message: '测试中...' } }));
     try {
       const result = await testProviderConnectivity(provider);
       setProviderTests((prev) => ({
@@ -174,7 +174,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } catch {
       setProviderTests((prev) => ({
         ...prev,
-        [provider.id]: { status: 'error', message: '娴嬭瘯寮傚父' },
+        [provider.id]: { status: 'error', message: '测试异常' },
       }));
     }
   };
@@ -184,8 +184,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-800 px-8 py-5">
           <div>
-            <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-white">App Settings</h3>
-            <p className="mt-1 text-xs text-slate-500">Manage UI preferences, provider credentials, model catalog items, and execution presets.</p>
+            <h3 className="text-sm font-bold uppercase tracking-[0.3em] text-white">应用设置</h3>
+            <p className="mt-1 text-xs text-slate-500">管理界面偏好、提供商凭据、模型目录和执行模板。</p>
           </div>
           <button onClick={onClose} className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-800 hover:text-white">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-5 w-5">
@@ -194,7 +194,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 gap-6 overflow-y-auto p-8 xl:grid-cols-[0.9fr_1.1fr_1.1fr]">
+        <div className="grid flex-1 grid-cols-1 gap-6 overflow-y-auto p-8 xl:grid-cols-2">
           <InterfaceSettingsPanel
             appVersion={appVersion}
             language={settings.language}
@@ -230,7 +230,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div className="flex justify-end border-t border-slate-800 bg-slate-900/30 px-8 py-5">
           <Button variant="primary" size="md" onClick={onClose} className="min-w-36 font-black tracking-widest">
-            瀹屾垚
+            完成
           </Button>
         </div>
       </div>

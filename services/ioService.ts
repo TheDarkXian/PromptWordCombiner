@@ -21,7 +21,7 @@
 
 import { load } from "@tauri-apps/plugin-store";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+import { writeTextFile, readFile, readTextFile } from "@tauri-apps/plugin-fs";
 
 const IS_TAURI = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
 
@@ -89,7 +89,16 @@ export const ioService = {
         // 弹出保存对话框
         const path = await save({
           defaultPath: filename,
-          filters: [{ name: 'Document', extensions: mimeType.includes('json') ? ['json'] : ['txt'] }]
+          filters: [
+            {
+              name: 'Document',
+              extensions: mimeType.includes('json')
+                ? ['json']
+                : mimeType.includes('csv')
+                  ? ['csv']
+                  : ['txt'],
+            },
+          ]
         });
         // 如果用户选择了路径，则写入文件
         if (path) {
@@ -125,6 +134,11 @@ export const ioService = {
       reader.onerror = (e) => reject(e);
       reader.readAsText(file);
     });
+  },
+
+  async readFileAsBytes(file: File): Promise<Uint8Array> {
+    const buffer = await file.arrayBuffer();
+    return new Uint8Array(buffer);
   },
 
   /**
@@ -169,5 +183,56 @@ export const ioService = {
         document.body.removeChild(input);
       });
     }
+  },
+
+  async selectAndReadImportFile(): Promise<{ bytes?: Uint8Array; text?: string; name?: string } | null> {
+    if (IS_TAURI) {
+      try {
+        const path = await open({
+          multiple: false,
+          filters: [{ name: 'JSON Data', extensions: ['json'] }]
+        });
+        if (path && typeof path === 'string') {
+          try {
+            const bytes = await readFile(path);
+            return { bytes, name: path.split(/[\\/]/).pop() || path };
+          } catch {
+            const text = await readTextFile(path);
+            return { text, name: path.split(/[\\/]/).pop() || path };
+          }
+        }
+        return null;
+      } catch (e) {
+        console.error('Tauri Select Import File Error:', e);
+        return null;
+      }
+    }
+
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+
+      input.onchange = async (e: Event) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) {
+          resolve(null);
+          return;
+        }
+
+        try {
+          const bytes = await this.readFileAsBytes(file);
+          resolve({ bytes, name: file.name });
+        } catch (error) {
+          console.error('Browser Select Import File Error:', error);
+          resolve(null);
+        }
+      };
+
+      input.style.display = 'none';
+      document.body.appendChild(input);
+      input.click();
+      document.body.removeChild(input);
+    });
   }
 };

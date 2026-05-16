@@ -30,11 +30,11 @@ export const ProviderSettingsPanel: React.FC<ProviderSettingsPanelProps> = ({
   <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
     <div className="flex items-center justify-between">
       <div>
-        <h4 className="text-sm font-bold text-slate-200">Providers</h4>
-        <p className="mt-1 text-xs text-slate-500">Configure API keys, base URLs, and enable state for each provider.</p>
+        <h4 className="text-sm font-bold text-slate-200">提供商</h4>
+        <p className="mt-1 text-xs text-slate-500">为每个提供商配置 API Key、Base URL 和启用状态。</p>
       </div>
       <Button size="sm" onClick={onAddProvider}>
-        Add provider
+        新增提供商
       </Button>
     </div>
     <div className="space-y-4">
@@ -45,19 +45,21 @@ export const ProviderSettingsPanel: React.FC<ProviderSettingsPanelProps> = ({
               value={provider.label}
               onChange={(event) => onUpdateProvider(provider.id, { label: event.target.value })}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-              placeholder="Provider name"
+              placeholder="提供商名称"
             />
             <Button variant="ghost" size="sm" onClick={() => onDeleteProvider(provider.id)}>
-              鍒犻櫎
+              删除
             </Button>
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="space-y-2">
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">绫诲瀷</span>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">类型</span>
               <select
                 value={provider.providerType}
-                onChange={(event) => onUpdateProvider(provider.id, { providerType: event.target.value as ProviderType })}
+                onChange={(event) =>
+                  onUpdateProvider(provider.id, { providerType: event.target.value as ProviderType })
+                }
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
               >
                 {providerTypeOptions.map((option) => (
@@ -69,7 +71,7 @@ export const ProviderSettingsPanel: React.FC<ProviderSettingsPanelProps> = ({
             </label>
 
             <label className="space-y-2">
-              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">Enabled</span>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">启用状态</span>
               <button
                 onClick={() => onUpdateProvider(provider.id, { enabled: !provider.enabled })}
                 className={`w-full rounded-lg border px-3 py-2 text-sm font-bold transition-colors ${
@@ -78,7 +80,7 @@ export const ProviderSettingsPanel: React.FC<ProviderSettingsPanelProps> = ({
                     : 'border-slate-700 bg-slate-950 text-slate-400'
                 }`}
               >
-                {provider.enabled ? 'Enabled' : 'Disabled'}
+                {provider.enabled ? '已启用' : '已禁用'}
               </button>
             </label>
           </div>
@@ -100,7 +102,7 @@ export const ProviderSettingsPanel: React.FC<ProviderSettingsPanelProps> = ({
                 onClick={() => onTestConnectivity(provider)}
                 disabled={providerTests[provider.id]?.status === 'testing'}
               >
-                {providerTests[provider.id]?.status === 'testing' ? 'Testing...' : 'Test'}
+                {providerTests[provider.id]?.status === 'testing' ? '测试中...' : '测试连接'}
               </Button>
             </div>
             {providerTests[provider.id] &&
@@ -109,8 +111,8 @@ export const ProviderSettingsPanel: React.FC<ProviderSettingsPanelProps> = ({
                 <div
                   className={`mt-1 rounded-lg px-3 py-1.5 text-[11px] font-medium ${
                     providerTests[provider.id]?.status === 'success'
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                      : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                      : 'border border-red-500/20 bg-red-500/10 text-red-400'
                   }`}
                 >
                   {providerTests[provider.id]?.message}

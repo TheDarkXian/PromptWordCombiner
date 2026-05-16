@@ -1,4 +1,4 @@
-import { UiLanguage } from '../types';
+﻿import { UiLanguage } from '../types';
 
 type TranslationKey =
   | 'project.untitled'
@@ -121,6 +121,17 @@ type TranslationKey =
   | 'step.autoSkipped'
   | 'step.autoStopped'
   | 'step.autoStateInfo'
+  | 'step.structuredParsing'
+  | 'step.structuredAwaitingConfirm'
+  | 'step.structuredUpdated'
+  | 'step.structuredSkipped'
+  | 'step.structuredFailed'
+  | 'step.structuredOverwriteTitle'
+  | 'step.structuredOverwriteTitleAutomation'
+  | 'step.structuredOverwriteMessage'
+  | 'step.structuredOverwriteMessageAutomation'
+  | 'step.structuredSkipParse'
+  | 'step.structuredOverwriteAndParse'
   | 'toast.copied'
   | 'toast.restored'
   | 'toast.generated'
@@ -315,7 +326,13 @@ type TranslationKey =
   | 'templateEditor.presetSaveHintBound'
   | 'templateEditor.presetSaveHintKeep'
   | 'templateEditor.presetSaveHintNoModel'
-  | 'templateEditor.savePreset';
+  | 'templateEditor.savePreset'
+  | 'templateEditor.viewList'
+  | 'templateEditor.viewBlueprint'
+  | 'templateEditor.blueprintAutoLayout'
+  | 'templateEditor.blueprintConnect'
+  | 'templateEditor.blueprintZoom'
+  | 'templateEditor.blueprintConnectFailed';
 
 type TranslationValue = string | ((params: Record<string, string | number>) => string);
 
@@ -605,6 +622,12 @@ const messages: Record<UiLanguage, Partial<Record<TranslationKey, TranslationVal
     'templateEditor.presetSaveHintKeep': '默认保留当前步骤模型，只覆盖 temperature、max tokens 和 system prompt。',
     'templateEditor.presetSaveHintNoModel': '当前步骤没有模型引用，保存时将默认保留当前模型策略。',
     'templateEditor.savePreset': '保存模板',
+    'templateEditor.viewList': '列表',
+    'templateEditor.viewBlueprint': '蓝图',
+    'templateEditor.blueprintAutoLayout': '自动布局',
+    'templateEditor.blueprintConnect': '连线',
+    'templateEditor.blueprintZoom': ({ value }) => `缩放 ${value}%`,
+    'templateEditor.blueprintConnectFailed': ({ reason }) => `连线失败：${reason}`,
   },
   'en-US': {
     'project.untitled': 'Untitled project',
@@ -891,6 +914,12 @@ const messages: Record<UiLanguage, Partial<Record<TranslationKey, TranslationVal
     'templateEditor.presetSaveHintKeep': 'The current step model stays unchanged; only temperature, max tokens, and system prompt are applied.',
     'templateEditor.presetSaveHintNoModel': 'This step has no model ref, so the preset will default to keep current model.',
     'templateEditor.savePreset': 'Save preset',
+    'templateEditor.viewList': 'List',
+    'templateEditor.viewBlueprint': 'Blueprint',
+    'templateEditor.blueprintAutoLayout': 'Auto layout',
+    'templateEditor.blueprintConnect': 'Connect',
+    'templateEditor.blueprintZoom': ({ value }) => `Zoom ${value}%`,
+    'templateEditor.blueprintConnectFailed': ({ reason }) => `Connection failed: ${reason}`,
   },
 };
 
@@ -935,6 +964,17 @@ Object.assign(messages['zh-CN'], {
   'step.autoSkipped': '已跳过',
   'step.autoStopped': '已停止',
   'step.autoStateInfo': ({ state }) => `自动化状态: ${state}`,
+  'step.structuredParsing': '结构化解析中',
+  'step.structuredAwaitingConfirm': '等待覆盖确认',
+  'step.structuredUpdated': '已更新结构化结果',
+  'step.structuredSkipped': '已跳过结构化解析',
+  'step.structuredFailed': '结构化解析失败',
+  'step.structuredOverwriteTitle': '覆盖结构化结果',
+  'step.structuredOverwriteTitleAutomation': '自动流程检测到已有结果',
+  'step.structuredOverwriteMessage': '检测到该步骤已有结构化结果，是否覆盖并重新解析？',
+  'step.structuredOverwriteMessageAutomation': '自动执行时检测到该步骤已有结构化结果，是否覆盖并继续解析？',
+  'step.structuredSkipParse': '跳过解析',
+  'step.structuredOverwriteAndParse': '覆盖并解析',
 });
 
 Object.assign(messages['en-US'], {
@@ -970,6 +1010,18 @@ Object.assign(messages['en-US'], {
   'step.autoSkipped': 'Skipped',
   'step.autoStopped': 'Stopped',
   'step.autoStateInfo': ({ state }) => `Automation: ${state}`,
+  'step.structuredParsing': 'Parsing structured output',
+  'step.structuredAwaitingConfirm': 'Waiting for overwrite confirmation',
+  'step.structuredUpdated': 'Structured output updated',
+  'step.structuredSkipped': 'Structured parsing skipped',
+  'step.structuredFailed': 'Structured parsing failed',
+  'step.structuredOverwriteTitle': 'Overwrite structured output',
+  'step.structuredOverwriteTitleAutomation': 'Existing result detected in automation',
+  'step.structuredOverwriteMessage': 'Structured output already exists for this step. Overwrite and parse again?',
+  'step.structuredOverwriteMessageAutomation':
+    'Automation detected existing structured output for this step. Overwrite and continue parsing?',
+  'step.structuredSkipParse': 'Skip parse',
+  'step.structuredOverwriteAndParse': 'Overwrite and parse',
 });
 
 export const t = (

@@ -1,5 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ExecuteProjectStepOptions,
+  ExecuteProjectStepResult,
   ModelCatalogItem,
   ProducerAutomationStepState,
   ProducerRunScope,
@@ -7,20 +9,27 @@ import {
   Project,
   ProviderConfig,
   StepFlowStatus,
+  StructuredOverwriteConfirmRequest,
+  StructuredParseLifecycleState,
   StepRunState,
   Template,
   UiLanguage,
 } from '../types';
 import { t } from '../services/i18n';
 import { FloatingToast, useToast } from './FloatingToast';
-import { ProjectPreviewPanel } from './project-runner/ProjectPreviewPanel';
 import { ProducerRunPreflightModal } from './project-runner/ProducerRunPreflightModal';
 import {
   ProducerRunProgressModal,
   ProducerRunProgressState,
 } from './project-runner/ProducerRunProgressModal';
 import { ProjectStepCard } from './project-runner/ProjectStepCard';
+import { buildBatchResultExport, BatchResultExportFilter, BatchResultExportFormat } from '../services/batchResultExportService';
 import { buildProducerPreflight, ProducerPreflight } from '../services/stepGraphService';
+import { StructuredOverwriteConfirmModal } from './project-runner/StructuredOverwriteConfirmModal';
+import { ioService } from '../services/ioService';
+import { TemplateBlueprintCanvas } from './template-editor/TemplateBlueprintCanvas';
+import { mergeBlueprintLayout, updateBlueprintNodePosition } from '../services/templateBlueprintService';
+import { SplitPane } from './common/SplitPane';
 
 interface ProjectRunnerProps {
   project: Project;
@@ -30,15 +39,24 @@ interface ProjectRunnerProps {
   providerConfigs: ProviderConfig[];
   onUpdateProject: (projectId: string, updates: Partial<Project>) => void;
   onUpdateTemplate: (templateId: string, updates: Partial<Template>) => void;
-  onRunStep: (stepId: string) => Promise<string>;
+  onRunStep: (
+    stepId: string,
+    options?: ExecuteProjectStepOptions
+  ) => Promise<ExecuteProjectStepResult>;
   onClearStepRunLogs: (stepId: string) => void;
   onClearProjectRunLogs: () => void;
   onRequestConfirm: (title: string, message: string, onConfirm: () => void) => void;
   fontSizeClass?: string;
-  rightPanelWidth: number;
-  onRightPanelWidthChange: (width: number) => void;
-  isRightPanelOpen: boolean;
-  onRightPanelOpenChange: (isOpen: boolean) => void;
+  structuredOutputResultView: 'raw' | 'structured';
+  onStructuredOutputResultViewChange: (view: 'raw' | 'structured') => void;
+  selectedStepIds: string[];
+  onSelectedStepIdsChange: (stepIds: string[]) => void;
+  blueprintViewport: { x: number; y: number; zoom: number };
+  onBlueprintViewportChange: (viewport: { x: number; y: number; zoom: number }) => void;
+  viewMode: ViewMode;
+  onViewModeChange: (viewMode: ViewMode) => void;
+  blueprintInspectorWidth: number;
+  onBlueprintInspectorWidthChange: (width: number) => void;
 }
 
 type ViewMode = 'compact' | 'detail';
@@ -69,16 +87,20 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   onClearProjectRunLogs,
   onRequestConfirm,
   fontSizeClass = 'text-sm',
-  rightPanelWidth,
-  onRightPanelWidthChange,
-  isRightPanelOpen,
-  onRightPanelOpenChange,
+  structuredOutputResultView,
+  onStructuredOutputResultViewChange,
+  selectedStepIds,
+  onSelectedStepIdsChange,
+  blueprintViewport,
+  onBlueprintViewportChange,
+  viewMode,
+  onViewModeChange,
+  blueprintInspectorWidth,
+  onBlueprintInspectorWidthChange,
 }) => {
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [expandedResults, setExpandedResults] = useState<Record<string, boolean>>({});
-  const [viewMode, setViewMode] = useState<ViewMode>('compact');
-  const [isResizingRight, setIsResizingRight] = useState(false);
   const [runStates, setRunStates] = useState<Record<string, StepRunState>>({});
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [producerPreflight, setProducerPreflight] = useState<ProducerPreflight | null>(null);
@@ -87,10 +109,18 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   const [producerStepStates, setProducerStepStates] = useState<
     Record<string, { state: ProducerAutomationStepState; reason?: string }>
   >({});
+  const [structuredParseStates, setStructuredParseStates] = useState<
+    Record<string, { state: StructuredParseLifecycleState; message?: string }>
+  >({});
+  const [structuredOverwriteRequest, setStructuredOverwriteRequest] =
+    useState<StructuredOverwriteConfirmRequest | null>(null);
   const [producerRunProgress, setProducerRunProgress] = useState<ProducerRunProgressState>(
     createInitialProducerRunProgress()
   );
   const stopProducerRunRef = useRef(false);
+  const structuredOverwriteResolverRef = useRef<
+    ((decision: 'overwrite' | 'skip') => void) | null
+  >(null);
   const { toasts, showToast, removeToast } = useToast();
 
   const projectLogCount = useMemo(
@@ -102,6 +132,32 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     [project.stepRunLogs]
   );
 
+  const runnerTemplateForBlueprint = useMemo(
+    () => ({
+      ...template,
+      blueprint: {
+        ...(mergeBlueprintLayout(template)),
+        viewport: blueprintViewport,
+      },
+    }),
+    [template, blueprintViewport]
+  );
+  const moveBlueprintNodes = (stepIds: string[], dx: number, dy: number) => {
+    if (stepIds.length === 0) return;
+    let nextTemplate: Template = {
+      ...template,
+      blueprint: mergeBlueprintLayout(template),
+    };
+    stepIds.forEach((stepId) => {
+      const current = nextTemplate.blueprint?.nodes[stepId];
+      if (!current) return;
+      nextTemplate = updateBlueprintNodePosition(nextTemplate, stepId, {
+        x: current.x + dx,
+        y: current.y + dy,
+      });
+    });
+    onUpdateTemplate(template.id, { blueprint: nextTemplate.blueprint });
+  };
   const getVariableByKey = (key: string) =>
     (project.variables || []).find((variable) => variable.key === key);
 
@@ -209,40 +265,13 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     return result;
   };
 
-  useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!isResizingRight) return;
-      const newWidth = window.innerWidth - event.clientX;
-      if (newWidth > 250 && newWidth < 1000) {
-        onRightPanelWidthChange(newWidth);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsResizingRight(false);
-      document.body.style.cursor = 'default';
-    };
-
-    if (isResizingRight) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-    }
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizingRight, onRightPanelWidthChange]);
-
-  const handleDoubleClickCopy = (content: string, event: React.MouseEvent) => {
-    navigator.clipboard.writeText(content);
-    showToast(
-      t(language, 'toast.copied', { label: '' }).trim(),
-      event.clientX,
-      event.clientY
-    );
-  };
+  useEffect(
+    () => () => {
+      structuredOverwriteResolverRef.current?.('skip');
+      structuredOverwriteResolverRef.current = null;
+    },
+    []
+  );
 
   const handleQuickCopy = async (content: string, label: string) => {
     if (!content.trim()) return;
@@ -271,6 +300,20 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     showToast(t(language, 'toast.restored'), Math.max(120, window.innerWidth / 2), 72);
   };
 
+  const requestStructuredOverwriteConfirm = (
+    request: StructuredOverwriteConfirmRequest
+  ) =>
+    new Promise<'overwrite' | 'skip'>((resolve) => {
+      structuredOverwriteResolverRef.current = resolve;
+      setStructuredOverwriteRequest(request);
+    });
+
+  const resolveStructuredOverwriteConfirm = (decision: 'overwrite' | 'skip') => {
+    structuredOverwriteResolverRef.current?.(decision);
+    structuredOverwriteResolverRef.current = null;
+    setStructuredOverwriteRequest(null);
+  };
+
   const scrollToStep = (stepId: string) => {
     const element = document.getElementById(stepId);
     if (element) {
@@ -280,17 +323,51 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
 
   const executeStepWithUi = async (
     stepId: string,
-    options: { showSuccessToast?: boolean } = {}
+    options: {
+      showSuccessToast?: boolean;
+      structuredParseMode?: ExecuteProjectStepOptions['structuredParseMode'];
+      isProducerRun?: boolean;
+    } = {}
   ) => {
     setRunStates((prev) => ({ ...prev, [stepId]: 'running' }));
     setRunErrors((prev) => ({ ...prev, [stepId]: '' }));
+    setStructuredParseStates((prev) => ({
+      ...prev,
+      [stepId]: { state: 'idle' },
+    }));
     try {
-      await onRunStep(stepId);
+      const result = await onRunStep(stepId, {
+        structuredParseMode: options.structuredParseMode,
+        confirmStructuredOverwrite: requestStructuredOverwriteConfirm,
+        onStructuredParseStateChange: (state, message) => {
+          setStructuredParseStates((prev) => ({
+            ...prev,
+            [stepId]: { state, message },
+          }));
+
+          if (options.isProducerRun) {
+            if (state === 'awaiting_confirm') {
+              setProducerStepStates((prev) => ({
+                ...prev,
+                [stepId]: {
+                  state: 'waiting_structured_overwrite_confirm',
+                  reason: message,
+                },
+              }));
+            } else if (state === 'running') {
+              setProducerStepStates((prev) => ({
+                ...prev,
+                [stepId]: { state: 'running', reason: message },
+              }));
+            }
+          }
+        },
+      });
       setRunStates((prev) => ({ ...prev, [stepId]: 'success' }));
       if (options.showSuccessToast !== false) {
         showToast(t(language, 'toast.generated'), Math.max(120, window.innerWidth / 2), 72);
       }
-      return { ok: true as const };
+      return { ok: true as const, result };
     } catch (error) {
       const message =
         error instanceof Error ? error.message : t(language, 'step.failed');
@@ -301,7 +378,10 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   };
 
   const runStep = async (stepId: string) => {
-    await executeStepWithUi(stepId, { showSuccessToast: true });
+    await executeStepWithUi(stepId, {
+      showSuccessToast: true,
+      structuredParseMode: 'single',
+    });
   };
 
   const openProducerPreflight = () => {
@@ -326,6 +406,20 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     setProducerRunProgress(createInitialProducerRunProgress());
   };
 
+  const exportProducerRunResults = async (
+    format: BatchResultExportFormat,
+    filter: BatchResultExportFilter
+  ) => {
+    const exported = buildBatchResultExport({
+      project,
+      template,
+      results: producerRunProgress.results,
+      format,
+      filter,
+    });
+    await ioService.exportFile(exported.filename, exported.content, exported.mimeType);
+  };
+
   useEffect(() => {
     if (!producerPreflight) return;
     const nextPreflight = buildProducerPreflight({
@@ -345,143 +439,6 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     setSelectedOverwriteStepIds((prev) =>
       prev.includes(stepId) ? prev.filter((id) => id !== stepId) : [...prev, stepId]
     );
-  };
-
-  const startProducerRunLegacy = async () => {
-    if (!producerPreflight) return;
-
-    const selectedOverwriteIds = new Set(selectedOverwriteStepIds);
-    const selectedStepIds = new Set([
-      ...producerPreflight.readyStepIds,
-      ...selectedOverwriteStepIds,
-    ]);
-    const queuedStepIds = producerPreflight.orderedStepIds.filter((stepId) =>
-      selectedStepIds.has(stepId)
-    );
-
-    const itemByStepId = new Map<string, ProducerPreflight['items'][number]>(
-      producerPreflight.items.map((item) => [item.stepId, item] as const)
-    );
-    const initialResults: ProducerRunResultItem[] = producerPreflight.existingResultStepIds
-      .filter((stepId) => !selectedOverwriteIds.has(stepId))
-      .map((stepId) => {
-        const item = itemByStepId.get(stepId);
-        return {
-          stepId,
-          stepName: item?.stepName || stepId,
-          outputVariableKey: item?.outputVariableKey || '',
-          status: 'skipped',
-          message:
-            language === 'zh-CN'
-              ? '已有结果，启动前选择了跳过覆盖。'
-              : 'Existing result was kept and skipped before the run started.',
-        } satisfies ProducerRunResultItem;
-      });
-
-    stopProducerRunRef.current = false;
-    closeProducerPreflight();
-    setProducerRunProgress({
-      isOpen: true,
-      isRunning: true,
-      total: queuedStepIds.length,
-      processed: 0,
-      currentStepName: '',
-      successCount: 0,
-      errorCount: 0,
-      skippedCount: initialResults.length,
-      results: initialResults,
-      stopRequested: false,
-    });
-
-    let processed = 0;
-    let successCount = 0;
-    let errorCount = 0;
-    let skippedCount = initialResults.length;
-    const results = [...initialResults];
-
-    for (let index = 0; index < queuedStepIds.length; index += 1) {
-      const stepId = queuedStepIds[index];
-      const item = itemByStepId.get(stepId);
-      const stepName = item?.stepName || stepId;
-      const outputVariableKey = item?.outputVariableKey || '';
-
-      setProducerRunProgress((prev) => ({
-        ...prev,
-        currentStepName: stepName,
-        processed,
-        successCount,
-        errorCount,
-        skippedCount,
-        results: [...results],
-      }));
-
-      const outcome = await executeStepWithUi(stepId, { showSuccessToast: false });
-      processed += 1;
-
-      if (outcome.ok) {
-        successCount += 1;
-        results.push({
-          stepId,
-          stepName,
-          outputVariableKey,
-          status: 'success',
-          message:
-            language === 'zh-CN'
-              ? `已更新 {{${outputVariableKey}}}`
-              : `Updated {{${outputVariableKey}}}`,
-        });
-      } else {
-        errorCount += 1;
-        results.push({
-          stepId,
-          stepName,
-          outputVariableKey,
-          status: 'error',
-          message: outcome.message,
-        });
-      }
-
-      setProducerRunProgress((prev) => ({
-        ...prev,
-        processed,
-        successCount,
-        errorCount,
-        skippedCount,
-        results: [...results],
-      }));
-
-      if (stopProducerRunRef.current) {
-        const remainingStepIds = queuedStepIds.slice(index + 1);
-        remainingStepIds.forEach((remainingStepId) => {
-          const remainingItem = itemByStepId.get(remainingStepId);
-          results.push({
-            stepId: remainingStepId,
-            stepName: remainingItem?.stepName || remainingStepId,
-            outputVariableKey: remainingItem?.outputVariableKey || '',
-            status: 'stopped',
-            message:
-              language === 'zh-CN'
-                ? '执行已停止，后续节点未继续运行。'
-              : 'Execution was stopped before this node could run.',
-          });
-        });
-        skippedCount += remainingStepIds.length;
-        break;
-      }
-    }
-
-    setProducerRunProgress({
-      isOpen: true,
-      isRunning: false,
-      total: queuedStepIds.length,
-      processed,
-      currentStepName: '',
-      successCount,
-      errorCount,
-      skippedCount,
-      results,
-      stopRequested: false,
-    });
   };
 
   const startProducerRun = async () => {
@@ -587,25 +544,60 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
         [stepId]: { state: 'running' },
       }));
 
-      const outcome = await executeStepWithUi(stepId, { showSuccessToast: false });
+      const outcome = await executeStepWithUi(stepId, {
+        showSuccessToast: false,
+        structuredParseMode: 'automation',
+        isProducerRun: true,
+      });
       processed += 1;
 
       if (outcome.ok) {
-        successCount += 1;
-        results.push({
-          stepId,
-          stepName,
-          outputVariableKey,
-          status: 'success',
-          message:
-            language === 'zh-CN'
-              ? `已更新 {{${outputVariableKey}}}`
-              : `Updated {{${outputVariableKey}}}`,
-        });
-        setProducerStepStates((prev) => ({
-          ...prev,
-          [stepId]: { state: 'success' },
-        }));
+        const structuredParse = outcome.result.structuredParse;
+        const baseMessage =
+          language === 'zh-CN'
+            ? `已更新 {{${outputVariableKey}}}`
+            : `Updated {{${outputVariableKey}}}`;
+
+        if (structuredParse.status === 'error') {
+          errorCount += 1;
+          results.push({
+            stepId,
+            stepName,
+            outputVariableKey,
+            status: 'error',
+            message: `${baseMessage}. ${structuredParse.message}`,
+            structuredParseStatus: structuredParse.status,
+            structuredParseMessage: structuredParse.message,
+          });
+          setProducerStepStates((prev) => ({
+            ...prev,
+            [stepId]: { state: 'error', reason: structuredParse.message },
+          }));
+        } else {
+          successCount += 1;
+          results.push({
+            stepId,
+            stepName,
+            outputVariableKey,
+            status: 'success',
+            message:
+              structuredParse.status === 'not_applicable'
+                ? baseMessage
+                : `${baseMessage}. ${structuredParse.message}`,
+            structuredParseStatus: structuredParse.status,
+            structuredParseMessage: structuredParse.message,
+          });
+          setProducerStepStates((prev) => ({
+            ...prev,
+            [stepId]: {
+              state: 'success',
+              reason:
+                structuredParse.status === 'not_applicable'
+                  ? undefined
+                  : structuredParse.message,
+            },
+          }));
+        }
       } else {
         errorCount += 1;
         results.push({
@@ -670,10 +662,10 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   };
 
   return (
-    <div className={`flex h-full w-full ${fontSizeClass}`}>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto p-4 pb-32 md:p-6 no-scrollbar">
-          <div className="mb-6 animate-in slide-in-from-top-2 px-1 duration-500 fade-in">
+    <div className={`flex min-h-0 w-full flex-1 ${fontSizeClass}`}>
+      <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-900 p-4 pb-4 md:p-6">
+          <div className="mb-6 shrink-0 animate-in slide-in-from-top-2 px-1 duration-500 fade-in">
             <div className="group/title flex items-center gap-3">
               <div className="rounded-xl bg-blue-600/10 p-2 text-blue-500 transition-all duration-300 group-hover/title:bg-blue-600 group-hover/title:text-white">
                 <svg
@@ -711,7 +703,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
               <div className="h-1 w-1 rounded-full bg-slate-800" />
               <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1">
                 <button
-                  onClick={() => setViewMode('compact')}
+                  onClick={() => onViewModeChange('compact')}
                   className={`rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                     viewMode === 'compact'
                       ? 'bg-slate-800 text-white'
@@ -721,7 +713,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                   {t(language, 'project.compact')}
                 </button>
                 <button
-                  onClick={() => setViewMode('detail')}
+                  onClick={() => onViewModeChange('detail')}
                   className={`rounded px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors ${
                     viewMode === 'detail'
                       ? 'bg-slate-800 text-white'
@@ -757,86 +749,106 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                   </button>
                 </>
               )}
+
             </div>
           </div>
 
-          <div className="w-full space-y-5">
-            {template.steps.map((step, index) => (
-              <ProjectStepCard
-                key={step.id}
-                index={index}
-                language={language}
-                project={project}
-                template={template}
-                step={step}
-                modelCatalog={modelCatalog}
-                providerConfigs={providerConfigs}
-                viewMode={viewMode}
-                isCollapsed={Boolean(collapsedSteps[step.id])}
-                isLogsExpanded={Boolean(expandedLogs[step.id])}
-                isResultExpanded={Boolean(expandedResults[step.id])}
-                runState={runStates[step.id] || 'idle'}
-                runError={runErrors[step.id]}
-                producerState={producerStepStates[step.id]?.state || 'idle'}
-                producerStateReason={producerStepStates[step.id]?.reason}
-                onToggleCollapse={() =>
-                  setCollapsedSteps((prev) => ({
-                    ...prev,
-                    [step.id]: !prev[step.id],
-                  }))
-                }
-                onToggleLogs={() =>
-                  setExpandedLogs((prev) => ({
-                    ...prev,
-                    [step.id]: !prev[step.id],
-                  }))
-                }
-                onToggleResults={() =>
-                  setExpandedResults((prev) => ({
-                    ...prev,
-                    [step.id]: !prev[step.id],
-                  }))
-                }
-                onRunStep={runStep}
-                onUpdateProject={onUpdateProject}
-                onUpdateTemplate={onUpdateTemplate}
-                onClearStepRunLogs={onClearStepRunLogs}
-                onRequestConfirm={onRequestConfirm}
-                onQuickCopy={handleQuickCopy}
-                onCopyLogText={handleCopyLogText}
-                onRestoreLogOutput={restoreLogOutput}
-                interpolate={interpolate}
-                getVariableByKey={getVariableByKey}
-                getStepStatus={getStepStatus}
-                getStatusMeta={getStatusMeta}
-                getRunStateMeta={getRunStateMeta}
-                scrollToStep={scrollToStep}
-              />
-            ))}
+          <div className="flex min-h-0 w-full flex-1 flex-col space-y-5">
+            <SplitPane
+              className="min-h-0 flex-1"
+              direction="horizontal"
+              size={blueprintInspectorWidth}
+              sizeTarget="second"
+              minSize={300}
+              maxSize={640}
+              onSizeChange={onBlueprintInspectorWidthChange}
+              first={
+                <div className="h-full min-h-0 w-full">
+                  <TemplateBlueprintCanvas
+                    language={language}
+                    template={runnerTemplateForBlueprint}
+                    selectedStepIds={selectedStepIds}
+                    onSelectSteps={onSelectedStepIdsChange}
+                    onMoveNodes={moveBlueprintNodes}
+                    onConnect={() => undefined}
+                    onRemoveEdge={() => undefined}
+                    onViewportChange={(x, y, zoom) => onBlueprintViewportChange({ x, y, zoom })}
+                    onAutoLayout={() => undefined}
+                    onCreateStepRequest={() => undefined}
+                    debugState={{
+                      currentStepId: Object.keys(runStates).find((stepId) => runStates[stepId] === 'running'),
+                      successStepIds: Object.keys(runStates).filter((stepId) => runStates[stepId] === 'success'),
+                      errorStepIds: Object.keys(runStates).filter((stepId) => runStates[stepId] === 'error'),
+                      blockedStepIds: Object.keys(producerStepStates).filter(
+                        (stepId) => producerStepStates[stepId]?.state === 'blocked'
+                      ),
+                    }}
+                  />
+                </div>
+              }
+              second={
+                <div className="flex h-full w-full justify-center overflow-y-auto">
+                  <div className="w-full animate-in fade-in slide-in-from-right-1 duration-150">
+                    {(() => {
+                      const stepId = selectedStepIds[0];
+                      const stepIndex = template.steps.findIndex((item) => item.id === stepId);
+                      if (!stepId || stepIndex < 0) {
+                        return (
+                          <div className="rounded-lg border border-slate-800/90 bg-slate-900/80 p-3 text-xs text-slate-400">
+                            {language === 'zh-CN' ? '请先在蓝图中选择一个节点' : 'Select a node in blueprint first'}
+                          </div>
+                        );
+                      }
+                      const step = template.steps[stepIndex];
+                      return (
+                        <ProjectStepCard
+                          key={step.id}
+                          index={stepIndex}
+                          language={language}
+                          project={project}
+                          template={template}
+                          step={step}
+                          modelCatalog={modelCatalog}
+                          providerConfigs={providerConfigs}
+                          viewMode={viewMode}
+                          isCollapsed={Boolean(collapsedSteps[step.id])}
+                          isLogsExpanded={Boolean(expandedLogs[step.id])}
+                          isResultExpanded={Boolean(expandedResults[step.id])}
+                          runState={runStates[step.id] || 'idle'}
+                          runError={runErrors[step.id]}
+                          producerState={producerStepStates[step.id]?.state || 'idle'}
+                          producerStateReason={producerStepStates[step.id]?.reason}
+                          structuredParseState={structuredParseStates[step.id]?.state || 'idle'}
+                          structuredParseMessage={structuredParseStates[step.id]?.message}
+                          onToggleCollapse={() => setCollapsedSteps((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
+                          onToggleLogs={() => setExpandedLogs((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
+                          onToggleResults={() => setExpandedResults((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
+                          onRunStep={runStep}
+                          onUpdateProject={onUpdateProject}
+                          onUpdateTemplate={onUpdateTemplate}
+                          onClearStepRunLogs={onClearStepRunLogs}
+                          onRequestConfirm={onRequestConfirm}
+                          onQuickCopy={handleQuickCopy}
+                          onCopyLogText={handleCopyLogText}
+                          onRestoreLogOutput={restoreLogOutput}
+                          structuredOutputResultView={structuredOutputResultView}
+                          onStructuredOutputResultViewChange={onStructuredOutputResultViewChange}
+                          interpolate={interpolate}
+                          getVariableByKey={getVariableByKey}
+                          getStepStatus={getStepStatus}
+                          getStatusMeta={getStatusMeta}
+                          getRunStateMeta={getRunStateMeta}
+                          scrollToStep={scrollToStep}
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
+              }
+            />
           </div>
-        </div>
+          </div>
       </div>
-
-      {isRightPanelOpen && (
-        <div
-          className="w-1.5 flex-shrink-0 cursor-col-resize bg-slate-800 transition-colors hover:bg-blue-600"
-          onMouseDown={(event) => {
-            event.preventDefault();
-            setIsResizingRight(true);
-          }}
-        />
-      )}
-
-      <ProjectPreviewPanel
-        isOpen={isRightPanelOpen}
-        rightPanelWidth={rightPanelWidth}
-        language={language}
-        project={project}
-        template={template}
-        onRightPanelOpenChange={onRightPanelOpenChange}
-        onDoubleClickCopy={handleDoubleClickCopy}
-        interpolate={interpolate}
-      />
 
       <ProducerRunPreflightModal
         isOpen={Boolean(producerPreflight)}
@@ -864,6 +876,16 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
           setProducerRunProgress((prev) => ({ ...prev, stopRequested: true }));
         }}
         onClose={closeProducerRunProgress}
+        onExport={(format, filter) => {
+          void exportProducerRunResults(format, filter);
+        }}
+      />
+
+      <StructuredOverwriteConfirmModal
+        language={language}
+        request={structuredOverwriteRequest}
+        onConfirmOverwrite={() => resolveStructuredOverwriteConfirm('overwrite')}
+        onSkip={() => resolveStructuredOverwriteConfirm('skip')}
       />
 
       <FloatingToast toasts={toasts} onRemove={removeToast} />

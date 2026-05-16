@@ -17,7 +17,7 @@ interface UseProjectTemplateActionsOptions {
   setTemplates: Dispatch<SetStateAction<Template[]>>;
   setSettings: Dispatch<SetStateAction<AppSettings>>;
   openAlert: (title: string, message: string) => void;
-  openTab: (id: string) => void;
+  openTab: (id: string, options?: { forceNew?: boolean }) => void;
   setEditingTemplateId: Dispatch<SetStateAction<string | null>>;
 }
 
@@ -56,7 +56,9 @@ export const useProjectTemplateActions = ({
         description: input.description?.trim() || '',
         modelRefStrategy: input.modelRefStrategy,
         modelCatalogItemId:
-          input.modelRefStrategy === 'bind_specific_model_catalog_item' ? input.modelCatalogItemId || undefined : undefined,
+          input.modelRefStrategy === 'bind_specific_model_catalog_item'
+            ? input.modelCatalogItemId || undefined
+            : undefined,
         temperature: input.temperature,
         maxTokens: input.maxTokens,
         systemPrompt: input.systemPrompt || '',
@@ -124,6 +126,7 @@ export const useProjectTemplateActions = ({
         }, {}),
         customInputs: [],
         stepOutputs: {},
+        stepStructuredOutputs: {},
         stepOutputMeta: {},
         stepRunLogs: {},
         stepOverrides: {},
@@ -190,6 +193,8 @@ export const useProjectTemplateActions = ({
           name: 'Step 1',
           content: 'Write your prompt template here...',
           outputBinding: {},
+          structuredOutputFields: [],
+          structuredOutputBindings: [],
           execution: {
             modelRefId: undefined,
             systemPrompt: '',

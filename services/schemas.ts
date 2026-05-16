@@ -4,6 +4,7 @@ const variableSourceTypeSchema = z.enum([
   'template_input',
   'project_local',
   'step_output',
+  'structured_step_output',
   'derived',
   'manual',
 ]);
@@ -63,12 +64,13 @@ export const projectSchema = z.object({
   lastModifiedAt: z.number(),
   lastOpenedAt: z.number().optional(),
   inputValues: z.record(z.string(), z.string()),
-  customInputs: z.array(templateInputSchema),
-  stepOutputs: z.record(z.string(), z.string()),
-  stepOutputMeta: z.record(z.string(), stepOutputMetaSchema),
-  stepRunLogs: z.record(z.string(), z.array(stepRunLogSchema)),
-  stepOverrides: z.record(z.string(), stepOverrideSchema),
-  variables: z.array(projectVariableSchema),
+  customInputs: z.array(templateInputSchema).default([]),
+  stepOutputs: z.record(z.string(), z.string()).default({}),
+  stepStructuredOutputs: z.record(z.string(), z.record(z.string(), z.string())).default({}),
+  stepOutputMeta: z.record(z.string(), stepOutputMetaSchema).default({}),
+  stepRunLogs: z.record(z.string(), z.array(stepRunLogSchema)).default({}),
+  stepOverrides: z.record(z.string(), stepOverrideSchema).default({}),
+  variables: z.array(projectVariableSchema).default([]),
   archived: z.boolean().optional(),
 });
 
@@ -107,14 +109,29 @@ export const sortKeySchema = z.enum(['lastModified', 'createdAt', 'name']);
 
 export const appSettingsSchema = z.object({
   language: uiLanguageSchema,
+  tabOpenMode: z.enum(['single', 'multi']).optional(),
   uiScale: z.number(),
   sidebarWidth: z.number(),
   isSidebarOpen: z.boolean(),
-  rightPanelWidth: z.number(),
-  isRightPanelOpen: z.boolean(),
+  templateEditorLeftWidth: z.number().optional(),
+  templateBlueprintInspectorWidth: z.number().optional(),
+  projectRunnerInspectorWidth: z.number().optional(),
   fontSize: z.enum(['text-xs', 'text-sm', 'text-base']),
   cardScale: z.number(),
   fileLibrarySortBy: sortKeySchema,
+  structuredOutputResultView: z.enum(['raw', 'structured']).optional(),
+  projectWorkspaceByTemplateId: z.record(z.object({
+    selectedStepIds: z.array(z.string()).optional(),
+    blueprintViewport: z.object({
+      x: z.number(),
+      y: z.number(),
+      zoom: z.number(),
+    }).optional(),
+    viewMode: z.enum(['compact', 'detail']).optional(),
+    sidebarTab: z.enum(['vars', 'preview', 'nav', 'build']).optional(),
+    sidebarVariableTab: z.enum(['input', 'local', 'result']).optional(),
+    inspectorWidth: z.number().optional(),
+  })).optional(),
   providerConfigs: z.array(providerConfigSchema),
   modelCatalog: z.array(modelCatalogItemSchema),
   executionPresetTemplates: z.array(executionPresetTemplateSchema).optional(),
@@ -132,6 +149,18 @@ export const stepExecutionConfigSchema = z.object({
   maxTokens: z.number().optional(),
 });
 
+export const structuredOutputFieldDefinitionSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
+
+export const structuredOutputVariableBindingSchema = z.object({
+  fieldKey: z.string(),
+  variableKey: z.string(),
+  variableLabel: z.string().optional(),
+});
+
 export const stepTypeSchema = z.enum(['text_generation', 'manual', 'external']);
 
 export const templateModelRefSchema = z.object({
@@ -146,6 +175,8 @@ export const templateStepSchema = z.object({
   description: z.string().optional(),
   content: z.string(),
   outputBinding: stepOutputBindingSchema.optional(),
+  structuredOutputFields: z.array(structuredOutputFieldDefinitionSchema).optional(),
+  structuredOutputBindings: z.array(structuredOutputVariableBindingSchema).optional(),
   execution: stepExecutionConfigSchema.optional(),
   stepType: stepTypeSchema.optional(),
   autoRunEnabled: z.boolean().optional(),
@@ -157,6 +188,40 @@ export const templateSchema = z.object({
   inputs: z.array(templateInputSchema),
   modelRefs: z.array(templateModelRefSchema).optional(),
   steps: z.array(templateStepSchema),
+  blueprint: z
+    .object({
+      version: z.union([z.literal(1), z.literal(2)]),
+      nodes: z.record(z.string(), z.object({ x: z.number(), y: z.number() })),
+      viewport: z
+        .object({
+          x: z.number(),
+          y: z.number(),
+          zoom: z.number(),
+        })
+        .optional(),
+      comments: z
+        .array(
+          z.object({
+            id: z.string(),
+            title: z.string(),
+            x: z.number(),
+            y: z.number(),
+            width: z.number(),
+            height: z.number(),
+            collapsed: z.boolean().optional(),
+          })
+        )
+        .optional(),
+      selection: z
+        .object({
+          stepIds: z.array(z.string()).optional(),
+          edgeKeys: z.array(z.string()).optional(),
+          commentIds: z.array(z.string()).optional(),
+          expandedPromptStepIds: z.array(z.string()).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   hideProjects: z.boolean().optional(),
   tags: z.array(z.string()).optional(),
   version: z.number().optional(),

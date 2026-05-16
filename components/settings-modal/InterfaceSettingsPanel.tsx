@@ -21,9 +21,9 @@ const UI_SCALE_OPTIONS = [
 ] as const;
 
 const FONT_SIZE_OPTIONS = [
-  { value: 'text-xs', label: '绱у噾' },
-  { value: 'text-sm', label: '鏍囧噯' },
-  { value: 'text-base', label: '鑸掑睍' },
+  { value: 'text-xs', label: '紧凑' },
+  { value: 'text-sm', label: '标准' },
+  { value: 'text-base', label: '宽松' },
 ] as const;
 
 export const InterfaceSettingsPanel: React.FC<InterfaceSettingsPanelProps> = ({
@@ -35,8 +35,8 @@ export const InterfaceSettingsPanel: React.FC<InterfaceSettingsPanelProps> = ({
 }) => (
   <section className="space-y-6 rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
     <div>
-      <h4 className="text-sm font-bold text-slate-200">Interface</h4>
-      <p className="mt-1 text-xs text-slate-500">These settings only affect this device and local workspace presentation.</p>
+      <h4 className="text-sm font-bold text-slate-200">界面设置</h4>
+      <p className="mt-1 text-xs text-slate-500">这些设置仅影响当前设备，不会改动备份内容。</p>
     </div>
 
     <div className="space-y-3">
@@ -49,7 +49,9 @@ export const InterfaceSettingsPanel: React.FC<InterfaceSettingsPanelProps> = ({
             key={option.value}
             onClick={() => onChange({ language: option.value })}
             className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
-              settings.language === option.value ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+              settings.language === option.value
+                ? 'bg-slate-800 text-white shadow-lg'
+                : 'text-slate-500 hover:text-slate-300'
             }`}
           >
             {t(language, option.labelKey)}
@@ -59,7 +61,33 @@ export const InterfaceSettingsPanel: React.FC<InterfaceSettingsPanelProps> = ({
     </div>
 
     <div className="space-y-3">
-      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">UI 缂╂斁</label>
+      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">标签页打开方式</label>
+      <div className="flex rounded-xl border border-slate-800 bg-slate-950 p-1.5 shadow-inner">
+        <button
+          onClick={() => onChange({ tabOpenMode: 'single' })}
+          className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+            settings.tabOpenMode === 'single'
+              ? 'bg-slate-800 text-white shadow-lg'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          单开
+        </button>
+        <button
+          onClick={() => onChange({ tabOpenMode: 'multi' })}
+          className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
+            settings.tabOpenMode === 'multi'
+              ? 'bg-slate-800 text-white shadow-lg'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          多开
+        </button>
+      </div>
+    </div>
+
+    <div className="space-y-3">
+      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">界面缩放</label>
       <div className="grid grid-cols-4 gap-2">
         {UI_SCALE_OPTIONS.map((option) => (
           <button
@@ -78,14 +106,16 @@ export const InterfaceSettingsPanel: React.FC<InterfaceSettingsPanelProps> = ({
     </div>
 
     <div className="space-y-3">
-      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">瀛楀彿瀵嗗害</label>
+      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500">字体密度</label>
       <div className="flex rounded-xl border border-slate-800 bg-slate-950 p-1.5 shadow-inner">
         {FONT_SIZE_OPTIONS.map((option) => (
           <button
             key={option.value}
             onClick={() => onChange({ fontSize: option.value as AppSettings['fontSize'] })}
             className={`flex-1 rounded-lg py-2 text-xs font-bold transition-all ${
-              settings.fontSize === option.value ? 'bg-slate-800 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+              settings.fontSize === option.value
+                ? 'bg-slate-800 text-white shadow-lg'
+                : 'text-slate-500 hover:text-slate-300'
             }`}
           >
             {option.label}
@@ -96,7 +126,7 @@ export const InterfaceSettingsPanel: React.FC<InterfaceSettingsPanelProps> = ({
 
     <div className="border-t border-slate-800 pt-4">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">褰撳墠鐗堟湰</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">应用版本</span>
         <span className="rounded border border-slate-800 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-400">
           {appVersion || 'Loading...'}
         </span>

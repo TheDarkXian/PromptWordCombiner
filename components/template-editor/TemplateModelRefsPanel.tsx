@@ -20,21 +20,21 @@ export const TemplateModelRefsPanel: React.FC<TemplateModelRefsPanelProps> = ({
   onUpdate,
   onRemove,
 }) => (
-  <section className="border-t border-slate-800 pt-6">
-    <div className="mb-4 flex items-center justify-between">
-      <h3 className="text-lg font-bold text-slate-200">
+  <section className="border-t border-slate-800 pt-4">
+    <div className="mb-2 flex items-center justify-between">
+      <h3 className="text-sm font-bold text-slate-200">
         {t(language, 'templateEditor.modelRefSection')}
       </h3>
       <Button size="sm" onClick={onAdd}>
         {t(language, 'templateEditor.add')}
       </Button>
     </div>
-    <p className="mb-4 text-xs text-slate-500">
+    <p className="mb-2 text-[11px] leading-snug text-slate-500">
       {t(language, 'templateEditor.modelRefHelp')}
     </p>
-    <div className="space-y-3">
+    <div className="space-y-2">
       {modelRefs.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-800 px-3 py-3 text-xs text-slate-500">
+        <div className="rounded border border-dashed border-slate-800 px-2 py-2 text-xs text-slate-500">
           {t(language, 'templateEditor.noModelRef')}
         </div>
       ) : (
@@ -45,7 +45,7 @@ export const TemplateModelRefsPanel: React.FC<TemplateModelRefsPanelProps> = ({
           return (
             <div
               key={modelRef.id}
-              className="relative space-y-2 rounded border border-slate-700 bg-slate-900 p-3"
+              className="relative space-y-2 rounded border border-slate-700 bg-slate-900 p-2"
             >
               <input
                 className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200"
@@ -60,7 +60,7 @@ export const TemplateModelRefsPanel: React.FC<TemplateModelRefsPanelProps> = ({
                     modelCatalogItemId: event.target.value || undefined,
                   })
                 }
-                className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-blue-500"
               >
                 <option value="">{t(language, 'templateEditor.unboundModel')}</option>
                 {modelCatalog.map((item) => (
