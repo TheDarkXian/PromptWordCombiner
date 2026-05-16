@@ -30,6 +30,8 @@ interface SidebarProps {
   onActiveTabChange: (tab: SidebarTab) => void;
   activeVariableTab: VariableTab;
   onActiveVariableTabChange: (tab: VariableTab) => void;
+  selectedStepIds: string[];
+  onFocusStep: (stepId: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -52,6 +54,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onActiveTabChange,
   activeVariableTab,
   onActiveVariableTabChange,
+  selectedStepIds,
+  onFocusStep,
 }) => {
   const [isAddingVariable, setIsAddingVariable] = useState(false);
   const [newVarName, setNewVarName] = useState('');
@@ -104,6 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const scrollToStep = (stepId?: string) => {
     const resolvedStepId = resolveStepSourceId(stepId);
     if (!resolvedStepId) return;
+    onFocusStep(resolvedStepId);
     const el = document.getElementById(resolvedStepId);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
@@ -245,7 +250,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   language={language}
                   getStatusDotClass={getStatusDotClass}
                   getStepStatus={getStepStatus}
-                  scrollToStep={scrollToStep}
+                  selectedStepIds={selectedStepIds}
+                  onFocusStep={onFocusStep}
                 />
               )}
 

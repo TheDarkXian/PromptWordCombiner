@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildBlueprintLayout, mergeBlueprintLayout, applyBlueprintEdgeChange } from '../services/templateBlueprintService';
+import {
+  applyBlueprintEdgeChange,
+  buildBlueprintLayout,
+  mergeBlueprintLayout,
+  tidyBlueprintLayout,
+} from '../services/templateBlueprintService';
 import type { Template } from '../types';
 
 const buildTemplate = (): Template => ({
@@ -73,5 +78,86 @@ describe('templateBlueprintService', () => {
     const result = applyBlueprintEdgeChange(template, { fromStepId: 'a', toStepId: 'b', mode: 'add' });
     expect(result.ok).toBe(false);
     expect(result.message).toContain('output variable');
+  });
+
+  it('tidies horizontal layouts without resetting their direction', () => {
+    const template: Template = {
+      ...buildTemplate(),
+      steps: [
+        ...buildTemplate().steps,
+        {
+          id: 'c',
+          name: 'C',
+          content: '',
+          outputBinding: { variableKey: 'var_c' },
+          stepType: 'manual',
+          autoRunEnabled: false,
+          execution: { systemPrompt: '' },
+        },
+      ],
+      blueprint: {
+        version: 2,
+        nodes: {
+          a: { x: 100, y: 120 },
+          b: { x: 450, y: 148 },
+          c: { x: 800, y: 110 },
+        },
+      },
+    };
+
+    const layout = tidyBlueprintLayout(template);
+    expect(layout.nodes.a.x).toBeLessThan(layout.nodes.b.x);
+    expect(layout.nodes.b.x).toBeLessThan(layout.nodes.c.x);
+    expect(layout.nodes.a.y).toBe(layout.nodes.b.y);
+    expect(layout.nodes.b.y).toBe(layout.nodes.c.y);
+  });
+
+  it('tidies vertical layouts without resetting their direction', () => {
+    const template: Template = {
+      ...buildTemplate(),
+      steps: [
+        ...buildTemplate().steps,
+        {
+          id: 'c',
+          name: 'C',
+          content: '',
+          outputBinding: { variableKey: 'var_c' },
+          stepType: 'manual',
+          autoRunEnabled: false,
+          execution: { systemPrompt: '' },
+        },
+      ],
+      blueprint: {
+        version: 2,
+        nodes: {
+          a: { x: 100, y: 120 },
+          b: { x: 126, y: 390 },
+          c: { x: 92, y: 660 },
+        },
+      },
+    };
+
+    const layout = tidyBlueprintLayout(template);
+    expect(layout.nodes.a.y).toBeLessThan(layout.nodes.b.y);
+    expect(layout.nodes.b.y).toBeLessThan(layout.nodes.c.y);
+    expect(layout.nodes.a.x).toBe(layout.nodes.b.x);
+    expect(layout.nodes.b.x).toBe(layout.nodes.c.x);
+  });
+
+  it('tidies only selected nodes when a selection is provided', () => {
+    const template: Template = {
+      ...buildTemplate(),
+      blueprint: {
+        version: 2,
+        nodes: {
+          a: { x: 100, y: 120 },
+          b: { x: 450, y: 148 },
+        },
+      },
+    };
+
+    const layout = tidyBlueprintLayout(template, { selectedStepIds: ['a'] });
+    expect(layout.nodes.a).toEqual({ x: 100, y: 120 });
+    expect(layout.nodes.b).toEqual({ x: 450, y: 148 });
   });
 });

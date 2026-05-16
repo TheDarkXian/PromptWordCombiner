@@ -26,6 +26,15 @@ export interface BlueprintEdgeChangeResult {
   message?: string;
 }
 
+export interface TidyBlueprintLayoutOptions {
+  selectedStepIds?: string[];
+  gridSize?: number;
+  nodeWidth?: number;
+  nodeHeight?: number;
+  gapX?: number;
+  gapY?: number;
+}
+
 const removeVariableTokens = (content: string, variableKey: string) => {
   const escaped = variableKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`\\s*\\{\\{\\s*${escaped}\\s*\\}\\}\\s*`, 'g');
@@ -116,6 +125,76 @@ export const mergeBlueprintLayout = (template: Template): TemplateBlueprint => {
     viewport: base?.viewport || auto.viewport,
     comments: base?.comments || [],
     selection: base?.selection || { stepIds: [], edgeKeys: [], commentIds: [] },
+  };
+};
+
+const roundToGrid = (value: number, gridSize: number) => Math.round(value / gridSize) * gridSize;
+
+export const tidyBlueprintLayout = (
+  template: Template,
+  options: TidyBlueprintLayoutOptions = {}
+): TemplateBlueprint => {
+  const merged = mergeBlueprintLayout(template);
+  const gridSize = options.gridSize ?? 20;
+  const nodeWidth = options.nodeWidth ?? NODE_W;
+  const nodeHeight = options.nodeHeight ?? NODE_H;
+  const gapX = options.gapX ?? H_GAP;
+  const gapY = options.gapY ?? V_GAP;
+  const validStepIds = new Set(template.steps.map((step) => step.id));
+  const requestedIds = options.selectedStepIds?.filter((stepId) => validStepIds.has(stepId)) || [];
+  const targetIds = requestedIds.length > 0 ? requestedIds : template.steps.map((step) => step.id);
+
+  if (targetIds.length <= 1) {
+    const nodes = { ...merged.nodes };
+    targetIds.forEach((stepId) => {
+      const pos = nodes[stepId];
+      if (!pos) return;
+      nodes[stepId] = { x: roundToGrid(pos.x, gridSize), y: roundToGrid(pos.y, gridSize) };
+    });
+    return {
+      ...merged,
+      nodes,
+    };
+  }
+
+  const targetPositions = targetIds.map((stepId) => merged.nodes[stepId]).filter(Boolean);
+  const minX = Math.min(...targetPositions.map((pos) => pos.x));
+  const maxX = Math.max(...targetPositions.map((pos) => pos.x));
+  const minY = Math.min(...targetPositions.map((pos) => pos.y));
+  const maxY = Math.max(...targetPositions.map((pos) => pos.y));
+  const centerX = (minX + maxX + nodeWidth) / 2;
+  const centerY = (minY + maxY + nodeHeight) / 2;
+  const horizontal = maxX - minX >= maxY - minY;
+  const sortedIds = [...targetIds].sort((a, b) => {
+    const pa = merged.nodes[a];
+    const pb = merged.nodes[b];
+    if (!pa || !pb) return 0;
+    return horizontal ? pa.x - pb.x || pa.y - pb.y : pa.y - pb.y || pa.x - pb.x;
+  });
+  const totalMain = horizontal
+    ? sortedIds.length * nodeWidth + (sortedIds.length - 1) * gapX
+    : sortedIds.length * nodeHeight + (sortedIds.length - 1) * gapY;
+  const startMain = horizontal ? centerX - totalMain / 2 : centerY - totalMain / 2;
+  const alignedCross = horizontal
+    ? roundToGrid(targetPositions.reduce((sum, pos) => sum + pos.y, 0) / targetPositions.length, gridSize)
+    : roundToGrid(targetPositions.reduce((sum, pos) => sum + pos.x, 0) / targetPositions.length, gridSize);
+
+  const nodes = { ...merged.nodes };
+  sortedIds.forEach((stepId, index) => {
+    nodes[stepId] = horizontal
+      ? {
+          x: roundToGrid(startMain + index * (nodeWidth + gapX), gridSize),
+          y: alignedCross,
+        }
+      : {
+          x: alignedCross,
+          y: roundToGrid(startMain + index * (nodeHeight + gapY), gridSize),
+        };
+  });
+
+  return {
+    ...merged,
+    nodes,
   };
 };
 

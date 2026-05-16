@@ -14,7 +14,7 @@
     "check:i18n:strict": "node scripts/check-i18n-integrity.mjs --strict",
     "check:garbled": "node scripts/check-garbled-text.mjs",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=1",
     "verify": "npm run check:garbled && npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {

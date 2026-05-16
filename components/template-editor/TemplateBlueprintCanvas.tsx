@@ -26,9 +26,14 @@ interface TemplateBlueprintCanvasProps {
   onConnect: (input: ConnectRequest) => void;
   onRemoveEdge: (fromStepId: string, toStepId: string, variableKey: string) => void;
   onViewportChange: (x: number, y: number, zoom: number) => void;
-  onAutoLayout: () => void;
+  onTidyLayout: () => void;
+  onResetLayout: () => void;
   onCreateStepRequest: () => void;
   debugState?: DebugState;
+  activeTool?: BlueprintActiveTool;
+  onActiveToolChange?: (tool: BlueprintActiveTool) => void;
+  minimapCollapsed?: boolean;
+  onMinimapCollapsedChange?: (collapsed: boolean) => void;
 }
 
 const NODE_W = 260;
@@ -40,7 +45,7 @@ const MINIMAP_COMPACT_H = 104;
 const MINIMAP_PADDING = 10;
 
 type Mode = 'idle' | 'panning' | 'dragging_nodes' | 'linking_pin' | 'marquee_select' | 'editing_comment';
-type ActiveTool = 'pan' | 'move';
+export type BlueprintActiveTool = 'pan' | 'move';
 
 const isEditableEventTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) return false;
@@ -56,15 +61,20 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
   onConnect,
   onRemoveEdge,
   onViewportChange,
-  onAutoLayout,
+  onTidyLayout,
+  onResetLayout,
   onCreateStepRequest,
   debugState,
+  activeTool: controlledActiveTool,
+  onActiveToolChange,
+  minimapCollapsed,
+  onMinimapCollapsedChange,
 }) => {
   const graph = useMemo(() => buildStepGraph(template), [template]);
   const viewport = template.blueprint?.viewport || { x: 0, y: 0, zoom: 1 };
   const nodes = useMemo(() => template.blueprint?.nodes || {}, [template.blueprint?.nodes]);
   const [mode, setMode] = useState<Mode>('idle');
-  const [activeTool, setActiveTool] = useState<ActiveTool>('move');
+  const [localActiveTool, setLocalActiveTool] = useState<BlueprintActiveTool>('move');
   const [spacePressed, setSpacePressed] = useState(false);
   const [linkingFromStepId, setLinkingFromStepId] = useState<string | null>(null);
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
@@ -72,7 +82,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
   const [mousePoint, setMousePoint] = useState<{ x: number; y: number } | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
-  const [isMinimapCollapsed, setIsMinimapCollapsed] = useState(false);
+  const [localMinimapCollapsed, setLocalMinimapCollapsed] = useState(false);
   const [isMinimapDragging, setIsMinimapDragging] = useState(false);
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragStartWorldRef = useRef<{ x: number; y: number } | null>(null);
@@ -80,6 +90,16 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
   const marqueeShiftRef = useRef(false);
   const canvasPointerStartRef = useRef<{ x: number; y: number; target: 'canvas' | 'other' } | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const activeTool = controlledActiveTool || localActiveTool;
+  const isMinimapCollapsed = minimapCollapsed ?? localMinimapCollapsed;
+  const setActiveTool = (tool: BlueprintActiveTool) => {
+    setLocalActiveTool(tool);
+    onActiveToolChange?.(tool);
+  };
+  const setIsMinimapCollapsed = (collapsed: boolean) => {
+    setLocalMinimapCollapsed(collapsed);
+    onMinimapCollapsedChange?.(collapsed);
+  };
 
   const graphBounds = useMemo(() => {
     const pts = template.steps.map((step) => nodes[step.id]).filter(Boolean) as { x: number; y: number }[];
@@ -305,8 +325,11 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
           <button onClick={onCreateStepRequest} className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200">
             + Node (Tab)
           </button>
-          <button onClick={onAutoLayout} className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200">
-            {t(language, 'templateEditor.blueprintAutoLayout')}
+          <button onClick={onTidyLayout} className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200">
+            {language === 'zh-CN' ? '整理布局' : 'Tidy'}
+          </button>
+          <button onClick={onResetLayout} className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
+            {language === 'zh-CN' ? '重置布局' : 'Reset'}
           </button>
           <button
             type="button"
@@ -672,7 +695,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                 <button
                   className="text-slate-500 hover:text-white"
                   onClick={() => setIsMinimapCollapsed(true)}
-                  title={language === 'zh-CN' ? '收起小地图' : 'Collapse minimap'}
+                  title="Collapse minimap"
                 >
                   x
                 </button>

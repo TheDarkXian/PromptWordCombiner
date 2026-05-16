@@ -15,10 +15,9 @@ export const BlueprintNodeInspector: React.FC<BlueprintNodeInspectorProps> = ({
   if (!selectedStepId) {
     return (
       <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">
-        {language === 'zh-CN' ? '请先在蓝图中选择一个节点' : 'Select a node in blueprint first'}
+        {language === 'zh-CN' ? '请选择一个节点查看详情。' : 'Select a node to inspect details.'}
       </div>
     );
   }
   return <>{children}</>;
 };
-

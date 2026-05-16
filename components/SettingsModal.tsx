@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+﻿﻿import React, { useEffect, useRef, useState } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import {
   AppSettings,

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEEPSEEK_EXECUTION_PRESETS,
   DEEPSEEK_SYSTEM_PROMPT_PRESETS,
@@ -31,10 +31,13 @@ import { TemplateBlueprintCanvas } from './template-editor/TemplateBlueprintCanv
 import { TemplateStepCard } from './template-editor/TemplateStepCard';
 import { BlueprintNodeInspector } from './template-editor/BlueprintNodeInspector';
 import { SplitPane } from './common/SplitPane';
+import { WorkbenchMenuBar, WorkbenchMenuGroup } from './workbench/WorkbenchMenuBar';
+import { BlueprintActiveTool } from './template-editor/TemplateBlueprintCanvas';
 import {
   applyBlueprintEdgeChange,
   buildBlueprintLayout,
   mergeBlueprintLayout,
+  tidyBlueprintLayout,
   updateBlueprintNodePosition,
   updateBlueprintViewport,
 } from '../services/templateBlueprintService';
@@ -152,13 +155,17 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     description: string;
     modelRefStrategy: ExecutionPresetModelRefStrategy;
   }>({
-    label: '新执行模板',
+    label: 'Default preset',
     description: '',
     modelRefStrategy: 'keep_current',
   });
   const [autocompleteState, setAutocompleteState] = useState<VariableAutocompleteState | null>(null);
   const [showBlueprintCreatePanel, setShowBlueprintCreatePanel] = useState(false);
   const [blueprintCommandHistory, setBlueprintCommandHistory] = useState(createBlueprintCommandHistory());
+  const [scenePanelVisible, setScenePanelVisible] = useState(true);
+  const [detailsPanelVisible, setDetailsPanelVisible] = useState(true);
+  const [blueprintActiveTool, setBlueprintActiveTool] = useState<BlueprintActiveTool>('move');
+  const [minimapCollapsed, setMinimapCollapsed] = useState(false);
   const promptTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   useEffect(() => {
@@ -208,7 +215,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           key,
           label: key,
           sourceType: 'template_input' as const,
-          sourceLabel: language === 'zh-CN' ? '输入变量' : 'Input',
+          sourceLabel: language === 'zh-CN' ? 'Input' : 'Input',
         })),
       ...editedTemplate.steps
         .map((step) => {
@@ -218,7 +225,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
             key,
             label: step.outputBinding?.variableLabel?.trim() || key,
             sourceType: 'step_output' as const,
-            sourceLabel: language === 'zh-CN' ? '步骤输出' : 'Step output',
+            sourceLabel: 'Step output',
           };
         })
         .filter((item): item is VariableAutocompleteItem => Boolean(item)),
@@ -231,7 +238,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               key,
               label: binding.variableLabel?.trim() || key,
               sourceType: 'step_output' as const,
-              sourceLabel: language === 'zh-CN' ? '步骤输出' : 'Step output',
+              sourceLabel: 'Step output',
             };
           })
         )
@@ -438,7 +445,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       const fields = [...(currentStep.structuredOutputFields || [])];
       fields.push({
         key: `field_${fields.length + 1}`,
-        label: language === 'zh-CN' ? `字段 ${fields.length + 1}` : `Field ${fields.length + 1}`,
+        label: language === 'zh-CN' ? `闂傚倸鍊峰ù鍥敋瑜忛埀顒佺▓閺呮繄鍒掑▎鎾崇婵＄偛鐨烽崑鎾诲礃椤旂厧鑰垮┑鐐村灱妞存悂寮?${fields.length + 1}` : `Field ${fields.length + 1}`,
         description: '',
       });
       steps[index] = { ...currentStep, structuredOutputFields: fields };
@@ -593,7 +600,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   const startSavingExecutionPreset = (step: TemplateStep) => {
     setSavingExecutionPresetStepId(step.id);
     setExecutionPresetDraft({
-      label: `${step.name || t(language, 'templateEditor.untitledStep')} ${language === 'zh-CN' ? '执行模板' : 'Preset'}`,
+      label: (step.name || t(language, 'templateEditor.untitledStep')) + ' Preset',
       description: '',
       modelRefStrategy: 'keep_current',
     });
@@ -602,7 +609,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   const cancelSavingExecutionPreset = () => {
     setSavingExecutionPresetStepId(null);
     setExecutionPresetDraft({
-      label: '新执行模板',
+      label: 'Default preset',
       description: '',
       modelRefStrategy: 'keep_current',
     });
@@ -700,6 +707,28 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     setSelectedStepIds(editedTemplate.steps.map((step) => step.id));
   };
 
+  const deleteSelectedSteps = useCallback(() => {
+    if (selectedStepIds.length === 0) return;
+    onRequestConfirm(t(language, 'templateEditor.deleteStepTitle'), t(language, 'templateEditor.deleteStepMessage'), () => {
+      setEditedTemplate((prev) => {
+        const next = {
+          ...prev,
+          steps: prev.steps.filter((step) => !selectedStepIds.includes(step.id)),
+        };
+        const after = { ...next, blueprint: mergeBlueprintLayout(next) };
+        setBlueprintCommandHistory((history) =>
+          pushBlueprintCommand(history, {
+            type: 'delete_step',
+            before: prev,
+            after,
+            createdAt: Date.now(),
+          })
+        );
+        return after;
+      });
+      setSelectedStepIds([]);
+    });
+  }, [language, onRequestConfirm, selectedStepIds]);
   const selectStepsByModelRef = () => {
     if (!selectionModelRefId) return;
     setSelectedStepIds(
@@ -905,39 +934,106 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     );
   };
 
+  const undoBlueprint = () => {
+    setBlueprintCommandHistory((history) => {
+      const undone = undoBlueprintCommand(history);
+      if (undone.template) setEditedTemplate(undone.template);
+      return undone.history;
+    });
+  };
+
+  const redoBlueprint = () => {
+    setBlueprintCommandHistory((history) => {
+      const redone = redoBlueprintCommand(history);
+      if (redone.template) setEditedTemplate(redone.template);
+      return redone.history;
+    });
+  };
+
+  const resetWorkbenchLayout = () => {
+    setScenePanelVisible(true);
+    setDetailsPanelVisible(true);
+    onLeftPanelWidthChange(320);
+    onBlueprintInspectorWidthChange(360);
+  };
+
+  const resetBlueprintLayout = () => {
+    commitBlueprintCommand('auto_layout', (prev) => ({ ...prev, blueprint: buildBlueprintLayout(prev) }));
+  };
+
+  const tidyBlueprint = () => {
+    commitBlueprintCommand('auto_layout', (prev) => ({
+      ...prev,
+      blueprint: tidyBlueprintLayout(prev, { selectedStepIds }),
+    }));
+  };
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableEventTarget(event.target)) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
-        setBlueprintCommandHistory((history) => {
-          const undone = undoBlueprintCommand(history);
-          if (undone.template) setEditedTemplate(undone.template);
-          return undone.history;
-        });
+        undoBlueprint();
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
         event.preventDefault();
-        setBlueprintCommandHistory((history) => {
-          const redone = redoBlueprintCommand(history);
-          if (redone.template) setEditedTemplate(redone.template);
-          return redone.history;
-        });
+        redoBlueprint();
       } else if (event.key === 'Tab') {
         event.preventDefault();
         setShowBlueprintCreatePanel(true);
+      } else if (event.key === 'Delete' || event.key === 'Backspace') {
+        deleteSelectedSteps();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [selectedStepIds, deleteSelectedSteps]);
 
-  const hasInspectorContent = Boolean(selectedStepIds[0]) || showBlueprintCreatePanel;
-  const effectiveBlueprintInspectorWidth = hasInspectorContent ? blueprintInspectorWidth : 220;
-  const blueprintInspectorMinWidth = hasInspectorContent ? 300 : 220;
-  const blueprintInspectorMaxWidth = hasInspectorContent ? 640 : 220;
+  const templateMenuGroups: WorkbenchMenuGroup[] = [
+    {
+      label: 'Project',
+      commands: [
+        { id: 'save-template', label: 'Save Template', shortcut: 'Ctrl+S', run: () => onSave(editedTemplate) },
+        { id: 'cancel-template', label: 'Close Editor', run: onCancel },
+      ],
+    },
+    {
+      label: 'Editor',
+      commands: [
+        { id: 'undo', label: 'Undo', shortcut: 'Ctrl+Z', enabled: blueprintCommandHistory.undoStack.length > 0, run: undoBlueprint },
+        { id: 'redo', label: 'Redo', shortcut: 'Ctrl+Y', enabled: blueprintCommandHistory.redoStack.length > 0, run: redoBlueprint },
+        { id: 'create-node', label: 'Create Node', shortcut: 'Tab', run: () => setShowBlueprintCreatePanel(true) },
+        { id: 'delete-selection', label: 'Delete Selection', shortcut: 'Del', enabled: selectedStepIds.length > 0, run: deleteSelectedSteps },
+        { id: 'select-all', label: 'Select All Nodes', shortcut: 'Ctrl+A', run: selectAllSteps },
+      ],
+    },
+    {
+      label: 'View',
+      commands: [
+        { id: 'tidy-layout', label: 'Tidy Layout', run: tidyBlueprint },
+        { id: 'reset-layout', label: 'Reset Layout', run: resetBlueprintLayout },
+        { id: 'toggle-minimap', label: 'Toggle MiniMap', run: () => setMinimapCollapsed((value) => !value) },
+      ],
+    },
+    {
+      label: 'Window',
+      commands: [
+        { id: 'toggle-scene', label: 'Toggle Scene Panel', run: () => setScenePanelVisible((value) => !value) },
+        { id: 'toggle-details', label: 'Toggle Details Panel', run: () => setDetailsPanelVisible((value) => !value) },
+        { id: 'reset-layout', label: 'Reset Layout', run: resetWorkbenchLayout },
+      ],
+    },
+    {
+      label: 'Help',
+      commands: [
+        { id: 'shortcuts', label: 'Shortcuts: Tab / Ctrl+Z / Ctrl+Y / Del', enabled: false, run: () => undefined },
+      ],
+    },
+  ];
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-900 p-3 md:p-4">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-900">
+      <WorkbenchMenuBar groups={templateMenuGroups} />
+      <div className="flex min-h-0 flex-1 flex-col p-3 md:p-4">
       <div className="mb-3 flex shrink-0 items-center gap-3 border-b border-slate-800 bg-slate-900 pb-2">
         <h2 className="shrink-0 text-base font-bold text-white">{t(language, 'templateEditor.title')}</h2>
         <input
@@ -993,12 +1089,15 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       <SplitPane
         className="min-h-0 w-full flex-1"
         direction="horizontal"
-        size={leftPanelWidth}
-        minSize={280}
-        maxSize={480}
+        size={scenePanelVisible ? leftPanelWidth : 0}
+        minSize={scenePanelVisible ? 280 : 0}
+        maxSize={scenePanelVisible ? 480 : 0}
         onSizeChange={onLeftPanelWidthChange}
         first={
           <div className="h-full min-h-0 w-full overflow-y-auto pr-2 no-scrollbar">
+            <div className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+              {language === 'zh-CN' ? '场景面板' : 'Scene Panel'}
+            </div>
             <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-950/50 p-3">
               <TemplateInputsPanel
                 language={language}
@@ -1021,7 +1120,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         second={
           <div className="flex h-full min-h-0 w-full flex-col rounded-lg border border-slate-800 bg-slate-950/50 p-2">
             <div className="mb-2 flex shrink-0 items-center justify-between">
-              <h3 className="text-base font-bold text-slate-200">{t(language, 'templateEditor.stepsSection')}</h3>
+              <h3 className="text-base font-bold text-slate-200">
+                {language === 'zh-CN' ? 'Workspace' : 'Workspace'}
+              </h3>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <div className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-400">
                   Undo {blueprintCommandHistory.undoStack.length} / Redo {blueprintCommandHistory.redoStack.length}
@@ -1083,11 +1184,11 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
             <SplitPane
               className="min-h-0 w-full flex-1"
               direction="horizontal"
-              size={effectiveBlueprintInspectorWidth}
+              size={detailsPanelVisible ? blueprintInspectorWidth : 0}
               sizeTarget="second"
-              minSize={blueprintInspectorMinWidth}
-              maxSize={blueprintInspectorMaxWidth}
-              onSizeChange={hasInspectorContent ? onBlueprintInspectorWidthChange : () => undefined}
+              minSize={detailsPanelVisible ? 320 : 0}
+              maxSize={detailsPanelVisible ? 640 : 0}
+              onSizeChange={onBlueprintInspectorWidthChange}
               first={
                 <div className="h-full min-h-0 w-full">
                   <TemplateBlueprintCanvas
@@ -1120,20 +1221,26 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                     onViewportChange={(x, y, zoom) =>
                       commitBlueprintCommand('move_nodes', (prev) => updateBlueprintViewport(prev, x, y, zoom))
                     }
-                    onAutoLayout={() =>
-                      commitBlueprintCommand('auto_layout', (prev) => ({ ...prev, blueprint: buildBlueprintLayout(prev) }))
-                    }
+                    onTidyLayout={tidyBlueprint}
+                    onResetLayout={resetBlueprintLayout}
                     onCreateStepRequest={() => setShowBlueprintCreatePanel(true)}
                     debugState={undefined}
+                    activeTool={blueprintActiveTool}
+                    onActiveToolChange={setBlueprintActiveTool}
+                    minimapCollapsed={minimapCollapsed}
+                    onMinimapCollapsedChange={setMinimapCollapsed}
                   />
                 </div>
               }
               second={
                 <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto no-scrollbar">
+                  <div className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+                    {language === 'zh-CN' ? '璇︽儏闈㈡澘' : 'Details Panel'}
+                  </div>
                   {showBlueprintCreatePanel && (
                     <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
                       <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
-                        {language === 'zh-CN' ? '创建节点' : 'Create node'}
+                        {language === 'zh-CN' ? '鍒涘缓鑺傜偣' : 'Create node'}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {(['text_generation', 'manual', 'external'] as const).map((stepType) => (
@@ -1151,14 +1258,14 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                                       name:
                                         stepType === 'text_generation'
                                           ? language === 'zh-CN'
-                                            ? '文本生成节点'
+                                            ? 'Text Node'
                                             : 'Text Node'
                                           : stepType === 'manual'
                                             ? language === 'zh-CN'
-                                              ? '手动节点'
+                                              ? 'Manual Node'
                                               : 'Manual Node'
                                             : language === 'zh-CN'
-                                              ? '外部节点'
+                                              ? 'External Node'
                                               : 'External Node',
                                       content: '',
                                       outputBinding: { variableKey: '' },
@@ -1182,14 +1289,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           onClick={() => setShowBlueprintCreatePanel(false)}
                           className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-400"
                         >
-                          {language === 'zh-CN' ? '关闭' : 'Close'}
+                          {language === 'zh-CN' ? 'Close' : 'Close'}
                         </button>
                       </div>
-                    </div>
-                  )}
-                  {!selectedStepIds[0] && !showBlueprintCreatePanel && (
-                    <div className="rounded-lg border border-slate-800/90 bg-slate-900/80 p-3 text-xs text-slate-400">
-                      {language === 'zh-CN' ? '请先在蓝图中选择一个节点' : 'Select a node in blueprint first'}
                     </div>
                   )}
                   <BlueprintNodeInspector language={language} selectedStepId={selectedStepIds[0]}>
@@ -1233,7 +1335,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                     const structuredSummary = structuredBindings
                       .filter((entry) => entry.fieldKey.trim() && entry.variableKey.trim())
                       .map((entry) => `${entry.fieldKey} -> {{${entry.variableKey}}}`)
-                      .join(' · ');
+                      .join(' 闂?');
                     const executionSummaryParts = [
                       getStepTypeLabel(language, stepType),
                       autoRunEnabled ? t(language, 'templateEditor.autoRunEnabled') : undefined,
@@ -1341,6 +1443,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           </div>
         }
       />
+      </div>
     </div>
   );
 };

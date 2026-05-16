@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+﻿﻿import React, { useEffect, useRef, useState } from 'react';
 import { DEFAULT_TEMPLATES } from './constants';
 import { ExportModal } from './components/ExportModal';
 import { FileLibrary } from './components/FileLibrary';
@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar';
 import { SidebarTab, VariableTab } from './components/Sidebar';
 import { TemplateEditor } from './components/TemplateEditor';
 import { TopNav } from './components/TopNav';
+import { WorkbenchMenuBar, WorkbenchMenuGroup } from './components/workbench/WorkbenchMenuBar';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { ioService, STORAGE_KEYS } from './services/ioService';
 import { executeModelText } from './services/modelService';
@@ -50,6 +51,10 @@ import {
   hasStructuredFieldValues,
   parseStructuredOutputResponse,
 } from './services/structuredOutputService';
+import { mergeBlueprintLayout } from './services/templateBlueprintService';
+
+const BLUEPRINT_NODE_WIDTH = 260;
+const BLUEPRINT_NODE_HEIGHT = 130;
 
 const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -620,6 +625,204 @@ const App: React.FC = () => {
     });
   };
 
+  const focusBlueprintStep = (stepId: string) => {
+    if (!activeProjectTemplate) return;
+    const layout = mergeBlueprintLayout(activeProjectTemplate);
+    const node = layout.nodes[stepId];
+    if (!node) return;
+    const currentViewport = activeTemplateWorkspace.blueprintViewport || layout.viewport || { x: 0, y: 0, zoom: 1 };
+    const zoom = currentViewport.zoom || 1;
+    const sceneWidth =
+      activeTemplateWorkspace.scenePanelVisible === false
+        ? 0
+        : activeTemplateWorkspace.scenePanelWidth || settings.sidebarWidth;
+    const detailsWidth =
+      activeTemplateWorkspace.detailsPanelVisible === false
+        ? 0
+        : activeTemplateWorkspace.detailsPanelWidth ||
+          activeTemplateWorkspace.inspectorWidth ||
+          settings.projectRunnerInspectorWidth;
+    const workspaceWidth = Math.max(480, window.innerWidth - sceneWidth - detailsWidth - 80);
+    const workspaceHeight = Math.max(360, window.innerHeight - 190);
+    updateActiveTemplateWorkspace({
+      selectedStepIds: [stepId],
+      detailsPanelVisible: true,
+      blueprintViewport: {
+        x: Math.round(workspaceWidth / 2 - (node.x + BLUEPRINT_NODE_WIDTH / 2) * zoom),
+        y: Math.round(workspaceHeight / 2 - (node.y + BLUEPRINT_NODE_HEIGHT / 2) * zoom),
+        zoom,
+      },
+    });
+  };
+
+  const activeProjectLogCount = activeProject
+    ? (Object.values(activeProject.stepRunLogs || {}) as Array<unknown[]>).reduce(
+        (total, logs) => total + (Array.isArray(logs) ? logs.length : 0),
+        0
+      )
+    : 0;
+
+  const appMenuGroups: WorkbenchMenuGroup[] =
+    activeProject && activeProjectTemplate
+      ? [
+          {
+            label: 'Project',
+            commands: [
+              {
+                id: 'clear-project-logs',
+                label: settings.language === 'zh-CN' ? '清空运行日志' : 'Clear Run Logs',
+                enabled: activeProjectLogCount > 0,
+                run: () =>
+                  openConfirm(
+                    settings.language === 'zh-CN' ? '清空运行日志' : 'Clear run logs',
+                    settings.language === 'zh-CN'
+                      ? '清空当前项目的全部运行日志？'
+                      : 'Clear all run logs for this project?',
+                    () => handleClearProjectRunLogs()
+                  ),
+              },
+              {
+                id: 'export',
+                label: settings.language === 'zh-CN' ? '导出' : 'Export',
+                run: () => setIsExportModalOpen(true),
+              },
+            ],
+          },
+          {
+            label: 'Editor',
+            commands: [
+              {
+                id: 'select-all-nodes',
+                label: settings.language === 'zh-CN' ? '全选节点' : 'Select All Nodes',
+                shortcut: 'Ctrl+A',
+                run: () =>
+                  updateActiveTemplateWorkspace({ selectedStepIds: activeProjectTemplate.steps.map((step) => step.id) }),
+              },
+              {
+                id: 'clear-selection',
+                label: settings.language === 'zh-CN' ? '取消选择' : 'Clear Selection',
+                enabled: activeWorkspaceSelectedStepIds.length > 0,
+                run: () => updateActiveTemplateWorkspace({ selectedStepIds: [] }),
+              },
+            ],
+          },
+          {
+            label: 'View',
+            commands: [
+              {
+                id: 'toggle-minimap',
+                label: settings.language === 'zh-CN' ? '切换小地图' : 'Toggle MiniMap',
+                run: () =>
+                  updateActiveTemplateWorkspace({ minimapCollapsed: !activeTemplateWorkspace.minimapCollapsed }),
+              },
+              {
+                id: 'compact-view',
+                label: settings.language === 'zh-CN' ? '紧凑模式' : 'Compact View',
+                enabled: activeTemplateWorkspace.viewMode === 'detail',
+                run: () => updateActiveTemplateWorkspace({ viewMode: 'compact' }),
+              },
+              {
+                id: 'detail-view',
+                label: settings.language === 'zh-CN' ? '详细模式' : 'Detail View',
+                enabled: activeTemplateWorkspace.viewMode !== 'detail',
+                run: () => updateActiveTemplateWorkspace({ viewMode: 'detail' }),
+              },
+            ],
+          },
+          {
+            label: 'Window',
+            commands: [
+              {
+                id: 'toggle-scene-panel',
+                label: settings.language === 'zh-CN' ? '切换场景面板' : 'Toggle Scene Panel',
+                run: () =>
+                  updateActiveTemplateWorkspace({
+                    scenePanelVisible: activeTemplateWorkspace.scenePanelVisible === false,
+                  }),
+              },
+              {
+                id: 'toggle-details-panel',
+                label: settings.language === 'zh-CN' ? '切换详情面板' : 'Toggle Details Panel',
+                run: () =>
+                  updateActiveTemplateWorkspace({
+                    detailsPanelVisible: activeTemplateWorkspace.detailsPanelVisible === false,
+                  }),
+              },
+              {
+                id: 'reset-layout',
+                label: settings.language === 'zh-CN' ? '重置布局' : 'Reset Layout',
+                run: () =>
+                  updateActiveTemplateWorkspace({
+                    scenePanelVisible: true,
+                    detailsPanelVisible: true,
+                    scenePanelWidth: settings.sidebarWidth,
+                    detailsPanelWidth: settings.projectRunnerInspectorWidth,
+                    inspectorWidth: settings.projectRunnerInspectorWidth,
+                    activeTool: 'move',
+                    minimapCollapsed: false,
+                  }),
+              },
+            ],
+          },
+          {
+            label: 'Help',
+            commands: [
+              {
+                id: 'shortcuts',
+                label:
+                  settings.language === 'zh-CN'
+                    ? '快捷键：Ctrl+A / Space / Tab'
+                    : 'Shortcuts: Ctrl+A / Space / Tab',
+                enabled: false,
+                run: () => undefined,
+              },
+            ],
+          },
+        ]
+      : [
+          {
+            label: 'Project',
+            commands: [
+              {
+                id: 'export',
+                label: settings.language === 'zh-CN' ? '导出' : 'Export',
+                run: () => setIsExportModalOpen(true),
+              },
+            ],
+          },
+          {
+            label: 'View',
+            commands: [
+              {
+                id: 'settings',
+                label: settings.language === 'zh-CN' ? '设置' : 'Settings',
+                run: () => setIsSettingsOpen(true),
+              },
+            ],
+          },
+          {
+            label: 'Window',
+            commands: [
+              {
+                id: 'toggle-sidebar',
+                label: settings.language === 'zh-CN' ? '切换侧边栏' : 'Toggle Sidebar',
+                run: () => updateSettings({ isSidebarOpen: !settings.isSidebarOpen }),
+              },
+            ],
+          },
+          {
+            label: 'Help',
+            commands: [
+              {
+                id: 'about',
+                label: settings.language === 'zh-CN' ? '提示词拼接器 Pro' : 'Prompt Splicer Pro',
+                enabled: false,
+                run: () => undefined,
+              },
+            ],
+          },
+        ];
+
   return (
     <div className={`app-root flex h-screen flex-col overflow-hidden font-sans text-slate-200 ${settings.fontSize}`}>
       {editingTemplateId && editingTemplate && (
@@ -646,9 +849,21 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {!editingTemplateId && <WorkbenchMenuBar groups={appMenuGroups} />}
+
       <TopNav
-        isSidebarOpen={settings.isSidebarOpen}
-        onToggleSidebar={() => updateSettings({ isSidebarOpen: !settings.isSidebarOpen })}
+        isSidebarOpen={
+          activeProjectTemplate
+            ? activeTemplateWorkspace.scenePanelVisible !== false
+            : settings.isSidebarOpen
+        }
+        onToggleSidebar={() =>
+          activeProjectTemplate
+            ? updateActiveTemplateWorkspace({
+                scenePanelVisible: activeTemplateWorkspace.scenePanelVisible === false,
+              })
+            : updateSettings({ isSidebarOpen: !settings.isSidebarOpen })
+        }
         onOpenSettings={() => setIsSettingsOpen(true)}
         activeTabId={activeTabId}
         openTabIds={openTabIds}
@@ -661,9 +876,15 @@ const App: React.FC = () => {
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <Sidebar
           language={settings.language}
-          isOpen={settings.isSidebarOpen}
-          width={settings.sidebarWidth}
-          onWidthChange={(width) => updateSettings({ sidebarWidth: width })}
+          isOpen={
+            activeProjectTemplate
+              ? activeTemplateWorkspace.scenePanelVisible !== false
+              : settings.isSidebarOpen
+          }
+          width={activeProjectTemplate ? activeTemplateWorkspace.scenePanelWidth || settings.sidebarWidth : settings.sidebarWidth}
+          onWidthChange={(width) =>
+            activeProjectTemplate ? updateActiveTemplateWorkspace({ scenePanelWidth: width }) : updateSettings({ sidebarWidth: width })
+          }
           isResizing={isResizingSidebar}
           onResizingChange={setIsResizingSidebar}
           activeProject={activeProject || null}
@@ -681,6 +902,8 @@ const App: React.FC = () => {
           onActiveVariableTabChange={(sidebarVariableTab) =>
             updateActiveTemplateWorkspace({ sidebarVariableTab })
           }
+          selectedStepIds={activeWorkspaceSelectedStepIds}
+          onFocusStep={focusBlueprintStep}
         />
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-950">
@@ -782,11 +1005,18 @@ const App: React.FC = () => {
               viewMode={activeTemplateWorkspace.viewMode || 'compact'}
               onViewModeChange={(viewMode) => updateActiveTemplateWorkspace({ viewMode })}
               blueprintInspectorWidth={
-                activeTemplateWorkspace.inspectorWidth || settings.projectRunnerInspectorWidth
+                activeTemplateWorkspace.detailsPanelWidth ||
+                activeTemplateWorkspace.inspectorWidth ||
+                settings.projectRunnerInspectorWidth
               }
-              onBlueprintInspectorWidthChange={(inspectorWidth) =>
-                updateActiveTemplateWorkspace({ inspectorWidth })
+              onBlueprintInspectorWidthChange={(detailsPanelWidth) =>
+                updateActiveTemplateWorkspace({ detailsPanelWidth, inspectorWidth: detailsPanelWidth })
               }
+              blueprintActiveTool={activeTemplateWorkspace.activeTool || 'move'}
+              onBlueprintActiveToolChange={(activeTool) => updateActiveTemplateWorkspace({ activeTool })}
+              minimapCollapsed={Boolean(activeTemplateWorkspace.minimapCollapsed)}
+              onMinimapCollapsedChange={(minimapCollapsed) => updateActiveTemplateWorkspace({ minimapCollapsed })}
+              detailsPanelVisible={activeTemplateWorkspace.detailsPanelVisible !== false}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-slate-700">Open a project from the library</div>

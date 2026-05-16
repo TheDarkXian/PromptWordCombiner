@@ -28,7 +28,13 @@ import { buildProducerPreflight, ProducerPreflight } from '../services/stepGraph
 import { StructuredOverwriteConfirmModal } from './project-runner/StructuredOverwriteConfirmModal';
 import { ioService } from '../services/ioService';
 import { TemplateBlueprintCanvas } from './template-editor/TemplateBlueprintCanvas';
-import { mergeBlueprintLayout, updateBlueprintNodePosition } from '../services/templateBlueprintService';
+import { BlueprintActiveTool } from './template-editor/TemplateBlueprintCanvas';
+import {
+  buildBlueprintLayout,
+  mergeBlueprintLayout,
+  tidyBlueprintLayout,
+  updateBlueprintNodePosition,
+} from '../services/templateBlueprintService';
 import { SplitPane } from './common/SplitPane';
 
 interface ProjectRunnerProps {
@@ -57,6 +63,11 @@ interface ProjectRunnerProps {
   onViewModeChange: (viewMode: ViewMode) => void;
   blueprintInspectorWidth: number;
   onBlueprintInspectorWidthChange: (width: number) => void;
+  blueprintActiveTool: BlueprintActiveTool;
+  onBlueprintActiveToolChange: (tool: BlueprintActiveTool) => void;
+  minimapCollapsed: boolean;
+  onMinimapCollapsedChange: (collapsed: boolean) => void;
+  detailsPanelVisible: boolean;
 }
 
 type ViewMode = 'compact' | 'detail';
@@ -97,6 +108,11 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   onViewModeChange,
   blueprintInspectorWidth,
   onBlueprintInspectorWidthChange,
+  blueprintActiveTool,
+  onBlueprintActiveToolChange,
+  minimapCollapsed,
+  onMinimapCollapsedChange,
+  detailsPanelVisible,
 }) => {
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
@@ -158,6 +174,20 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     });
     onUpdateTemplate(template.id, { blueprint: nextTemplate.blueprint });
   };
+
+  const resetBlueprintLayout = () => {
+    const blueprint = buildBlueprintLayout(template);
+    onUpdateTemplate(template.id, { blueprint });
+    if (blueprint.viewport) {
+      onBlueprintViewportChange(blueprint.viewport);
+    }
+  };
+
+  const tidyBlueprint = () => {
+    const blueprint = tidyBlueprintLayout(template, { selectedStepIds });
+    onUpdateTemplate(template.id, { blueprint });
+  };
+
   const getVariableByKey = (key: string) =>
     (project.variables || []).find((variable) => variable.key === key);
 
@@ -757,10 +787,10 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
             <SplitPane
               className="min-h-0 flex-1"
               direction="horizontal"
-              size={blueprintInspectorWidth}
+              size={detailsPanelVisible ? blueprintInspectorWidth : 0}
               sizeTarget="second"
-              minSize={300}
-              maxSize={640}
+              minSize={detailsPanelVisible ? 320 : 0}
+              maxSize={detailsPanelVisible ? 640 : 0}
               onSizeChange={onBlueprintInspectorWidthChange}
               first={
                 <div className="h-full min-h-0 w-full">
@@ -773,8 +803,13 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                     onConnect={() => undefined}
                     onRemoveEdge={() => undefined}
                     onViewportChange={(x, y, zoom) => onBlueprintViewportChange({ x, y, zoom })}
-                    onAutoLayout={() => undefined}
+                    onTidyLayout={tidyBlueprint}
+                    onResetLayout={resetBlueprintLayout}
                     onCreateStepRequest={() => undefined}
+                    activeTool={blueprintActiveTool}
+                    onActiveToolChange={onBlueprintActiveToolChange}
+                    minimapCollapsed={minimapCollapsed}
+                    onMinimapCollapsedChange={onMinimapCollapsedChange}
                     debugState={{
                       currentStepId: Object.keys(runStates).find((stepId) => runStates[stepId] === 'running'),
                       successStepIds: Object.keys(runStates).filter((stepId) => runStates[stepId] === 'success'),
@@ -794,8 +829,25 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                       const stepIndex = template.steps.findIndex((item) => item.id === stepId);
                       if (!stepId || stepIndex < 0) {
                         return (
-                          <div className="rounded-lg border border-slate-800/90 bg-slate-900/80 p-3 text-xs text-slate-400">
-                            {language === 'zh-CN' ? '请先在蓝图中选择一个节点' : 'Select a node in blueprint first'}
+                          <div className="space-y-3 rounded-lg border border-slate-800/90 bg-slate-900/80 p-4 text-xs text-slate-400">
+                            <div className="text-sm font-bold text-slate-200">
+                              {language === 'zh-CN' ? '项目运行概览' : 'Project Run Overview'}
+                            </div>
+                            <div>
+                              {language === 'zh-CN'
+                                ? '选择蓝图节点后，这里会显示对应节点的运行详情、结果和日志。'
+                                : 'Select a blueprint node to inspect its run details, result, and logs.'}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-[11px]">
+                              <div className="rounded border border-slate-800 bg-slate-950/70 p-2">
+                                <div className="text-slate-500">{language === 'zh-CN' ? '步骤数' : 'Steps'}</div>
+                                <div className="mt-1 font-bold text-slate-200">{template.steps.length}</div>
+                              </div>
+                              <div className="rounded border border-slate-800 bg-slate-950/70 p-2">
+                                <div className="text-slate-500">{language === 'zh-CN' ? '日志数' : 'Logs'}</div>
+                                <div className="mt-1 font-bold text-slate-200">{projectLogCount}</div>
+                              </div>
+                            </div>
                           </div>
                         );
                       }

@@ -168,10 +168,17 @@ export interface AppSettings {
 export interface ProjectWorkspaceState {
   selectedStepIds?: string[];
   blueprintViewport?: TemplateBlueprintViewport;
+  activeTool?: 'pan' | 'move';
+  minimapCollapsed?: boolean;
   viewMode?: 'compact' | 'detail';
   sidebarTab?: 'vars' | 'preview' | 'nav' | 'build';
   sidebarVariableTab?: 'input' | 'local' | 'result';
   inspectorWidth?: number;
+  scenePanelWidth?: number;
+  detailsPanelWidth?: number;
+  scenePanelVisible?: boolean;
+  detailsPanelVisible?: boolean;
+  detailsMode?: 'auto' | 'empty' | 'node' | 'multi' | 'edge' | 'canvas';
 }
 
 export interface Template {
