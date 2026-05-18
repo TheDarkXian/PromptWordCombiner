@@ -1,4 +1,4 @@
-import { Project, Template, TemplateInput } from '../types';
+import { Project, ProjectVariable, ProjectVariableTable, Template, TemplateInput } from '../types';
 
 export const PROJECT_NAME_COLUMN = 'project_name';
 export const LOCAL_VARIABLE_PREFIX = 'local.';
@@ -12,6 +12,8 @@ export interface ParsedProjectVariableTable {
   projectName?: string;
   templateInputValues: Record<string, string>;
   localVariableValues: Record<string, string>;
+  variables: ProjectVariable[];
+  variableTables: ProjectVariableTable[];
 }
 
 export interface BatchProjectSeed {
@@ -164,11 +166,130 @@ export const buildProjectVariableTableRow = (
   return row;
 };
 
+export const buildProjectVariableDataExport = (
+  project: Pick<Project, 'customInputs' | 'inputValues' | 'name' | 'variableTables' | 'variables'>,
+  template: Pick<Template, 'inputs'>
+) => ({
+  variableRows: [buildProjectVariableTableRow(project, template)],
+  variables: (project.variables || []).map((variable) => ({
+    ...variable,
+    type: variable.type || 'text',
+  })),
+  variableTables: project.variableTables || [],
+});
+
+const parseProjectVariablesPayload = (value: unknown): ProjectVariable[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((variable): variable is ProjectVariable => {
+      if (!variable || typeof variable !== 'object') return false;
+      const candidate = variable as ProjectVariable;
+      return Boolean(candidate.id && candidate.key && candidate.label && candidate.sourceType);
+    })
+    .map((variable) => ({
+      ...variable,
+      id: String(variable.id),
+      key: String(variable.key),
+      label: String(variable.label),
+      type: variable.type === 'table' ? 'table' : 'text',
+      value: normalizeCellValue(variable.value),
+      tableValue:
+        variable.type === 'table' && variable.tableValue
+          ? {
+              columns: (variable.tableValue.columns || []).map((column) => ({
+                key: String(column.key || ''),
+                label: String(column.label || column.key || ''),
+                description: column.description ? String(column.description) : undefined,
+              })),
+              rows: (variable.tableValue.rows || []).map((row) => ({
+                id: String(row.id || `row_${Date.now()}`),
+                cells: Object.entries(row.cells || {}).reduce<Record<string, string>>((cells, [key, value]) => {
+                  cells[key] = normalizeCellValue(value);
+                  return cells;
+                }, {}),
+              })),
+            }
+          : undefined,
+      createdAt: typeof variable.createdAt === 'number' ? variable.createdAt : Date.now(),
+      updatedAt: typeof variable.updatedAt === 'number' ? variable.updatedAt : Date.now(),
+    }));
+};
+
+const parseVariableTablesPayload = (value: unknown): ProjectVariableTable[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .filter((table): table is ProjectVariableTable => {
+      if (!table || typeof table !== 'object') return false;
+      const candidate = table as ProjectVariableTable;
+      return Boolean(
+        candidate.id &&
+          candidate.key &&
+          candidate.label &&
+          Array.isArray(candidate.columns) &&
+          Array.isArray(candidate.rows)
+      );
+    })
+    .map((table) => ({
+      ...table,
+      columns: table.columns.map((column) => ({
+        key: String(column.key || ''),
+        label: String(column.label || column.key || ''),
+        description: column.description ? String(column.description) : undefined,
+      })),
+      rows: table.rows.map((row) => ({
+        id: String(row.id || `row_${Date.now()}`),
+        cells: Object.entries(row.cells || {}).reduce<Record<string, string>>((cells, [key, value]) => {
+          cells[key] = normalizeCellValue(value);
+          return cells;
+        }, {}),
+      })),
+      updatedAt: typeof table.updatedAt === 'number' ? table.updatedAt : Date.now(),
+    }));
+};
+
 export const parseProjectVariableTable = (
   content: string,
   template: Pick<Template, 'inputs'>
 ): ParsedProjectVariableTable => {
-  const { rows } = parseVariableTableRows(content);
+  const trimmed = content.trim();
+  let variableTables: ProjectVariableTable[] = [];
+  let variables: ProjectVariable[] = [];
+  let rows: Record<string, string>[];
+
+  if (trimmed.startsWith('{')) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      throw new Error('JSON 解析失败。');
+    }
+
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const payload = parsed as {
+        variables?: unknown;
+        variableRows?: unknown;
+        variableTables?: unknown;
+        rows?: unknown;
+      };
+      variableTables = parseVariableTablesPayload(payload.variableTables);
+      variables = parseProjectVariablesPayload(payload.variables);
+      const variableRowsSource =
+        payload.variableRows ?? payload.rows ?? (variables.length > 0 ? undefined : payload.variables) ?? parsed;
+      rows =
+        variableRowsSource === undefined
+          ? [{}]
+          : Array.isArray(variableRowsSource)
+            ? parseVariableTableRows(JSON.stringify(variableRowsSource)).rows
+            : parseVariableTableRows(JSON.stringify(variableRowsSource)).rows;
+    } else {
+      rows = parseVariableTableRows(content).rows;
+    }
+  } else {
+    rows = parseVariableTableRows(content).rows;
+  }
+
   if (rows.length === 0) {
     throw new Error('没有可导入的数据行。');
   }
@@ -194,6 +315,8 @@ export const parseProjectVariableTable = (
     projectName: firstRow[PROJECT_NAME_COLUMN]?.trim() || undefined,
     templateInputValues,
     localVariableValues,
+    variables,
+    variableTables,
   };
 };
 

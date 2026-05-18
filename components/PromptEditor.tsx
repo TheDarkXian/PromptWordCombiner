@@ -78,7 +78,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
 
       {isFocused ? (
         <div className="rounded-md border border-blue-500/30 bg-slate-900/80 px-2 py-2 shadow-inner transition-colors">
-          <div className="max-h-44 overflow-y-auto pr-1">
+          <div className="pr-1">
             <AutoResizeTextarea
               className="text-xs font-mono leading-relaxed text-slate-300"
               value={editContent}
@@ -94,7 +94,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
           className="rounded-md border border-slate-800/40 bg-slate-950/60 px-2 py-1.5 transition-colors hover:border-slate-700/70 hover:bg-slate-950/80"
           onClick={() => setIsFocused(true)}
         >
-          <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-400">
+          <div className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-400">
             {interpolatedContent || (
               <span className="italic text-slate-600">{t(language, 'editor.waiting')}</span>
             )}

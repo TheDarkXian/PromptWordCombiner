@@ -11,9 +11,9 @@ interface SidebarNavigationPanelProps {
 }
 
 const getStepTypeLabel = (language: UiLanguage, stepType?: string) => {
-  if (stepType === 'text_generation') return language === 'zh-CN' ? '文本生成' : 'Text';
-  if (stepType === 'external') return language === 'zh-CN' ? '外部' : 'External';
-  return language === 'zh-CN' ? '手动' : 'Manual';
+  if (stepType === 'text_generation') return language === 'zh-CN' ? '提示词函数' : 'Prompt function';
+  if (stepType === 'external') return language === 'zh-CN' ? '外部函数' : 'External function';
+  return language === 'zh-CN' ? '人工函数' : 'Manual function';
 };
 
 export const SidebarNavigationPanel: React.FC<SidebarNavigationPanelProps> = ({
@@ -26,9 +26,9 @@ export const SidebarNavigationPanel: React.FC<SidebarNavigationPanelProps> = ({
 }) => (
   <div className="flex h-full min-h-0 flex-col overflow-hidden">
     <div className="shrink-0 border-b border-slate-800 px-4 py-3">
-      <div className="text-sm font-black text-white">{language === 'zh-CN' ? '节点导航' : 'Node Navigator'}</div>
+      <div className="text-sm font-black text-white">{language === 'zh-CN' ? '函数导航' : 'Function Navigator'}</div>
       <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
-        {language === 'zh-CN' ? '点击节点可在蓝图中聚焦并高亮。' : 'Click a node to focus and highlight it in the blueprint.'}
+        {language === 'zh-CN' ? '点击提示词函数可在蓝图中聚焦并高亮。' : 'Click a prompt function to focus and highlight it in the blueprint.'}
       </div>
     </div>
     <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 no-scrollbar">

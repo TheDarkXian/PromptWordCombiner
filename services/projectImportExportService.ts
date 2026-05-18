@@ -1,4 +1,9 @@
-import { buildProjectVariableTableRow, parseProjectVariableTable, stringifyRowsAsCsv } from './variableTableService';
+import {
+  buildProjectVariableDataExport,
+  buildProjectVariableTableRow,
+  parseProjectVariableTable,
+  stringifyRowsAsCsv,
+} from './variableTableService';
 import { normalizeProject } from '../domain/projectDomain';
 import { normalizeTemplate } from '../domain/templateDomain';
 import { createInterpolator } from './interpolationService';
@@ -17,11 +22,16 @@ export const buildProjectVariableTableExport = ({
   const safeName = project.name.replace(/[\\/:*?"<>|]+/g, '_');
 
   if (format === 'json') {
+    const data = buildProjectVariableDataExport(project, template);
     return {
       filename: `${safeName}_variables.json`,
-      content: JSON.stringify([row], null, 2),
+      content: JSON.stringify(data, null, 2),
       mimeType: 'application/json',
     };
+  }
+
+  if ((project.variableTables || []).length > 0 || (project.variables || []).some((variable) => variable.type === 'table')) {
+    throw new Error('当前项目包含表变量，请使用 JSON 导出变量数据。');
   }
 
   return {
@@ -65,6 +75,8 @@ export const applyImportedProjectVariableTable = ({
     name: parsed.projectName?.trim() || project.name,
     customInputs: nextCustomInputs,
     inputValues: nextInputValues,
+    variables: parsed.variables.length > 0 ? parsed.variables : project.variables || [],
+    variableTables: parsed.variableTables.length > 0 ? parsed.variableTables : project.variableTables || [],
   };
 };
 

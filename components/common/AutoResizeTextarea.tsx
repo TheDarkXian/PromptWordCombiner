@@ -1,12 +1,16 @@
-import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 interface AutoResizeTextareaProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  minHeight?: number;
+  maxHeight?: number;
+  allowManualResize?: boolean;
   readOnly?: boolean;
   autoFocus?: boolean;
+  onFocus?: React.FocusEventHandler<HTMLTextAreaElement>;
   onBlur?: () => void;
   onKeyDown?: React.KeyboardEventHandler<HTMLTextAreaElement>;
   onClick?: React.MouseEventHandler<HTMLTextAreaElement>;
@@ -19,8 +23,12 @@ export const AutoResizeTextarea: React.FC<AutoResizeTextareaProps> = ({
   onChange,
   placeholder,
   className,
+  minHeight,
+  maxHeight,
+  allowManualResize = false,
   readOnly = false,
   autoFocus = false,
+  onFocus,
   onBlur,
   onKeyDown,
   onClick,
@@ -39,16 +47,19 @@ export const AutoResizeTextarea: React.FC<AutoResizeTextareaProps> = ({
     (externalRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
   };
 
-  const adjustHeight = () => {
+  const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = '0px';
-    el.style.height = `${el.scrollHeight}px`;
-  };
+    const contentHeight = Math.max(el.scrollHeight, minHeight || 0);
+    const nextHeight = maxHeight ? Math.min(contentHeight, maxHeight) : contentHeight;
+    el.style.height = `${nextHeight}px`;
+    el.style.overflowY = maxHeight && contentHeight > maxHeight ? 'auto' : 'hidden';
+  }, [maxHeight, minHeight]);
 
   useLayoutEffect(() => {
     adjustHeight();
-  }, [value]);
+  }, [adjustHeight, value]);
 
   useEffect(() => {
     const handle = requestAnimationFrame(() => {
@@ -59,25 +70,33 @@ export const AutoResizeTextarea: React.FC<AutoResizeTextareaProps> = ({
       }
     });
     return () => cancelAnimationFrame(handle);
-  }, [autoFocus, value.length]);
+  }, [adjustHeight, autoFocus, value.length]);
 
   useEffect(() => {
     window.addEventListener('resize', adjustHeight);
     return () => window.removeEventListener('resize', adjustHeight);
-  }, []);
+  }, [adjustHeight]);
+
+  const resizeClassName = allowManualResize ? 'resize-y' : 'resize-none';
+  const overflowClassName = maxHeight ? 'overflow-y-auto' : 'overflow-hidden';
 
   return (
       <textarea
       ref={assignRef}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      onFocus={onFocus}
       onBlur={onBlur}
       onKeyDown={onKeyDown}
       onClick={onClick}
       onSelect={onSelect}
       placeholder={placeholder}
       readOnly={readOnly}
-      className={`block w-full resize-none overflow-hidden bg-transparent outline-none focus:ring-0 p-0 m-0 ${className || ''}`}
+      className={`block w-full ${resizeClassName} ${overflowClassName} bg-transparent outline-none focus:ring-0 p-0 m-0 ${className || ''}`}
+      style={{
+        minHeight,
+        maxHeight,
+      }}
       rows={1}
       spellCheck={false}
     />

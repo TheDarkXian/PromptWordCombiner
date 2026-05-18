@@ -17,6 +17,7 @@ import { resolveStepExecutionAvailability } from '../../services/modelService';
 import { PromptEditor } from '../PromptEditor';
 import { AutoResizeTextarea } from '../common/AutoResizeTextarea';
 import { ProjectRunLogPanel } from './ProjectRunLogPanel';
+import { getVariableTableCellValue } from '../../services/variableTableService.runtime';
 
 type ViewMode = 'compact' | 'detail';
 
@@ -273,16 +274,28 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
   const resultValue = project.stepOutputs[step.id] || '';
   const structuredFields = step.structuredOutputFields || [];
   const structuredBindings = step.structuredOutputBindings || [];
-  const structuredValues = project.stepStructuredOutputs?.[step.id] || {};
+  const variableTable = (project.variableTables || []).find((table) => table.sourceStepId === step.id);
+  const tableRows =
+    variableTable?.rows && variableTable.rows.length > 0
+      ? variableTable.rows
+      : [
+          {
+            id: `row_${step.id}_draft`,
+            cells: project.stepStructuredOutputs?.[step.id] || {},
+          },
+        ];
+  const structuredValues = tableRows[0]?.cells || project.stepStructuredOutputs?.[step.id] || {};
   const hasStructuredFields = structuredFields.length > 0;
   const hasUnfilledStructuredFields =
     hasStructuredFields &&
     resultValue.trim().length > 0 &&
     structuredFields.some((field) => !String(structuredValues[field.key] || '').trim());
-  const promptSectionLabel = language === 'zh-CN' ? '输入提示词' : 'Input prompt';
-  const resultSectionLabel = language === 'zh-CN' ? '输出结果' : 'Output result';
+  const promptSectionLabel = language === 'zh-CN' ? '函数体' : 'Function body';
+  const resultSectionLabel = language === 'zh-CN' ? '输出变量' : 'Output variable';
   const flowSummary =
-    language === 'zh-CN' ? '输入提示词 -> 生成结果' : 'Input prompt -> Generated result';
+    language === 'zh-CN'
+      ? '输入变量 -> 函数体 -> 输出变量'
+      : 'Input variables -> Function body -> Output variables';
   const showFlowSummary = stepRoleMeta.stepType === 'text_generation';
   const currentStepAssetUpdatedAt = Math.max(
     project.stepOutputMeta?.[step.id]?.updatedAt || 0,
@@ -304,6 +317,14 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
   const staleKeys: string[] = [];
 
   referencedKeys.forEach((key) => {
+    const tableValue = getVariableTableCellValue(project, key);
+    if (tableValue !== undefined) {
+      if (!String(tableValue || '').trim()) {
+        missingKeys.push(key);
+      }
+      return;
+    }
+
     const variable = getVariableByKey(key);
     if (!variable || !String(variable.value || '').trim()) {
       missingKeys.push(key);
@@ -358,24 +379,43 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
         itemIndex
     );
 
-  const getResultPreview = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return language === 'zh-CN' ? '暂无结果' : 'No result yet';
-    }
-    const normalized = trimmed.replace(/\s+/g, ' ');
-    return `${normalized.slice(0, 96)}${normalized.length > 96 ? '...' : ''}`;
-  };
+  const updateStructuredValue = (rowIndex: number, fieldKey: string, value: string) => {
+    const columns = structuredFields
+      .filter((field) => field.key.trim() && field.label.trim())
+      .map((field) => ({
+        key: field.key.trim(),
+        label: field.label.trim(),
+        description: field.description?.trim() || undefined,
+      }));
+    const nextRows = tableRows.map((row, currentIndex) => ({
+      id: row.id,
+      cells: {
+        ...row.cells,
+        ...(currentIndex === rowIndex ? { [fieldKey]: value } : {}),
+      },
+    }));
+    const nextTable = {
+      id: variableTable?.id || `table_step_${step.id}`,
+      key: variableTable?.key || step.outputBinding?.variableKey?.trim() || `table_${step.id}`,
+      label: variableTable?.label || step.outputBinding?.variableLabel?.trim() || step.name,
+      sourceStepId: step.id,
+      columns,
+      rows: nextRows,
+      updatedAt: Date.now(),
+    };
 
-  const updateStructuredValue = (fieldKey: string, value: string) => {
     onUpdateProject(project.id, {
       stepStructuredOutputs: {
         ...(project.stepStructuredOutputs || {}),
         [step.id]: {
           ...(project.stepStructuredOutputs?.[step.id] || {}),
-          [fieldKey]: value,
+          ...(rowIndex === 0 ? { [fieldKey]: value } : {}),
         },
       },
+      variableTables: [
+        ...(project.variableTables || []).filter((table) => table.sourceStepId !== step.id),
+        nextTable,
+      ],
     });
   };
 
@@ -712,7 +752,7 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
                           : 'text-slate-500 hover:text-white'
                       }`}
                     >
-                      {language === 'zh-CN' ? '字段' : 'Fields'}
+                      {language === 'zh-CN' ? '表变量' : 'Table variable'}
                     </button>
                   </div>
                 )}
@@ -738,8 +778,8 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
             {hasStructuredFields && hasUnfilledStructuredFields && (
               <div className="mb-2 rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 px-3 py-2 text-[11px] text-fuchsia-200/90">
                 {language === 'zh-CN'
-                  ? '当前步骤已有整段结果，但结构化字段还未整理完成。'
-                  : 'This step already has a raw result, but its structured fields are not filled yet.'}
+                  ? '当前提示词函数已有整段结果，但表变量还未整理完成。'
+                  : 'This prompt function already has a raw result, but its table variable is not filled yet.'}
               </div>
             )}
             {hasStructuredFields && structuredParseMeta && (
@@ -805,11 +845,17 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
                   isResultExpanded ? 'max-h-[520px]' : 'max-h-40'
                 }`}
               >
+                {tableRows.map((row, rowIndex) => (
+                  <div key={`${step.id}_table_row_${row.id}`} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-fuchsia-300">
+                      {language === 'zh-CN' ? `第 ${rowIndex + 1} 行` : `Row ${rowIndex + 1}`}
+                    </div>
+                    <div className="space-y-3">
                 {structuredFields.map((field) => {
                   const binding = structuredBindings.find((item) => item.fieldKey === field.key);
                   return (
                     <div
-                      key={`${step.id}_field_${field.key}`}
+                      key={`${step.id}_field_${row.id}_${field.key}`}
                       className="rounded-lg border border-slate-800 bg-slate-950/50 p-3"
                     >
                       <div className="mb-1 flex items-center justify-between gap-3">
@@ -831,17 +877,20 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
                       </div>
                       <AutoResizeTextarea
                         className="font-sans text-sm leading-relaxed text-slate-300"
-                        value={structuredValues[field.key] || ''}
-                        onChange={(value) => updateStructuredValue(field.key, value)}
+                        value={row.cells[field.key] || ''}
+                        onChange={(value) => updateStructuredValue(rowIndex, field.key, value)}
                         placeholder={
                           language === 'zh-CN'
-                            ? '填写该字段结果...'
-                            : 'Fill this field result...'
+                            ? '填写该表字段...'
+                            : 'Fill this table field...'
                         }
                       />
                     </div>
                   );
                 })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -122,6 +122,7 @@ describe('projectDomain', () => {
           id: 'var_step',
           key: 'final_result',
           label: 'Final Result',
+          type: 'text',
           value: 'Rendered output',
           sourceType: 'step_output',
           createdAt: 12,
@@ -167,11 +168,46 @@ describe('projectDomain', () => {
         value: '',
       }),
       expect.objectContaining({
-        id: 'var_step_step-1',
+        id: 'var_step_step-1_final_result',
         key: 'final_result',
         value: '',
       }),
     ]);
+  });
+
+  it('syncs legacy variable tables into typed table variables', () => {
+    const variables = syncProjectVariables(
+      {
+        ...baseProject,
+        variableTables: [
+          {
+            id: 'table-1',
+            key: 'characters',
+            label: 'Characters',
+            columns: [{ key: 'name', label: 'Name' }],
+            rows: [{ id: 'row-1', cells: { name: 'Lin' } }],
+            updatedAt: 99,
+          },
+        ],
+      },
+      baseTemplate
+    );
+
+    expect(variables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'characters',
+          type: 'table',
+          value: '',
+          tableValue: {
+            columns: [{ key: 'name', label: 'Name' }],
+            rows: [{ id: 'row-1', cells: { name: 'Lin' } }],
+          },
+          sourceType: 'manual',
+          sourceRef: 'table-1',
+        }),
+      ])
+    );
   });
 
   it('appendStepRunLog keeps only the latest twenty records', () => {

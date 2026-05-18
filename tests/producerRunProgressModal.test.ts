@@ -28,7 +28,7 @@ const baseState: ProducerRunProgressState = {
       stepName: 'Step B',
       outputVariableKey: 'var_b',
       status: 'blocked',
-      message: 'Circular dependency detected between producer nodes.',
+      message: 'Circular dependency detected between prompt functions.',
       structuredParseStatus: 'not_applicable',
     },
   ],
@@ -60,7 +60,7 @@ describe('ProducerRunProgressModal', () => {
       })
     );
 
-    expect(html).toContain('Current node: Step A');
+    expect(html).toContain('Current function: Step A');
     expect(html).toContain('1 / 3');
     expect(html).toContain('Stop');
     expect(html).toContain('{{var_a}}');

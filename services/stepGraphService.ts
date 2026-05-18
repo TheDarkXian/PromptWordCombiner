@@ -12,6 +12,11 @@ import {
   TemplateStep,
 } from '../types';
 import { resolveStepExecutionAvailability } from './modelService';
+import {
+  getStepInputs,
+  getStepOutputs,
+  getTableVariableKeyFromReference,
+} from './stepVariablePortsService';
 
 const VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g;
 
@@ -33,23 +38,28 @@ const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)))
 
 export const extractTemplateVariableKeys = (content: string): string[] =>
   unique(
-    Array.from(content.matchAll(VARIABLE_PATTERN)).map((match) => String(match[1]).trim())
+    Array.from(content.matchAll(VARIABLE_PATTERN))
+      .map((match) => String(match[1]).trim())
+      .map((key) => getTableVariableKeyFromReference(key) || key)
   );
 
 export const buildStepGraph = (template: Template): StepGraph => {
   const producersByVariable = new Map<string, string[]>();
 
   template.steps.forEach((step) => {
-    const outputVariableKey = step.outputBinding?.variableKey?.trim();
-    if (!outputVariableKey) return;
-    const existing = producersByVariable.get(outputVariableKey) || [];
-    existing.push(step.id);
-    producersByVariable.set(outputVariableKey, existing);
+    getStepOutputs(step).forEach((output) => {
+      const outputVariableKey = output.key.trim();
+      if (!outputVariableKey) return;
+      const existing = producersByVariable.get(outputVariableKey) || [];
+      existing.push(step.id);
+      producersByVariable.set(outputVariableKey, existing);
+    });
   });
 
   const nodeDrafts = template.steps.map((step) => {
-    const inputVariableKeys = extractTemplateVariableKeys(step.content || '');
-    const outputVariableKey = step.outputBinding?.variableKey?.trim() || undefined;
+    const inputVariableKeys = getStepInputs(step).map((input) => input.key);
+    const outputVariableKeys = getStepOutputs(step).map((output) => output.key).filter(Boolean);
+    const outputVariableKey = outputVariableKeys[0];
     const upstreamStepIds = unique(
       inputVariableKeys.flatMap((key) => producersByVariable.get(key) || [])
     ).filter((stepId) => stepId !== step.id);
@@ -61,6 +71,7 @@ export const buildStepGraph = (template: Template): StepGraph => {
       nodeRole,
       inputVariableKeys,
       outputVariableKey,
+      outputVariableKeys,
       upstreamStepIds,
       downstreamStepIds: [] as string[],
     } satisfies StepGraphNode;
@@ -74,13 +85,16 @@ export const buildStepGraph = (template: Template): StepGraph => {
       const upstreamNode = nodeIndex.get(upstreamStepId);
       if (!upstreamNode?.outputVariableKey) return;
       upstreamNode.downstreamStepIds = unique([...upstreamNode.downstreamStepIds, node.stepId]);
-      if (node.inputVariableKeys.includes(upstreamNode.outputVariableKey)) {
+      const matchedVariableKeys = (upstreamNode.outputVariableKeys || [upstreamNode.outputVariableKey]).filter((key) =>
+        node.inputVariableKeys.includes(key)
+      );
+      matchedVariableKeys.forEach((matchedVariableKey) => {
         edges.push({
           fromStepId: upstreamStepId,
           toStepId: node.stepId,
-          variableKey: upstreamNode.outputVariableKey,
+          variableKey: matchedVariableKey,
         });
-      }
+      });
     });
   });
 
@@ -252,7 +266,7 @@ export const buildProducerPreflight = ({
 
     if (status === 'ready' && cycleSet.has(candidate.stepId)) {
       status = 'blocked';
-      reason = 'Circular dependency detected between producer nodes.';
+      reason = 'Circular dependency detected between prompt functions.';
     } else if (status === 'ready' && missingInputs.length > 0) {
       status = 'blocked';
       reason = `Missing variables: ${missingInputs.map((key) => `{{${key}}}`).join(', ')}`;

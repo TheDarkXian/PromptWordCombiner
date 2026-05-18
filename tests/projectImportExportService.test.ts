@@ -79,10 +79,108 @@ describe('projectImportExportService', () => {
 
     expect(jsonExport.filename).toBe('Project_One_variables.json');
     expect(jsonExport.mimeType).toBe('application/json');
+    expect(JSON.parse(jsonExport.content)).toMatchObject({
+      variableRows: [
+        {
+          project_name: 'Project/One',
+          Topic: 'Forest city',
+        },
+      ],
+      variables: [
+        expect.objectContaining({
+          key: 'topic',
+        }),
+      ],
+      variableTables: [],
+    });
     expect(jsonExport.content).toContain('"project_name": "Project/One"');
     expect(csvExport.filename).toBe('Project_One_variables.csv');
     expect(csvExport.mimeType).toBe('text/csv');
     expect(csvExport.content).toContain('project_name');
+  });
+
+  it('exports and imports variable tables through JSON variable data', () => {
+    const projectWithTable: Project = {
+      ...project,
+      variableTables: [
+        {
+          id: 'table-1',
+          key: 'characters',
+          label: 'Characters',
+          columns: [{ key: 'name', label: 'Name' }],
+          rows: [{ id: 'row-1', cells: { name: 'Lin Xi' } }],
+          updatedAt: 1,
+        },
+      ],
+    };
+
+    const jsonExport = buildProjectVariableTableExport({
+      project: projectWithTable,
+      template,
+      format: 'json',
+    });
+    const updates = applyImportedProjectVariableTable({
+      project,
+      template,
+      content: jsonExport.content,
+    });
+
+    expect(updates.variableTables).toEqual(projectWithTable.variableTables);
+    expect(updates.variables).toEqual(
+      projectWithTable.variables.map((variable) => ({ ...variable, type: variable.type || 'text' }))
+    );
+    expect(() =>
+      buildProjectVariableTableExport({
+        project: projectWithTable,
+        template,
+        format: 'csv',
+      })
+    ).toThrow('JSON');
+  });
+
+  it('exports and imports typed table variables through JSON variable data', () => {
+    const projectWithTypedTable: Project = {
+      ...project,
+      variables: [
+        ...project.variables,
+        {
+          id: 'var-characters',
+          key: 'characters',
+          label: 'Characters',
+          type: 'table',
+          value: '',
+          tableValue: {
+            columns: [{ key: 'name', label: 'Name' }],
+            rows: [{ id: 'row-1', cells: { name: 'Lin Xi' } }],
+          },
+          sourceType: 'manual',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+    };
+
+    const jsonExport = buildProjectVariableTableExport({
+      project: projectWithTypedTable,
+      template,
+      format: 'json',
+    });
+    const updates = applyImportedProjectVariableTable({
+      project,
+      template,
+      content: jsonExport.content,
+    });
+
+    expect(updates.variables).toEqual(
+      projectWithTypedTable.variables.map((variable) => ({ ...variable, type: variable.type || 'text' }))
+    );
+    expect(() =>
+      buildProjectVariableTableExport({
+        project: projectWithTypedTable,
+        template,
+        format: 'csv',
+      })
+    ).toThrow('JSON');
   });
 
   it('applies imported variable table values and creates missing local inputs', () => {

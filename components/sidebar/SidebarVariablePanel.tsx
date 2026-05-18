@@ -1,5 +1,5 @@
 import React from 'react';
-import { Project, StepFlowStatus, Template, UiLanguage } from '../../types';
+import { Project, ProjectVariableTable, StepFlowStatus, Template, UiLanguage } from '../../types';
 import { t } from '../../services/i18n';
 import { ChevronDownIcon } from '../Icons';
 import { AutoResizeTextarea } from '../common/AutoResizeTextarea';
@@ -23,6 +23,7 @@ interface SidebarVariablePanelProps {
   onDeleteLocalVariable: (varId: string) => void;
   onImportVariableTable: (content: string) => void;
   onExportVariableTable: (format: 'json' | 'csv') => void;
+  onUpdateVariableTableCell: (tableId: string, rowId: string, columnKey: string, value: string) => void;
   onRequestAlert: (title: string, message: string) => void;
   setActiveVariableTab: React.Dispatch<React.SetStateAction<VariableTab>>;
   setIsVarTableMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -54,6 +55,7 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
   onDeleteLocalVariable,
   onImportVariableTable,
   onExportVariableTable,
+  onUpdateVariableTableCell,
   onRequestAlert,
   setActiveVariableTab,
   setIsVarTableMenuOpen,
@@ -72,6 +74,25 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
   const resultVariables = (activeProject.variables || []).filter((variable) =>
     ['step_output', 'structured_step_output', 'derived', 'manual'].includes(variable.sourceType)
   );
+  const typedVariableTables: ProjectVariableTable[] = resultVariables
+    .filter((variable) => variable.type === 'table' && variable.tableValue)
+    .map((variable) => ({
+      id: variable.id,
+      key: variable.key,
+      label: variable.label,
+      sourceStepId: variable.sourceType === 'step_output' ? variable.sourceRef?.split(':')[0] : undefined,
+      columns: variable.tableValue?.columns || [],
+      rows: variable.tableValue?.rows || [],
+      updatedAt: variable.updatedAt,
+    }));
+  const typedTableKeys = new Set(typedVariableTables.map((table) => table.key));
+  const variableTables = [
+    ...typedVariableTables,
+    ...(activeProject.variableTables || []).filter((table) => !typedTableKeys.has(table.key)),
+  ];
+  const legacyVariableTables = variableTables.filter(
+    (table) => !typedVariableTables.some((typedTable) => typedTable.id === table.id)
+  );
 
   const handleAddVariable = () => {
     const trimmed = newVarName.trim();
@@ -83,8 +104,8 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
       onRequestAlert(
         language === 'zh-CN' ? '名称重复' : 'Duplicate name',
         language === 'zh-CN'
-          ? '已经存在同名的局部变量。'
-          : 'A local variable with this name already exists.'
+          ? '已经存在同名的项目变量。'
+          : 'A project variable with this name already exists.'
       );
       return;
     }
@@ -235,7 +256,13 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
       ) : (
         resultVariables.map((variable) => {
           const isExpanded = Boolean(expandedResultVariableIds[variable.id]);
-          const preview = (variable.value || '').trim();
+          const isTableVariable = variable.type === 'table';
+          const tableValue = variable.tableValue;
+          const preview = isTableVariable
+            ? language === 'zh-CN'
+              ? `${tableValue?.rows.length || 0} 行 / ${tableValue?.columns.length || 0} 字段`
+              : `${tableValue?.rows.length || 0} rows / ${tableValue?.columns.length || 0} fields`
+            : (variable.value || '').trim();
 
           return (
             <div key={variable.id} className="relative rounded-lg border border-slate-800 bg-slate-950/40 p-2">
@@ -245,9 +272,16 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
                 className="flex w-full items-start justify-between gap-2 text-left"
               >
                 <div className="min-w-0">
-                  <div className="truncate font-mono text-[10px] font-bold text-violet-400">{`{{${variable.key}}}`}</div>
+                  <div className="truncate font-mono text-[10px] font-bold text-violet-400">
+                    {isTableVariable
+                      ? `{{${variable.key}[0].${tableValue?.columns[0]?.key || 'field'}}}`
+                      : `{{${variable.key}}}`}
+                  </div>
                   <div className="truncate text-[10px] text-slate-500">
                     {variable.label}
+                    <span className="ml-1 rounded border border-slate-700 px-1 text-[9px] text-slate-400">
+                      {isTableVariable ? (language === 'zh-CN' ? '表' : 'table') : (language === 'zh-CN' ? '文本' : 'text')}
+                    </span>
                     {variable.sourceType === 'step_output' && (
                       <span className="ml-1 text-[9px] text-slate-600">
                         {`${t(language, 'sidebar.goSource')}: ${getStepName(variable.sourceRef) || variable.sourceRef || '-'}`}
@@ -274,9 +308,44 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
                   ⋯
                 </button>
               </div>
-              {isExpanded && (
+              {isExpanded && !isTableVariable && (
                 <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-[11px] leading-relaxed text-slate-300">
                   {variable.value || '...'}
+                </div>
+              )}
+              {isExpanded && isTableVariable && tableValue && (
+                <div className="mt-2 max-h-72 overflow-auto rounded border border-slate-800">
+                  <table className="w-full min-w-max border-collapse text-left text-[11px]">
+                    <thead className="sticky top-0 bg-slate-950 text-slate-500">
+                      <tr>
+                        <th className="border-b border-slate-800 px-2 py-1 font-mono">#</th>
+                        {tableValue.columns.map((column) => (
+                          <th key={column.key} className="border-b border-slate-800 px-2 py-1 font-medium">
+                            {column.label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tableValue.rows.map((row, rowIndex) => (
+                        <tr key={row.id} className="border-b border-slate-900 last:border-b-0">
+                          <td className="px-2 py-1 font-mono text-slate-600">{rowIndex + 1}</td>
+                          {tableValue.columns.map((column) => (
+                            <td key={`${row.id}_${column.key}`} className="min-w-36 px-2 py-1 align-top">
+                              <AutoResizeTextarea
+                                value={row.cells[column.key] || ''}
+                                onChange={(value) =>
+                                  onUpdateVariableTableCell(variable.id, row.id, column.key, value)
+                                }
+                                placeholder="..."
+                                className="rounded border border-slate-800 bg-slate-950 px-2 py-1 text-slate-300 outline-none focus:border-fuchsia-500"
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
               {resultVarMenuId === variable.id && (
@@ -284,7 +353,11 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      void copyVariableValue(variable.value || '');
+                      void copyVariableValue(
+                        isTableVariable && tableValue
+                          ? JSON.stringify(tableValue.rows.map((row) => row.cells), null, 2)
+                          : variable.value || ''
+                      );
                       setResultVarMenuId(null);
                     }}
                     className="block w-full rounded px-2 py-1 text-left text-[10px] text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
@@ -312,6 +385,70 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
     </div>
   );
 
+  const renderVariableTables = (tables: ProjectVariableTable[] = variableTables) => (
+    <div className="space-y-3">
+      {tables.map((table) => (
+        <div key={table.id} className="rounded-lg border border-fuchsia-900/50 bg-slate-950/50 p-3">
+          <div className="mb-2 flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-xs font-bold text-fuchsia-200">{table.label}</div>
+              <div className="mt-0.5 truncate font-mono text-[10px] text-fuchsia-400">
+                {`{{${table.key}[0].${table.columns[0]?.key || 'field'}}}`}
+              </div>
+            </div>
+            <div className="shrink-0 rounded border border-fuchsia-500/20 bg-fuchsia-500/10 px-2 py-0.5 text-[10px] text-fuchsia-200">
+              {language === 'zh-CN'
+                ? `${table.rows.length} 行 / ${table.columns.length} 字段`
+                : `${table.rows.length} rows / ${table.columns.length} fields`}
+            </div>
+          </div>
+          {table.sourceStepId && (
+            <button
+              type="button"
+              onClick={() => scrollToStep(table.sourceStepId)}
+              className="mb-2 text-[10px] text-amber-300 hover:text-white"
+            >
+              {`${t(language, 'sidebar.goSource')}: ${getStepName(table.sourceStepId) || table.sourceStepId}`}
+            </button>
+          )}
+          <div className="max-h-72 overflow-auto rounded border border-slate-800">
+            <table className="w-full min-w-max border-collapse text-left text-[11px]">
+              <thead className="sticky top-0 bg-slate-950 text-slate-500">
+                <tr>
+                  <th className="border-b border-slate-800 px-2 py-1 font-mono">#</th>
+                  {table.columns.map((column) => (
+                    <th key={column.key} className="border-b border-slate-800 px-2 py-1 font-medium">
+                      {column.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {table.rows.map((row, rowIndex) => (
+                  <tr key={row.id} className="border-b border-slate-900 last:border-b-0">
+                    <td className="px-2 py-1 font-mono text-slate-600">{rowIndex + 1}</td>
+                    {table.columns.map((column) => (
+                      <td key={`${row.id}_${column.key}`} className="min-w-36 px-2 py-1 align-top">
+                        <AutoResizeTextarea
+                          value={row.cells[column.key] || ''}
+                          onChange={(value) =>
+                            onUpdateVariableTableCell(table.id, row.id, column.key, value)
+                          }
+                          placeholder="..."
+                          className="rounded border border-slate-800 bg-slate-950 px-2 py-1 text-slate-300 outline-none focus:border-fuchsia-500"
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-y-auto space-y-5 p-4 no-scrollbar">
       <input
@@ -327,7 +464,7 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
           onClick={() => setIsVarTableMenuOpen((prev) => !prev)}
           className="flex w-full items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-300 transition-colors hover:border-slate-500 hover:text-white"
         >
-          <span>{language === 'zh-CN' ? '变量表' : 'Variable table'}</span>
+          <span>{language === 'zh-CN' ? '变量数据' : 'Variable data'}</span>
           <ChevronDownIcon className={`h-3.5 w-3.5 transition-transform ${isVarTableMenuOpen ? 'rotate-180' : ''}`} />
         </button>
         {isVarTableMenuOpen && (
@@ -367,7 +504,19 @@ export const SidebarVariablePanel: React.FC<SidebarVariablePanelProps> = ({
 
       {activeVariableTab === 'input' && renderInputVariables()}
       {activeVariableTab === 'local' && renderLocalVariables()}
-      {activeVariableTab === 'result' && renderResultVariables()}
+      {activeVariableTab === 'result' && (
+        <div className="space-y-5">
+          {renderResultVariables()}
+          {legacyVariableTables.length > 0 && (
+            <div>
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-fuchsia-300">
+                {language === 'zh-CN' ? '表变量' : 'Table variables'}
+              </div>
+              {renderVariableTables(legacyVariableTables)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

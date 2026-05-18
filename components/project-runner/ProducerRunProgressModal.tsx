@@ -165,15 +165,15 @@ export const ProducerRunProgressModal: React.FC<ProducerRunProgressModalProps> =
                       <span className="rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-2 py-0.5 text-fuchsia-300">
                         {item.structuredParseStatus === 'success'
                           ? language === 'zh-CN'
-                            ? '字段已更新'
-                            : 'Structured fields updated'
+                            ? '表变量已更新'
+                            : 'Table variable updated'
                           : item.structuredParseStatus === 'skipped'
                             ? language === 'zh-CN'
-                              ? '已跳过字段解析'
-                              : 'Structured parse skipped'
+                              ? '已跳过表变量解析'
+                              : 'Table variable parse skipped'
                             : language === 'zh-CN'
-                              ? '字段解析失败'
-                              : 'Structured parse failed'}
+                              ? '表变量解析失败'
+                              : 'Table variable parse failed'}
                       </span>
                       {item.structuredParseMessage && (
                         <span className="text-slate-500">{item.structuredParseMessage}</span>

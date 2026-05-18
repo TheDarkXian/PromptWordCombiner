@@ -55,7 +55,7 @@ export function detectImportPayload(raw: unknown): ImportDetectionResult {
     return {
       kind: 'project_variable_table',
       version: 'legacy-unknown',
-      warnings: ['检测到变量表数据，不是全量备份。'],
+      warnings: ['检测到表变量数据，不是全量备份。'],
     };
   }
 

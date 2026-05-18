@@ -78,6 +78,10 @@ export function migrateImportBundle(
         next.stepStructuredOutputs = {};
         patchedFieldCount += 1;
       }
+      if (!Array.isArray(next.variableTables)) {
+        next.variableTables = [];
+        patchedFieldCount += 1;
+      }
       if (!isObject(next.stepOutputMeta)) {
         next.stepOutputMeta = {};
         patchedFieldCount += 1;

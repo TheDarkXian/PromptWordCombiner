@@ -46,16 +46,16 @@ export const buildStructuredParsePrompt = ({
 
   return {
     systemPrompt:
-      'You extract structured fields from a generated text result. Return only a JSON object. Use exactly the provided field keys. Every value must be a string. If a field cannot be found, return an empty string for that key. Do not add extra keys, comments, or markdown outside the JSON object.',
+      'You extract variable table rows from a generated text result. Return only JSON as either an array of row objects or an object with a rows array. Use exactly the provided field keys. Every value must be a string. If a field cannot be found, return an empty string for that key. Do not add extra keys, comments, or markdown outside the JSON.',
     userPrompt: `Step: ${step.name || 'Untitled step'}
 
-Structured fields:
+Table variable fields:
 ${fieldSpec}
 
-Generated result:
+Function output:
 ${rawOutput}
 
-Return only one JSON object whose keys exactly match the field keys above.`,
+Return only JSON. Prefer {"rows":[...]} where each row object uses the field keys above.`,
   };
 };
 
@@ -99,13 +99,13 @@ export const parseStructuredOutputResponse = ({
   } catch (error) {
     throw new Error(
       error instanceof Error
-        ? `Structured parse returned invalid JSON: ${error.message}`
-        : 'Structured parse returned invalid JSON.'
+        ? `Table variable parse returned invalid JSON: ${error.message}`
+        : 'Table variable parse returned invalid JSON.'
     );
   }
 
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Structured parse did not return a JSON object.');
+    throw new Error('Table variable parse did not return a JSON object.');
   }
 
   const result: Record<string, string> = {};

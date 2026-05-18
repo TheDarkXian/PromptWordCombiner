@@ -71,6 +71,48 @@ describe('templateDomain', () => {
     );
   });
 
+  it('migrates legacy output binding and structured fields into step outputs', () => {
+    const template = normalizeTemplate(
+      {
+        id: 'template-1',
+        name: 'Template',
+        inputs: [],
+        modelRefs: [],
+        steps: [
+          {
+            id: 'step-1',
+            name: 'Characters',
+            content: 'hello',
+            outputBinding: {
+              variableKey: 'summary',
+              variableLabel: 'Summary',
+            },
+            structuredOutputFields: [
+              { key: 'name', label: 'Name' },
+              { key: 'job', label: 'Job', description: 'Role' },
+            ],
+          },
+        ],
+      },
+      DEFAULT_MODEL_CATALOG
+    );
+
+    expect(template.steps[0].outputs).toEqual([
+      { key: 'summary', label: 'Summary', type: 'text' },
+      {
+        key: 'table_step-1',
+        label: 'Summary',
+        type: 'table',
+        tableSchema: {
+          columns: [
+            { key: 'name', label: 'Name', description: undefined },
+            { key: 'job', label: 'Job', description: 'Role' },
+          ],
+        },
+      },
+    ]);
+  });
+
   it('creates default settings with default providers and model catalog', () => {
     const settings = createDefaultSettings();
 

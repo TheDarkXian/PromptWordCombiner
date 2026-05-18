@@ -162,6 +162,83 @@ describe('projectExecutionService', () => {
     );
   });
 
+  it('parses multiple typed outputs from a JSON object on success', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(2500);
+
+    const nextProject = applyProjectStepSuccess({
+      project,
+      step: {
+        ...template.steps[0],
+        outputs: [
+          { key: 'summary', label: 'Summary', type: 'text' },
+          {
+            key: 'characters',
+            label: 'Characters',
+            type: 'table',
+            tableSchema: {
+              columns: [
+                { key: 'name', label: 'Name' },
+                { key: 'job', label: 'Job' },
+              ],
+            },
+          },
+        ],
+      },
+      output: JSON.stringify({
+        summary: 'A quiet cast.',
+        characters: [
+          { name: 'Lin', job: 'Engineer', ignored: 'extra' },
+          { name: 'Mo', job: 42 },
+        ],
+      }),
+      logBase: {
+        id: 'run_multi',
+        createdAt: 1000,
+        providerType: 'openai',
+        providerLabel: 'OpenAI Main',
+        modelName: 'gpt-4.1',
+        modelLabel: 'GPT 4.1',
+        systemPrompt: 'System',
+        userPrompt: 'Write about Moonlit market',
+        temperature: 0.7,
+        maxTokens: 400,
+        rawResponse: undefined,
+      },
+    });
+
+    expect(nextProject.variables).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'summary',
+          type: 'text',
+          value: 'A quiet cast.',
+          sourceRef: 'step-1:summary',
+        }),
+        expect.objectContaining({
+          key: 'characters',
+          type: 'table',
+          sourceRef: 'step-1:characters',
+          tableValue: expect.objectContaining({
+            rows: [
+              { id: 'row_step-1_characters_1', cells: { name: 'Lin', job: 'Engineer' } },
+              { id: 'row_step-1_characters_2', cells: { name: 'Mo', job: '42' } },
+            ],
+          }),
+        }),
+      ])
+    );
+    expect(nextProject.variableTables?.[0]).toEqual(
+      expect.objectContaining({
+        key: 'characters',
+        sourceStepId: 'step-1',
+        rows: [
+          { id: 'row_step-1_characters_1', cells: { name: 'Lin', job: 'Engineer' } },
+          { id: 'row_step-1_characters_2', cells: { name: 'Mo', job: '42' } },
+        ],
+      })
+    );
+  });
+
   it('appends an error log without mutating outputs on failure', () => {
     const nextProject = applyProjectStepError({
       project: {

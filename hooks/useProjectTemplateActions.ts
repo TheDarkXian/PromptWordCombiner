@@ -2,6 +2,7 @@ import { Dispatch, SetStateAction, useCallback } from 'react';
 import { normalizeProject, syncProjectVariables } from '../domain/projectDomain';
 import { normalizeTemplate } from '../domain/templateDomain';
 import { parseBatchProjectSeeds } from '../services/variableTableService';
+import { mergeVariableTablesForTemplate } from '../services/variableTableService.runtime';
 import {
   AppSettings,
   ExecutionPresetModelRefStrategy,
@@ -102,6 +103,7 @@ export const useProjectTemplateActions = ({
           return {
             ...updatedProject,
             lastModifiedAt: Date.now(),
+            variableTables: mergeVariableTablesForTemplate(updatedProject, template),
             variables: syncProjectVariables(updatedProject, template),
           };
         })
@@ -127,6 +129,7 @@ export const useProjectTemplateActions = ({
         customInputs: [],
         stepOutputs: {},
         stepStructuredOutputs: {},
+        variableTables: [],
         stepOutputMeta: {},
         stepRunLogs: {},
         stepOverrides: {},
@@ -135,6 +138,7 @@ export const useProjectTemplateActions = ({
 
       return {
         ...newProjectBase,
+        variableTables: mergeVariableTablesForTemplate(newProjectBase, template),
         variables: syncProjectVariables(newProjectBase, template),
       };
     },

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   DEEPSEEK_EXECUTION_PRESETS,
   DEEPSEEK_SYSTEM_PROMPT_PRESETS,
@@ -15,7 +15,6 @@ import {
   StepExecutionConfig,
   StepOutputBinding,
   StructuredOutputFieldDefinition,
-  StructuredOutputVariableBinding,
   Template,
   TemplateInput,
   TemplateModelRef,
@@ -25,6 +24,7 @@ import {
 import { resolveStepExecutionAvailability } from '../services/modelService';
 import { t } from '../services/i18n';
 import { Button } from './Button';
+import { AutoResizeTextarea } from './common/AutoResizeTextarea';
 import { TemplateInputsPanel } from './template-editor/TemplateInputsPanel';
 import { TemplateModelRefsPanel } from './template-editor/TemplateModelRefsPanel';
 import { TemplateBlueprintCanvas } from './template-editor/TemplateBlueprintCanvas';
@@ -138,6 +138,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 }) => {
   const [editedTemplate, setEditedTemplate] = useState<Template>(cloneTemplate(template));
   const [selectedStepIds, setSelectedStepIds] = useState<string[]>([]);
+  const [inspectedStepId, setInspectedStepId] = useState<string | null>(null);
   const [selectionModelRefId, setSelectionModelRefId] = useState<string>('');
   const [copiedExecutionConfig, setCopiedExecutionConfig] = useState<{
     sourceStepId: string;
@@ -146,8 +147,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   } | null>(null);
   const [openStepMenuId, setOpenStepMenuId] = useState<string | null>(null);
   const [expandedExecutionByStepId, setExpandedExecutionByStepId] = useState<Record<string, boolean>>({});
-  const [expandedBindingByStepId, setExpandedBindingByStepId] = useState<Record<string, boolean>>({});
-  const [expandedStructuredByStepId, setExpandedStructuredByStepId] = useState<Record<string, boolean>>({});
   const [selectedExecutionPresetByStepId, setSelectedExecutionPresetByStepId] = useState<Record<string, string>>({});
   const [savingExecutionPresetStepId, setSavingExecutionPresetStepId] = useState<string | null>(null);
   const [executionPresetDraft, setExecutionPresetDraft] = useState<{
@@ -166,22 +165,28 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   const [detailsPanelVisible, setDetailsPanelVisible] = useState(true);
   const [blueprintActiveTool, setBlueprintActiveTool] = useState<BlueprintActiveTool>('move');
   const [minimapCollapsed, setMinimapCollapsed] = useState(false);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<string>('blueprint');
+  const [openFunctionStepIds, setOpenFunctionStepIds] = useState<string[]>([]);
   const promptTextareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const detailsScrollRef = useRef<HTMLDivElement | null>(null);
+  const detailsScrollByStepIdRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     setEditedTemplate(cloneTemplate(template));
     setSelectedStepIds([]);
+    setInspectedStepId(null);
     setSelectionModelRefId('');
     setCopiedExecutionConfig(null);
     setOpenStepMenuId(null);
     setExpandedExecutionByStepId({});
-    setExpandedBindingByStepId({});
-    setExpandedStructuredByStepId({});
     setSelectedExecutionPresetByStepId({});
     setSavingExecutionPresetStepId(null);
     setAutocompleteState(null);
     setShowBlueprintCreatePanel(false);
     setBlueprintCommandHistory(createBlueprintCommandHistory());
+    setActiveWorkspaceTab('blueprint');
+    setOpenFunctionStepIds([]);
+    detailsScrollByStepIdRef.current = {};
   }, [template]);
 
   const modelRefs = editedTemplate.modelRefs || [];
@@ -206,6 +211,74 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     [editedTemplate.inputs, editedTemplate.steps]
   );
 
+  const saveCurrentDetailsScroll = useCallback(() => {
+    if (!inspectedStepId || !detailsScrollRef.current) return;
+    detailsScrollByStepIdRef.current[inspectedStepId] = detailsScrollRef.current.scrollTop;
+  }, [inspectedStepId]);
+
+  const handleBlueprintSelectionChange = useCallback((stepIds: string[]) => {
+    saveCurrentDetailsScroll();
+    const nextStepId = stepIds[0];
+    if (nextStepId && editedTemplate.steps.some((step) => step.id === nextStepId)) {
+      setInspectedStepId(nextStepId);
+    }
+    setSelectedStepIds(stepIds);
+  }, [editedTemplate.steps, saveCurrentDetailsScroll]);
+
+  const openFunctionTab = useCallback((stepId: string) => {
+    if (!editedTemplate.steps.some((step) => step.id === stepId)) return;
+    setOpenFunctionStepIds((prev) => (prev.includes(stepId) ? prev : [...prev, stepId]));
+    setActiveWorkspaceTab(`step:${stepId}`);
+    setInspectedStepId(stepId);
+    setSelectedStepIds([stepId]);
+  }, [editedTemplate.steps]);
+
+  const closeFunctionTab = useCallback((stepId: string) => {
+    setOpenFunctionStepIds((prev) => prev.filter((id) => id !== stepId));
+    setActiveWorkspaceTab((prev) => (prev === `step:${stepId}` ? 'blueprint' : prev));
+  }, []);
+
+  useEffect(() => {
+    const nextStepId = selectedStepIds[0];
+    if (nextStepId && editedTemplate.steps.some((step) => step.id === nextStepId)) {
+      setInspectedStepId(nextStepId);
+    }
+  }, [editedTemplate.steps, selectedStepIds]);
+
+  useEffect(() => {
+    if (inspectedStepId && !editedTemplate.steps.some((step) => step.id === inspectedStepId)) {
+      setInspectedStepId(null);
+    }
+  }, [editedTemplate.steps, inspectedStepId]);
+
+  useLayoutEffect(() => {
+    const node = detailsScrollRef.current;
+    if (!node || !inspectedStepId) return;
+    const restore = () => {
+      node.scrollTop = detailsScrollByStepIdRef.current[inspectedStepId] || 0;
+    };
+    restore();
+    const frameOne = requestAnimationFrame(() => {
+      restore();
+      requestAnimationFrame(restore);
+    });
+    const timers = [50, 150, 300].map((delay) => window.setTimeout(restore, delay));
+    return () => {
+      cancelAnimationFrame(frameOne);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [inspectedStepId]);
+
+  useEffect(() => {
+    const existingStepIds = new Set(editedTemplate.steps.map((step) => step.id));
+    setOpenFunctionStepIds((prev) => prev.filter((stepId) => existingStepIds.has(stepId)));
+    setActiveWorkspaceTab((prev) => {
+      if (prev === 'blueprint') return prev;
+      const stepId = prev.replace(/^step:/, '');
+      return existingStepIds.has(stepId) ? prev : 'blueprint';
+    });
+  }, [editedTemplate.steps]);
+
   const variableAutocompleteItems = useMemo<VariableAutocompleteItem[]>(
     () => [
       ...editedTemplate.inputs
@@ -215,7 +288,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           key,
           label: key,
           sourceType: 'template_input' as const,
-          sourceLabel: language === 'zh-CN' ? 'Input' : 'Input',
+          sourceLabel: language === 'zh-CN' ? '模板变量' : 'Template variable',
         })),
       ...editedTemplate.steps
         .map((step) => {
@@ -225,7 +298,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
             key,
             label: step.outputBinding?.variableLabel?.trim() || key,
             sourceType: 'step_output' as const,
-            sourceLabel: 'Step output',
+            sourceLabel: language === 'zh-CN' ? '步骤保存变量' : 'Saved variable',
           };
         })
         .filter((item): item is VariableAutocompleteItem => Boolean(item)),
@@ -238,7 +311,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               key,
               label: binding.variableLabel?.trim() || key,
               sourceType: 'step_output' as const,
-              sourceLabel: 'Step output',
+              sourceLabel: language === 'zh-CN' ? '表变量字段' : 'Table variable field',
             };
           })
         )
@@ -383,7 +456,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         nextBinding.variableKey = '';
         nextBinding.variableLabel = '';
       }
-      steps[index] = { ...steps[index], outputBinding: nextBinding };
+      steps[index] = { ...steps[index], outputBinding: nextBinding, outputs: undefined };
       return { ...prev, steps };
     });
   };
@@ -433,7 +506,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       const currentStep = steps[index];
       const fields = [...(currentStep.structuredOutputFields || [])];
       fields[fieldIndex] = { ...fields[fieldIndex], ...updates };
-      steps[index] = { ...currentStep, structuredOutputFields: fields };
+      steps[index] = { ...currentStep, structuredOutputFields: fields, outputs: undefined };
       return { ...prev, steps };
     });
   };
@@ -445,13 +518,12 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       const fields = [...(currentStep.structuredOutputFields || [])];
       fields.push({
         key: `field_${fields.length + 1}`,
-        label: language === 'zh-CN' ? `闂傚倸鍊峰ù鍥敋瑜忛埀顒佺▓閺呮繄鍒掑▎鎾崇婵＄偛鐨烽崑鎾诲礃椤旂厧鑰垮┑鐐村灱妞存悂寮?${fields.length + 1}` : `Field ${fields.length + 1}`,
+        label: language === 'zh-CN' ? `字段 ${fields.length + 1}` : `Field ${fields.length + 1}`,
         description: '',
       });
-      steps[index] = { ...currentStep, structuredOutputFields: fields };
+      steps[index] = { ...currentStep, structuredOutputFields: fields, outputs: undefined };
       return { ...prev, steps };
     });
-    setExpandedStructuredByStepId((prev) => ({ ...prev, [editedTemplate.steps[index].id]: true }));
   };
 
   const removeStructuredOutputField = (index: number, fieldIndex: number) => {
@@ -468,66 +540,33 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         ...currentStep,
         structuredOutputFields: nextFields,
         structuredOutputBindings: nextBindings,
+        outputs: undefined,
       };
       return { ...prev, steps };
     });
   };
 
-  const moveStructuredOutputField = (
+  const reorderStructuredOutputField = (
     index: number,
-    fieldIndex: number,
-    direction: 'up' | 'down'
+    fromIndex: number,
+    toIndex: number
   ) => {
     setEditedTemplate((prev) => {
       const steps = [...prev.steps];
       const currentStep = steps[index];
       const fields = [...(currentStep.structuredOutputFields || [])];
-      const targetIndex = direction === 'up' ? fieldIndex - 1 : fieldIndex + 1;
-      if (targetIndex < 0 || targetIndex >= fields.length) return prev;
-      [fields[fieldIndex], fields[targetIndex]] = [fields[targetIndex], fields[fieldIndex]];
-      steps[index] = { ...currentStep, structuredOutputFields: fields };
-      return { ...prev, steps };
-    });
-  };
-
-  const updateStructuredOutputBinding = (
-    index: number,
-    fieldKey: string,
-    updates: Partial<StructuredOutputVariableBinding>
-  ) => {
-    setEditedTemplate((prev) => {
-      const steps = [...prev.steps];
-      const currentStep = steps[index];
-      const bindings = [...(currentStep.structuredOutputBindings || [])];
-      const bindingIndex = bindings.findIndex((binding) => binding.fieldKey === fieldKey);
-      const currentBinding =
-        bindingIndex >= 0
-          ? bindings[bindingIndex]
-          : { fieldKey, variableKey: '', variableLabel: '' };
-      const nextBinding = {
-        ...currentBinding,
-        ...updates,
-      };
-
-      if (!nextBinding.variableKey?.trim()) {
-        if (bindingIndex >= 0) {
-          bindings.splice(bindingIndex, 1);
-        }
-      } else if (bindingIndex >= 0) {
-        bindings[bindingIndex] = {
-          fieldKey,
-          variableKey: nextBinding.variableKey.trim(),
-          variableLabel: nextBinding.variableLabel || '',
-        };
-      } else {
-        bindings.push({
-          fieldKey,
-          variableKey: nextBinding.variableKey.trim(),
-          variableLabel: nextBinding.variableLabel || '',
-        });
+      if (
+        fromIndex === toIndex ||
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= fields.length ||
+        toIndex >= fields.length
+      ) {
+        return prev;
       }
-
-      steps[index] = { ...currentStep, structuredOutputBindings: bindings };
+      const [movedField] = fields.splice(fromIndex, 1);
+      fields.splice(toIndex, 0, movedField);
+      steps[index] = { ...currentStep, structuredOutputFields: fields, outputs: undefined };
       return { ...prev, steps };
     });
   };
@@ -694,17 +733,23 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   };
 
   const toggleStepSelection = (stepId: string) => {
-    setSelectedStepIds((prev) =>
-      prev.includes(stepId) ? prev.filter((currentId) => currentId !== stepId) : [...prev, stepId]
-    );
+    saveCurrentDetailsScroll();
+    setSelectedStepIds((prev) => {
+      const next = prev.includes(stepId) ? prev.filter((currentId) => currentId !== stepId) : [...prev, stepId];
+      if (next[0] && editedTemplate.steps.some((step) => step.id === next[0])) {
+        setInspectedStepId(next[0]);
+      }
+      return next;
+    });
   };
 
   const clearSelectedSteps = () => {
+    saveCurrentDetailsScroll();
     setSelectedStepIds([]);
   };
 
   const selectAllSteps = () => {
-    setSelectedStepIds(editedTemplate.steps.map((step) => step.id));
+    handleBlueprintSelectionChange(editedTemplate.steps.map((step) => step.id));
   };
 
   const deleteSelectedSteps = useCallback(() => {
@@ -726,12 +771,12 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         );
         return after;
       });
-      setSelectedStepIds([]);
+      handleBlueprintSelectionChange([]);
     });
-  }, [language, onRequestConfirm, selectedStepIds]);
+  }, [handleBlueprintSelectionChange, language, onRequestConfirm, selectedStepIds]);
   const selectStepsByModelRef = () => {
     if (!selectionModelRefId) return;
-    setSelectedStepIds(
+    handleBlueprintSelectionChange(
       editedTemplate.steps
         .filter((step) => normalizeExecution(step.execution).modelRefId === selectionModelRefId)
         .map((step) => step.id)
@@ -774,17 +819,17 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   };
 
   const isPromptCollapsedByDefault = (stepId: string) => {
-    const expandedStepIds = editedTemplate.blueprint?.selection?.expandedPromptStepIds || [];
-    return !expandedStepIds.includes(stepId);
+    const collapsedStepIds = editedTemplate.blueprint?.selection?.collapsedPromptStepIds || [];
+    return collapsedStepIds.includes(stepId);
   };
 
   const togglePromptCollapsed = (stepId: string) => {
     setEditedTemplate((prev) => {
-      const expandedStepIds = prev.blueprint?.selection?.expandedPromptStepIds || [];
-      const isExpanded = expandedStepIds.includes(stepId);
-      const nextExpanded = isExpanded
-        ? expandedStepIds.filter((id) => id !== stepId)
-        : [...expandedStepIds, stepId];
+      const collapsedStepIds = prev.blueprint?.selection?.collapsedPromptStepIds || [];
+      const isCollapsed = collapsedStepIds.includes(stepId);
+      const nextCollapsed = isCollapsed
+        ? collapsedStepIds.filter((id) => id !== stepId)
+        : [...collapsedStepIds, stepId];
       return {
         ...prev,
         blueprint: {
@@ -792,7 +837,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           version: 2,
           selection: {
             ...(prev.blueprint?.selection || {}),
-            expandedPromptStepIds: nextExpanded,
+            collapsedPromptStepIds: nextCollapsed,
           },
         },
       };
@@ -875,14 +920,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
   const toggleExecutionSection = (stepId: string) => {
     setExpandedExecutionByStepId((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
-  };
-
-  const toggleBindingSection = (stepId: string) => {
-    setExpandedBindingByStepId((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
-  };
-
-  const toggleStructuredSection = (stepId: string) => {
-    setExpandedStructuredByStepId((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
   };
 
   const commitBlueprintCommand = (
@@ -1029,6 +1066,142 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       ],
     },
   ];
+
+  const activeFunctionStepId = activeWorkspaceTab.startsWith('step:')
+    ? activeWorkspaceTab.slice('step:'.length)
+    : undefined;
+  const activeFunctionStepIndex =
+    activeFunctionStepId !== undefined
+      ? editedTemplate.steps.findIndex((step) => step.id === activeFunctionStepId)
+      : -1;
+  const activeFunctionStep =
+    activeFunctionStepIndex >= 0 ? editedTemplate.steps[activeFunctionStepIndex] : undefined;
+
+  const renderFunctionTabPanel = () => {
+    if (!activeFunctionStep || activeFunctionStepIndex < 0) {
+      return (
+        <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-950/40 text-sm text-slate-500">
+          {language === 'zh-CN' ? '这个函数标签已经失效。' : 'This function tab is no longer available.'}
+        </div>
+      );
+    }
+
+    const execution = normalizeExecution(activeFunctionStep.execution);
+    const stepType: StepType =
+      activeFunctionStep.stepType || (execution.modelRefId ? 'text_generation' : 'manual');
+    const outputKey = activeFunctionStep.outputBinding?.variableKey?.trim();
+
+    return (
+      <div className="flex h-full min-h-0 flex-col rounded-lg border border-slate-800 bg-slate-950/50">
+        <div className="shrink-0 border-b border-slate-800 px-4 py-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">
+                {language === 'zh-CN' ? '提示词函数' : 'Prompt function'}
+              </div>
+              <input
+                value={activeFunctionStep.name}
+                onChange={(event) => updateStep(activeFunctionStepIndex, { name: event.target.value })}
+                className="w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 text-base font-bold text-white outline-none transition-colors focus:border-cyan-500"
+                placeholder={t(language, 'templateEditor.stepName')}
+              />
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 pt-5">
+              <span className="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] text-slate-300">
+                {getStepTypeLabel(language, stepType)}
+              </span>
+              {outputKey && (
+                <span className="rounded-full border border-violet-500/20 bg-violet-500/10 px-2 py-1 font-mono text-[10px] text-violet-300">
+                  {`{{${outputKey}}}`}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setActiveWorkspaceTab('blueprint')}
+                className="rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-300 transition-colors hover:border-cyan-500 hover:text-white"
+              >
+                {language === 'zh-CN' ? '回到蓝图' : 'Back to blueprint'}
+              </button>
+            </div>
+          </div>
+          <input
+            value={activeFunctionStep.description || ''}
+            onChange={(event) => updateStep(activeFunctionStepIndex, { description: event.target.value })}
+            className="mt-3 w-full rounded border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-300 outline-none transition-colors focus:border-cyan-500"
+            placeholder={t(language, 'templateEditor.optionalDescription')}
+          />
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col p-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <label className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+              {language === 'zh-CN' ? '函数体' : 'Function body'}
+            </label>
+            <div className="text-[11px] text-slate-500">
+              {language === 'zh-CN'
+                ? '函数体中用 {{变量}} 引用输入变量'
+                : 'Use {{variable}} in the function body to reference input variables'}
+            </div>
+          </div>
+          <div className="relative min-h-0 flex-1 rounded-xl border border-slate-800 bg-slate-950 p-3">
+            <AutoResizeTextarea
+              className="h-full rounded-md border border-slate-800 bg-slate-950/70 p-3 font-mono text-sm leading-relaxed text-slate-300"
+              minHeight={520}
+              allowManualResize
+              value={activeFunctionStep.content}
+              onChange={(value) => handlePromptContentChange(activeFunctionStepIndex, activeFunctionStep.id, value)}
+              onKeyDown={(event) => handlePromptKeyDown(event, activeFunctionStepIndex, activeFunctionStep.id)}
+              onClick={() => syncAutocomplete(activeFunctionStep.id, activeFunctionStep.content)}
+              onSelect={() => syncAutocomplete(activeFunctionStep.id, activeFunctionStep.content)}
+              onBlur={() =>
+                setTimeout(
+                  () => setAutocompleteState((prev) => (prev?.stepId === activeFunctionStep.id ? null : prev)),
+                  120
+                )
+              }
+              textareaRef={(node) => {
+                promptTextareaRefs.current[activeFunctionStep.id] = node;
+              }}
+              placeholder={t(language, 'templateEditor.promptPlaceholder')}
+            />
+            {autocompleteState?.stepId === activeFunctionStep.id &&
+              filteredAutocompleteItems.length > 0 && (
+                <div className="absolute left-4 right-4 top-4 z-20 rounded-xl border border-slate-700 bg-slate-900/95 p-2 shadow-2xl backdrop-blur">
+                  <div className="mb-2 px-2 text-[11px] text-slate-500">
+                    {language === 'zh-CN' ? '变量补全' : 'Variable suggestions'}
+                  </div>
+                  <div className="max-h-56 space-y-1 overflow-y-auto">
+                    {filteredAutocompleteItems.map((item, itemIndex) => (
+                      <button
+                        key={`${activeFunctionStep.id}_${item.key}_${itemIndex}`}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          applyAutocompleteItem(activeFunctionStepIndex, activeFunctionStep.id, item);
+                        }}
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors ${
+                          autocompleteState.selectedIndex === itemIndex
+                            ? 'bg-cyan-500/15 text-cyan-200'
+                            : 'text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <div>
+                          <div className="font-mono text-xs">{`{{${item.key}}}`}</div>
+                          <div className="text-[11px] text-slate-500">{item.label}</div>
+                        </div>
+                        <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] text-slate-400">
+                          {item.sourceLabel}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-900">
@@ -1181,6 +1354,51 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               )}
             </div>
             </div>
+            <div className="mb-2 flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-800 pb-2 no-scrollbar">
+              <button
+                type="button"
+                onClick={() => setActiveWorkspaceTab('blueprint')}
+                className={`flex shrink-0 items-center gap-2 rounded-t-md border px-3 py-2 text-xs font-bold transition-colors ${
+                  activeWorkspaceTab === 'blueprint'
+                    ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200'
+                    : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-white'
+                }`}
+              >
+                {language === 'zh-CN' ? '蓝图' : 'Blueprint'}
+              </button>
+              {openFunctionStepIds.map((stepId) => {
+                const step = editedTemplate.steps.find((item) => item.id === stepId);
+                if (!step) return null;
+                const isActive = activeWorkspaceTab === `step:${stepId}`;
+                return (
+                  <div
+                    key={`workspace_tab_${stepId}`}
+                    className={`group flex shrink-0 items-center gap-2 rounded-t-md border px-3 py-2 text-xs font-bold transition-colors ${
+                      isActive
+                        ? 'border-violet-500/40 bg-violet-500/10 text-violet-200'
+                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-white'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setActiveWorkspaceTab(`step:${stepId}`)}
+                      className="max-w-40 truncate text-left"
+                    >
+                      {step.name || t(language, 'templateEditor.untitledStep')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={language === 'zh-CN' ? '关闭函数标签' : 'Close function tab'}
+                      onClick={() => closeFunctionTab(stepId)}
+                      className="rounded px-1 text-slate-500 transition-colors hover:bg-slate-800 hover:text-red-300"
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {activeWorkspaceTab === 'blueprint' ? (
             <SplitPane
               className="min-h-0 w-full flex-1"
               direction="horizontal"
@@ -1199,7 +1417,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                         : { ...editedTemplate, blueprint: mergeBlueprintLayout(editedTemplate) }
                     }
                     selectedStepIds={selectedStepIds}
-                    onSelectSteps={setSelectedStepIds}
+                    onSelectSteps={handleBlueprintSelectionChange}
                     onMoveNodes={(stepIds, dx, dy) =>
                       commitBlueprintCommand('move_nodes', (prev) => {
                         let next = prev;
@@ -1224,6 +1442,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                     onTidyLayout={tidyBlueprint}
                     onResetLayout={resetBlueprintLayout}
                     onCreateStepRequest={() => setShowBlueprintCreatePanel(true)}
+                    onOpenStepTab={openFunctionTab}
                     debugState={undefined}
                     activeTool={blueprintActiveTool}
                     onActiveToolChange={setBlueprintActiveTool}
@@ -1233,14 +1452,21 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                 </div>
               }
               second={
-                <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto no-scrollbar">
+                <div
+                  ref={detailsScrollRef}
+                  className="flex h-full min-h-0 w-full flex-col overflow-y-auto no-scrollbar"
+                  onScroll={(event) => {
+                    if (!inspectedStepId) return;
+                    detailsScrollByStepIdRef.current[inspectedStepId] = event.currentTarget.scrollTop;
+                  }}
+                >
                   <div className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
-                    {language === 'zh-CN' ? '璇︽儏闈㈡澘' : 'Details Panel'}
+                    {language === 'zh-CN' ? '详情面板' : 'Details Panel'}
                   </div>
                   {showBlueprintCreatePanel && (
                     <div className="mb-3 rounded-lg border border-slate-700 bg-slate-950 p-3">
                       <div className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
-                        {language === 'zh-CN' ? '鍒涘缓鑺傜偣' : 'Create node'}
+                        {language === 'zh-CN' ? '创建节点' : 'Create node'}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {(['text_generation', 'manual', 'external'] as const).map((stepType) => (
@@ -1277,7 +1503,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                                 };
                                 return { ...next, blueprint: mergeBlueprintLayout(next) };
                               });
-                              setSelectedStepIds([nextStepId]);
+                              handleBlueprintSelectionChange([nextStepId]);
                               setShowBlueprintCreatePanel(false);
                             }}
                             className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-cyan-500"
@@ -1294,9 +1520,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                       </div>
                     </div>
                   )}
-                  <BlueprintNodeInspector language={language} selectedStepId={selectedStepIds[0]}>
+                  <BlueprintNodeInspector language={language} selectedStepId={inspectedStepId || undefined}>
                   {(() => {
-                    const stepId = selectedStepIds[0];
+                    const stepId = inspectedStepId;
                     const stepIndex = editedTemplate.steps.findIndex((item) => item.id === stepId);
                     if (!stepId || stepIndex < 0) return null;
                     const step = editedTemplate.steps[stepIndex];
@@ -1325,17 +1551,10 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                     const recommendedSystemPromptPreset = getRecommendedSystemPromptPresetForModelRef(execution.modelRefId);
                     const isExecutionExpanded =
                       Boolean(expandedExecutionByStepId[step.id]) || savingExecutionPresetStepId === step.id;
-                    const isBindingExpanded = Boolean(expandedBindingByStepId[step.id]);
-                    const isStructuredExpanded = Boolean(expandedStructuredByStepId[step.id]);
                     const selectedExecutionPreset = enabledExecutionPresetTemplates.find(
                       (preset) => preset.id === selectedExecutionPresetByStepId[step.id]
                     );
                     const structuredFields = step.structuredOutputFields || [];
-                    const structuredBindings = step.structuredOutputBindings || [];
-                    const structuredSummary = structuredBindings
-                      .filter((entry) => entry.fieldKey.trim() && entry.variableKey.trim())
-                      .map((entry) => `${entry.fieldKey} -> {{${entry.variableKey}}}`)
-                      .join(' 闂?');
                     const executionSummaryParts = [
                       getStepTypeLabel(language, stepType),
                       autoRunEnabled ? t(language, 'templateEditor.autoRunEnabled') : undefined,
@@ -1357,8 +1576,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                         isCollapsed={isCollapsed}
                         isSelected={isSelected}
                         isExecutionExpanded={isExecutionExpanded}
-                        isBindingExpanded={isBindingExpanded}
-                        isStructuredExpanded={isStructuredExpanded}
                         availability={availability}
                         binding={binding}
                         execution={execution}
@@ -1374,8 +1591,6 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                         enabledExecutionPresetTemplates={enabledExecutionPresetTemplates}
                         executionSummaryParts={executionSummaryParts}
                         structuredFields={structuredFields}
-                        structuredBindings={structuredBindings}
-                        structuredSummary={structuredSummary}
                         copiedExecutionConfigSourceStepId={copiedExecutionConfig?.sourceStepId}
                         copiedExecutionConfigSourceStepName={copiedExecutionConfig?.sourceStepName}
                         savingExecutionPresetStepId={savingExecutionPresetStepId}
@@ -1384,6 +1599,8 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                         filteredAutocompleteItems={filteredAutocompleteItems}
                         onToggleSelection={() => toggleStepSelection(step.id)}
                         onToggleCollapse={() => undefined}
+                        onOpenFunctionTab={() => openFunctionTab(step.id)}
+                        isFunctionTabOpen={openFunctionStepIds.includes(step.id)}
                         onMoveStep={(direction) => moveStep(stepIndex, direction)}
                         onRemoveStep={() => removeStep(stepIndex)}
                         onToggleStepMenu={() => setOpenStepMenuId((current) => (current === step.id ? null : step.id))}
@@ -1424,14 +1641,11 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                         onUpdateStepExecution={(updates) => updateStepExecution(stepIndex, updates)}
                         onUpdateStepMeta={(updates) => updateStepMeta(stepIndex, updates)}
                         onApplyStepModelRef={(modelRefId) => applyStepModelRef(stepIndex, modelRefId)}
-                        onToggleBindingSection={() => toggleBindingSection(step.id)}
-                        onToggleStructuredSection={() => toggleStructuredSection(step.id)}
                         onUpdateStepBinding={(updates) => updateStepBinding(stepIndex, updates)}
                         onAddStructuredField={() => addStructuredOutputField(stepIndex)}
                         onUpdateStructuredField={(fieldIndex, updates) => updateStructuredOutputField(stepIndex, fieldIndex, updates)}
-                        onMoveStructuredField={(fieldIndex, direction) => moveStructuredOutputField(stepIndex, fieldIndex, direction)}
+                        onReorderStructuredField={(fromIndex, toIndex) => reorderStructuredOutputField(stepIndex, fromIndex, toIndex)}
                         onRemoveStructuredField={(fieldIndex) => removeStructuredOutputField(stepIndex, fieldIndex)}
-                        onUpdateStructuredBinding={(fieldKey, updates) => updateStructuredOutputBinding(stepIndex, fieldKey, updates)}
                         getExecutionBadgeClassName={getExecutionBadgeClassName}
                       />
                     );
@@ -1440,6 +1654,9 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                 </div>
               }
             />
+            ) : (
+              renderFunctionTabPanel()
+            )}
           </div>
         }
       />

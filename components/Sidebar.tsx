@@ -24,6 +24,7 @@ interface SidebarProps {
   onDeleteLocalVariable: (varId: string) => void;
   onImportVariableTable: (content: string) => void;
   onExportVariableTable: (format: 'json' | 'csv') => void;
+  onUpdateVariableTableCell: (tableId: string, rowId: string, columnKey: string, value: string) => void;
   onBakeDownload: () => void;
   onRequestAlert: (title: string, message: string) => void;
   activeTab: SidebarTab;
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteLocalVariable,
   onImportVariableTable,
   onExportVariableTable,
+  onUpdateVariableTableCell,
   onBakeDownload,
   onRequestAlert,
   activeTab,
@@ -215,6 +217,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onDeleteLocalVariable={onDeleteLocalVariable}
                   onImportVariableTable={onImportVariableTable}
                   onExportVariableTable={onExportVariableTable}
+                  onUpdateVariableTableCell={onUpdateVariableTableCell}
                   onRequestAlert={onRequestAlert}
                   setActiveVariableTab={(value) => {
                     if (typeof value === 'function') {

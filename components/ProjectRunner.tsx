@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ExecuteProjectStepOptions,
   ExecuteProjectStepResult,
@@ -117,6 +117,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
   const [expandedResults, setExpandedResults] = useState<Record<string, boolean>>({});
+  const [inspectedStepId, setInspectedStepId] = useState<string | null>(null);
   const [runStates, setRunStates] = useState<Record<string, StepRunState>>({});
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [producerPreflight, setProducerPreflight] = useState<ProducerPreflight | null>(null);
@@ -133,6 +134,8 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   const [producerRunProgress, setProducerRunProgress] = useState<ProducerRunProgressState>(
     createInitialProducerRunProgress()
   );
+  const detailsScrollRef = useRef<HTMLDivElement | null>(null);
+  const detailsScrollByStepIdRef = useRef<Record<string, number>>({});
   const stopProducerRunRef = useRef(false);
   const structuredOverwriteResolverRef = useRef<
     ((decision: 'overwrite' | 'skip') => void) | null
@@ -147,6 +150,51 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
       ),
     [project.stepRunLogs]
   );
+
+  const saveCurrentDetailsScroll = () => {
+    if (!inspectedStepId || !detailsScrollRef.current) return;
+    detailsScrollByStepIdRef.current[inspectedStepId] = detailsScrollRef.current.scrollTop;
+  };
+
+  const handleBlueprintSelectionChange = (stepIds: string[]) => {
+    saveCurrentDetailsScroll();
+    const nextStepId = stepIds[0];
+    if (nextStepId && template.steps.some((step) => step.id === nextStepId)) {
+      setInspectedStepId(nextStepId);
+    }
+    onSelectedStepIdsChange(stepIds);
+  };
+
+  useEffect(() => {
+    const nextStepId = selectedStepIds[0];
+    if (nextStepId && template.steps.some((step) => step.id === nextStepId)) {
+      setInspectedStepId(nextStepId);
+    }
+  }, [selectedStepIds, template.steps]);
+
+  useEffect(() => {
+    if (inspectedStepId && !template.steps.some((step) => step.id === inspectedStepId)) {
+      setInspectedStepId(null);
+    }
+  }, [inspectedStepId, template.steps]);
+
+  useLayoutEffect(() => {
+    const node = detailsScrollRef.current;
+    if (!node || !inspectedStepId) return;
+    const restore = () => {
+      node.scrollTop = detailsScrollByStepIdRef.current[inspectedStepId] || 0;
+    };
+    restore();
+    const frameOne = requestAnimationFrame(() => {
+      restore();
+      requestAnimationFrame(restore);
+    });
+    const timers = [50, 150, 300].map((delay) => window.setTimeout(restore, delay));
+    return () => {
+      cancelAnimationFrame(frameOne);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [inspectedStepId]);
 
   const runnerTemplateForBlueprint = useMemo(
     () => ({
@@ -798,7 +846,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                     language={language}
                     template={runnerTemplateForBlueprint}
                     selectedStepIds={selectedStepIds}
-                    onSelectSteps={onSelectedStepIdsChange}
+                    onSelectSteps={handleBlueprintSelectionChange}
                     onMoveNodes={moveBlueprintNodes}
                     onConnect={() => undefined}
                     onRemoveEdge={() => undefined}
@@ -822,10 +870,17 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                 </div>
               }
               second={
-                <div className="flex h-full w-full justify-center overflow-y-auto">
+                <div
+                  ref={detailsScrollRef}
+                  className="flex h-full min-h-0 w-full justify-center overflow-y-auto"
+                  onScroll={(event) => {
+                    if (!inspectedStepId) return;
+                    detailsScrollByStepIdRef.current[inspectedStepId] = event.currentTarget.scrollTop;
+                  }}
+                >
                   <div className="w-full animate-in fade-in slide-in-from-right-1 duration-150">
                     {(() => {
-                      const stepId = selectedStepIds[0];
+                      const stepId = inspectedStepId;
                       const stepIndex = template.steps.findIndex((item) => item.id === stepId);
                       if (!stepId || stepIndex < 0) {
                         return (
@@ -852,46 +907,56 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                         );
                       }
                       const step = template.steps[stepIndex];
+                      const isShowingLastViewed = selectedStepIds[0] !== step.id;
                       return (
-                        <ProjectStepCard
-                          key={step.id}
-                          index={stepIndex}
-                          language={language}
-                          project={project}
-                          template={template}
-                          step={step}
-                          modelCatalog={modelCatalog}
-                          providerConfigs={providerConfigs}
-                          viewMode={viewMode}
-                          isCollapsed={Boolean(collapsedSteps[step.id])}
-                          isLogsExpanded={Boolean(expandedLogs[step.id])}
-                          isResultExpanded={Boolean(expandedResults[step.id])}
-                          runState={runStates[step.id] || 'idle'}
-                          runError={runErrors[step.id]}
-                          producerState={producerStepStates[step.id]?.state || 'idle'}
-                          producerStateReason={producerStepStates[step.id]?.reason}
-                          structuredParseState={structuredParseStates[step.id]?.state || 'idle'}
-                          structuredParseMessage={structuredParseStates[step.id]?.message}
-                          onToggleCollapse={() => setCollapsedSteps((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
-                          onToggleLogs={() => setExpandedLogs((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
-                          onToggleResults={() => setExpandedResults((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
-                          onRunStep={runStep}
-                          onUpdateProject={onUpdateProject}
-                          onUpdateTemplate={onUpdateTemplate}
-                          onClearStepRunLogs={onClearStepRunLogs}
-                          onRequestConfirm={onRequestConfirm}
-                          onQuickCopy={handleQuickCopy}
-                          onCopyLogText={handleCopyLogText}
-                          onRestoreLogOutput={restoreLogOutput}
-                          structuredOutputResultView={structuredOutputResultView}
-                          onStructuredOutputResultViewChange={onStructuredOutputResultViewChange}
-                          interpolate={interpolate}
-                          getVariableByKey={getVariableByKey}
-                          getStepStatus={getStepStatus}
-                          getStatusMeta={getStatusMeta}
-                          getRunStateMeta={getRunStateMeta}
-                          scrollToStep={scrollToStep}
-                        />
+                        <div>
+                          {isShowingLastViewed && (
+                            <div className="mb-2 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2 text-[11px] text-slate-400">
+                              {language === 'zh-CN'
+                                ? '当前显示上次查看的节点。点击节点可重新高亮，点击其他节点会切换详情。'
+                                : 'Showing the last inspected node. Select a node to highlight or switch details.'}
+                            </div>
+                          )}
+                          <ProjectStepCard
+                            key={step.id}
+                            index={stepIndex}
+                            language={language}
+                            project={project}
+                            template={template}
+                            step={step}
+                            modelCatalog={modelCatalog}
+                            providerConfigs={providerConfigs}
+                            viewMode={viewMode}
+                            isCollapsed={Boolean(collapsedSteps[step.id])}
+                            isLogsExpanded={Boolean(expandedLogs[step.id])}
+                            isResultExpanded={Boolean(expandedResults[step.id])}
+                            runState={runStates[step.id] || 'idle'}
+                            runError={runErrors[step.id]}
+                            producerState={producerStepStates[step.id]?.state || 'idle'}
+                            producerStateReason={producerStepStates[step.id]?.reason}
+                            structuredParseState={structuredParseStates[step.id]?.state || 'idle'}
+                            structuredParseMessage={structuredParseStates[step.id]?.message}
+                            onToggleCollapse={() => setCollapsedSteps((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
+                            onToggleLogs={() => setExpandedLogs((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
+                            onToggleResults={() => setExpandedResults((prev) => ({ ...prev, [step.id]: !prev[step.id] }))}
+                            onRunStep={runStep}
+                            onUpdateProject={onUpdateProject}
+                            onUpdateTemplate={onUpdateTemplate}
+                            onClearStepRunLogs={onClearStepRunLogs}
+                            onRequestConfirm={onRequestConfirm}
+                            onQuickCopy={handleQuickCopy}
+                            onCopyLogText={handleCopyLogText}
+                            onRestoreLogOutput={restoreLogOutput}
+                            structuredOutputResultView={structuredOutputResultView}
+                            onStructuredOutputResultViewChange={onStructuredOutputResultViewChange}
+                            interpolate={interpolate}
+                            getVariableByKey={getVariableByKey}
+                            getStepStatus={getStepStatus}
+                            getStatusMeta={getStatusMeta}
+                            getRunStateMeta={getRunStateMeta}
+                            scrollToStep={scrollToStep}
+                          />
+                        </div>
                       );
                     })()}
                   </div>

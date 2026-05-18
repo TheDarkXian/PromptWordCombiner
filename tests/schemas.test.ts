@@ -115,6 +115,7 @@ describe('schemas', () => {
     if (result.valid) {
       expect(result.data.projects[0].stepRunLogs).toEqual({});
       expect(result.data.projects[0].stepStructuredOutputs).toEqual({});
+      expect(result.data.projects[0].variableTables).toEqual([]);
     }
   });
 });

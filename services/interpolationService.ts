@@ -1,8 +1,9 @@
 import { Project, Template } from '../types';
+import { getVariableTableCellValue } from './variableTableService.runtime';
 
 export const interpolateText = (
   text: string,
-  project: Pick<Project, 'variables' | 'inputValues' | 'customInputs' | 'stepOutputs'>,
+  project: Pick<Project, 'variables' | 'variableTables' | 'inputValues' | 'customInputs' | 'stepOutputs'>,
   template: Pick<Template, 'inputs' | 'steps'>
 ): string => {
   if (!text) return '';
@@ -11,7 +12,12 @@ export const interpolateText = (
   const variableMap = Object.fromEntries(
     (project.variables || []).map((variable) => [variable.key, variable.value || ''])
   );
-  result = result.replace(/\{\{([^}]+)\}\}/g, (_, rawKey) => variableMap[String(rawKey).trim()] || '');
+  result = result.replace(/\{\{([^}]+)\}\}/g, (_, rawKey) => {
+    const key = String(rawKey).trim();
+    const tableValue = getVariableTableCellValue(project, key);
+    if (tableValue !== undefined) return tableValue;
+    return variableMap[key] || '';
+  });
 
   template.inputs.forEach((input, index) => {
     const value = project.inputValues[input.id] || '';

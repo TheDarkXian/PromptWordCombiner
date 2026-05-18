@@ -6,6 +6,8 @@ import {
   Template,
   VariableSourceType,
 } from '../types';
+import { mergeVariableTablesForTemplate } from '../services/variableTableService.runtime';
+import { getStepOutputs } from '../services/stepVariablePortsService';
 
 const MAX_STEP_RUN_LOGS = 20;
 
@@ -54,7 +56,10 @@ export const getVariableByKey = (project: Project, key: string) =>
   (project.variables || []).find((variable) => variable.key === key);
 
 export const syncProjectVariables = (
-  project: Pick<Project, 'variables' | 'inputValues' | 'customInputs' | 'stepOutputs' | 'stepStructuredOutputs'>,
+  project: Pick<
+    Project,
+    'variables' | 'inputValues' | 'customInputs' | 'stepOutputs' | 'stepStructuredOutputs' | 'variableTables'
+  >,
   template?: Pick<Template, 'inputs' | 'steps'>
 ): ProjectVariable[] => {
   const now = Date.now();
@@ -71,6 +76,7 @@ export const syncProjectVariables = (
       id: previous?.id || `var_${input.id}`,
       key: previous?.key || slugifyVariableKey(input.label),
       label: input.label,
+      type: 'text',
       value: nextValue,
       sourceType: 'template_input' as VariableSourceType,
       sourceRef: input.id,
@@ -89,6 +95,7 @@ export const syncProjectVariables = (
       id: previous?.id || `var_${input.id}`,
       key: previous?.key || slugifyVariableKey(input.label),
       label: input.label,
+      type: 'text',
       value: nextValue,
       sourceType: 'project_local' as VariableSourceType,
       sourceRef: input.id,
@@ -100,35 +107,67 @@ export const syncProjectVariables = (
     });
   });
 
-  const stepOutputVariables = new Map<string, ProjectVariable>();
+  const generatedTableKeys = new Set<string>();
 
-  existing
-    .filter((variable) => variable.sourceType === 'step_output' && variable.sourceRef)
-    .forEach((variable) => {
-      stepOutputVariables.set(variable.sourceRef as string, variable);
-    });
+  const findExistingStepOutput = (sourceRef: string, key: string, type: ProjectVariable['type']) =>
+    existing.find(
+      (variable) =>
+        variable.sourceType === 'step_output' &&
+        (variable.sourceRef === sourceRef ||
+          (variable.sourceRef === sourceRef.split(':')[0] && variable.key === key && (variable.type || 'text') === type))
+    );
 
   template?.steps?.forEach((step) => {
-    const bindingKey = step.outputBinding?.variableKey?.trim();
-    if (!bindingKey) return;
+    const outputs = getStepOutputs(step);
+    outputs.forEach((output) => {
+      const sourceRef = outputs.length === 1 ? step.id : `${step.id}:${output.key}`;
 
-    const previous = stepOutputVariables.get(step.id);
-    const nextValue = project.stepOutputs[step.id] || '';
-    synced.push({
-      id: previous?.id || `var_step_${step.id}`,
-      key: bindingKey,
-      label: step.outputBinding?.variableLabel?.trim() || bindingKey,
-      value: nextValue,
-      sourceType: 'step_output' as VariableSourceType,
-      sourceRef: step.id,
-      createdAt: previous?.createdAt || now,
-      updatedAt:
-        previous &&
-        previous.value === nextValue &&
-        previous.key === bindingKey &&
-        previous.label === (step.outputBinding?.variableLabel?.trim() || bindingKey)
-          ? previous.updatedAt
-          : now,
+      if (output.type === 'table') {
+        generatedTableKeys.add(output.key);
+        const previous = findExistingStepOutput(sourceRef, output.key, 'table');
+        const legacyTable = (project.variableTables || []).find(
+          (table) => table.sourceStepId === step.id && table.key === output.key
+        );
+        const tableValue = previous?.tableValue || {
+          columns: legacyTable?.columns || output.tableSchema?.columns || [],
+          rows: legacyTable?.rows || [],
+        };
+        synced.push({
+          id: previous?.id || `var_step_${step.id}_${output.key}`,
+          key: output.key,
+          label: output.label || output.key,
+          type: 'table',
+          value: '',
+          tableValue,
+          sourceType: 'step_output' as VariableSourceType,
+          sourceRef,
+          createdAt: previous?.createdAt || now,
+          updatedAt: previous?.updatedAt || legacyTable?.updatedAt || now,
+        });
+        return;
+      }
+
+      const previous = findExistingStepOutput(sourceRef, output.key, 'text');
+      const isLegacySingleTextOutput =
+        outputs.length === 1 && step.outputBinding?.variableKey?.trim() === output.key;
+      const nextValue = isLegacySingleTextOutput ? project.stepOutputs[step.id] || '' : previous?.value || '';
+      synced.push({
+        id: previous?.id || `var_step_${step.id}_${output.key}`,
+        key: output.key,
+        label: output.label || output.key,
+        type: 'text',
+        value: nextValue,
+        sourceType: 'step_output' as VariableSourceType,
+        sourceRef,
+        createdAt: previous?.createdAt || now,
+        updatedAt:
+          previous &&
+          previous.value === nextValue &&
+          previous.key === output.key &&
+          previous.label === (output.label || output.key)
+            ? previous.updatedAt
+            : now,
+      });
     });
   });
 
@@ -159,6 +198,7 @@ export const syncProjectVariables = (
         id: previous?.id || `var_structured_${step.id}_${fieldKey}`,
         key: variableKey,
         label: nextLabel,
+        type: 'text',
         value: nextValue,
         sourceType: 'structured_step_output' as VariableSourceType,
         sourceRef,
@@ -186,6 +226,30 @@ export const syncProjectVariables = (
     )
     .forEach((variable) => synced.push(variable));
 
+  (project.variableTables || []).forEach((table) => {
+    if (generatedTableKeys.has(table.key)) return;
+    const sourceRef = table.sourceStepId ? `${table.sourceStepId}:${table.key}` : table.id;
+    if (synced.some((variable) => variable.type === 'table' && variable.sourceRef === sourceRef)) return;
+    const previous = existing.find(
+      (variable) => variable.type === 'table' && variable.sourceRef === sourceRef
+    );
+    synced.push({
+      id: previous?.id || `var_table_${table.id}`,
+      key: table.key,
+      label: table.label,
+      type: 'table',
+      value: '',
+      tableValue: {
+        columns: table.columns,
+        rows: table.rows,
+      },
+      sourceType: table.sourceStepId ? 'step_output' : 'manual',
+      sourceRef,
+      createdAt: previous?.createdAt || now,
+      updatedAt: previous?.updatedAt || table.updatedAt || now,
+    });
+  });
+
   return synced;
 };
 
@@ -199,17 +263,22 @@ export const normalizeProject = (
     customInputs: project.customInputs || [],
     stepOutputs: project.stepOutputs || {},
     stepStructuredOutputs: project.stepStructuredOutputs || {},
+    variableTables: project.variableTables || [],
     stepOutputMeta: project.stepOutputMeta || {},
     stepRunLogs: project.stepRunLogs || {},
     stepOverrides: project.stepOverrides || {},
     variables: project.variables || [],
   };
 
-  return {
+  const template = templates.find((item) => item.id === normalizedProject.templateId);
+
+  const projectWithMergedTables = {
     ...normalizedProject,
-    variables: syncProjectVariables(
-      normalizedProject,
-      templates.find((template) => template.id === normalizedProject.templateId)
-    ),
+    variableTables: mergeVariableTablesForTemplate(normalizedProject, template),
+  };
+
+  return {
+    ...projectWithMergedTables,
+    variables: syncProjectVariables(projectWithMergedTables, template),
   };
 };

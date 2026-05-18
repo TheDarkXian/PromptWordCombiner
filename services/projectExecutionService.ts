@@ -1,10 +1,12 @@
 import { appendStepRunLog, upsertVariable } from '../domain/projectDomain';
 import { createInterpolator } from './interpolationService';
 import { resolveStepExecutionAvailability } from './modelService';
+import { getStepOutputs } from './stepVariablePortsService';
+import { parseStepOutputVariablesFromResponse } from './stepOutputParseService';
 import {
   AppSettings,
   Project,
-  ProjectVariable,
+  ProjectVariableTable,
   StepRunLog,
   Template,
   TemplateStep,
@@ -138,24 +140,17 @@ export const applyProjectStepSuccess = ({
     },
   };
 
-  const binding = step.outputBinding;
-  if (binding?.variableKey?.trim() && output.trim()) {
-    const key = binding.variableKey.trim();
-    const label = binding.variableLabel?.trim() || key;
-    const existing = (nextProject.variables || []).find(
-      (variable) =>
-        variable.sourceType === 'step_output' && variable.sourceRef === step.id
-    );
-    const nextVariable: ProjectVariable = {
-      id: existing?.id || `var_step_${step.id}`,
-      key,
-      label,
-      value: output,
-      sourceType: 'step_output',
-      sourceRef: step.id,
-      createdAt: existing?.createdAt || now,
-      updatedAt: now,
-    };
+  const outputs = getStepOutputs(step);
+  const shouldPersistOutputs = outputs.length > 0 && output.trim();
+  if (shouldPersistOutputs) {
+    const nextVariables = parseStepOutputVariablesFromResponse({
+      responseText: output,
+      outputs,
+      stepId: step.id,
+      existingVariables: nextProject.variables || [],
+      now,
+    });
+
     nextProject = {
       ...nextProject,
       stepOutputMeta: {
@@ -166,8 +161,42 @@ export const applyProjectStepSuccess = ({
           lastSavedToVariableAt: now,
         },
       },
-      variables: upsertVariable(nextProject.variables || [], nextVariable),
+      variables: nextVariables.reduce(
+        (variables, variable) => upsertVariable(variables, variable),
+        nextProject.variables || []
+      ),
     };
+
+    const tableVariables = nextVariables.filter((variable) => variable.type === 'table' && variable.tableValue);
+    if (tableVariables.length > 0) {
+      const nextLegacyTables = tableVariables.map<ProjectVariableTable>((variable) => ({
+        id: `table_step_${step.id}_${variable.key}`,
+        key: variable.key,
+        label: variable.label,
+        sourceStepId: step.id,
+        columns: variable.tableValue?.columns || [],
+        rows: variable.tableValue?.rows || [],
+        updatedAt: now,
+      }));
+      const firstTable = tableVariables[0];
+      const firstRow = firstTable.tableValue?.rows[0]?.cells || {};
+      nextProject = {
+        ...nextProject,
+        stepStructuredOutputs: {
+          ...(nextProject.stepStructuredOutputs || {}),
+          [step.id]: {
+            ...(nextProject.stepStructuredOutputs?.[step.id] || {}),
+            ...firstRow,
+          },
+        },
+        variableTables: [
+          ...(nextProject.variableTables || []).filter(
+            (table) => !(table.sourceStepId === step.id && tableVariables.some((variable) => variable.key === table.key))
+          ),
+          ...nextLegacyTables,
+        ],
+      };
+    }
   }
 
   return nextProject;

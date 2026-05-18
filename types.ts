@@ -9,6 +9,7 @@ export interface Project {
   customInputs: TemplateInput[];
   stepOutputs: Record<string, string>;
   stepStructuredOutputs?: Record<string, Record<string, string>>;
+  variableTables?: ProjectVariableTable[];
   stepOutputMeta: Record<string, StepOutputMeta>;
   stepRunLogs: Record<string, StepRunLog[]>;
   stepOverrides: Record<string, StepOverride>;
@@ -54,11 +55,41 @@ export interface ProjectVariable {
   id: string;
   key: string;
   label: string;
+  type?: VariableValueType;
   value: string;
+  tableValue?: ProjectVariableTableValue;
   sourceType: VariableSourceType;
   sourceRef?: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export type VariableValueType = 'text' | 'table';
+
+export interface ProjectVariableTableColumn {
+  key: string;
+  label: string;
+  description?: string;
+}
+
+export interface ProjectVariableTableRow {
+  id: string;
+  cells: Record<string, string>;
+}
+
+export interface ProjectVariableTable {
+  id: string;
+  key: string;
+  label: string;
+  sourceStepId?: string;
+  columns: ProjectVariableTableColumn[];
+  rows: ProjectVariableTableRow[];
+  updatedAt: number;
+}
+
+export interface ProjectVariableTableValue {
+  columns: ProjectVariableTableColumn[];
+  rows: ProjectVariableTableRow[];
 }
 
 export type SortKey = 'lastModified' | 'createdAt' | 'name';
@@ -215,6 +246,7 @@ export interface TemplateBlueprint {
     edgeKeys?: string[];
     commentIds?: string[];
     expandedPromptStepIds?: string[];
+    collapsedPromptStepIds?: string[];
   };
 }
 
@@ -245,12 +277,29 @@ export interface TemplateStep {
   name: string;
   description?: string;
   content: string;
+  inputs?: StepVariableInput[];
+  outputs?: StepVariableOutput[];
   outputBinding?: StepOutputBinding;
   structuredOutputFields?: StructuredOutputFieldDefinition[];
   structuredOutputBindings?: StructuredOutputVariableBinding[];
   execution?: StepExecutionConfig;
   stepType?: StepType;
   autoRunEnabled?: boolean;
+}
+
+export interface StepVariableInput {
+  key: string;
+  label?: string;
+  type?: VariableValueType;
+}
+
+export interface StepVariableOutput {
+  key: string;
+  label: string;
+  type: VariableValueType;
+  tableSchema?: {
+    columns: ProjectVariableTableColumn[];
+  };
 }
 
 export interface StructuredOutputFieldDefinition {
@@ -274,6 +323,7 @@ export interface StepGraphNode {
   nodeRole: StepGraphNodeRole;
   inputVariableKeys: string[];
   outputVariableKey?: string;
+  outputVariableKeys?: string[];
   upstreamStepIds: string[];
   downstreamStepIds: string[];
 }

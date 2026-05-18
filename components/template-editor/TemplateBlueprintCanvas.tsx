@@ -29,6 +29,7 @@ interface TemplateBlueprintCanvasProps {
   onTidyLayout: () => void;
   onResetLayout: () => void;
   onCreateStepRequest: () => void;
+  onOpenStepTab?: (stepId: string) => void;
   debugState?: DebugState;
   activeTool?: BlueprintActiveTool;
   onActiveToolChange?: (tool: BlueprintActiveTool) => void;
@@ -64,6 +65,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
   onTidyLayout,
   onResetLayout,
   onCreateStepRequest,
+  onOpenStepTab,
   debugState,
   activeTool: controlledActiveTool,
   onActiveToolChange,
@@ -617,6 +619,11 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                 const rect = wrapperRef.current?.getBoundingClientRect();
                 if (!rect) return;
                 dragStartWorldRef.current = toWorld(event.clientX, event.clientY, rect);
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onOpenStepTab?.(step.id);
               }}
               onMouseEnter={() => {
                 if (linkingFromStepId && linkingFromStepId !== step.id) {

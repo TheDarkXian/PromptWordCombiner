@@ -109,7 +109,7 @@ export function prepareImportedBackupBundle(
   const detection = detectImportPayload(raw);
 
   if (detection.kind === 'project_variable_table') {
-    throw new Error('当前入口仅支持全量备份导入，不支持变量表文件。');
+    throw new Error('当前入口仅支持全量备份导入，不支持表变量文件。');
   }
   if (detection.kind === 'unknown') {
     throw new Error('无法识别文件结构，这不是可导入的全量备份文件。');

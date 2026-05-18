@@ -43,6 +43,28 @@ const project: Project = {
       style_keywords: 'cyberpunk, neon',
     },
   },
+  variableTables: [
+    {
+      id: 'table-1',
+      key: 'scene_desc',
+      label: 'Scene Description',
+      sourceStepId: 'step-1',
+      columns: [
+        { key: 'subject_description', label: '主体描述' },
+        { key: 'style_keywords', label: '风格词' },
+      ],
+      rows: [
+        {
+          id: 'row-1',
+          cells: {
+            subject_description: 'A woman in the rain',
+            style_keywords: 'cyberpunk, neon',
+          },
+        },
+      ],
+      updatedAt: 1,
+    },
+  ],
   stepOutputMeta: {},
   stepRunLogs: {},
   stepOverrides: {},
@@ -88,6 +110,8 @@ describe('batchResultExportService', () => {
       step_output_raw: 'A woman in the rain, cyberpunk neon lights.',
       'field.subject_description': 'A woman in the rain',
       'field.style_keywords': 'cyberpunk, neon',
+      'table.scene_desc[0].subject_description': 'A woman in the rain',
+      'table.scene_desc[0].style_keywords': 'cyberpunk, neon',
     });
     expect(parsed[1]).not.toHaveProperty('field.subject_description');
   });
@@ -118,4 +142,3 @@ describe('batchResultExportService', () => {
     expect(exported.content).not.toContain('step-1');
   });
 });
-

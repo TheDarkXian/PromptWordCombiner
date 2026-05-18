@@ -90,6 +90,16 @@ const buildRecords = ({
       record[`field.${field.key}`] = structuredValues[field.key] || '';
     });
 
+    const variableTable = (project.variableTables || []).find(
+      (table) => table.sourceStepId === item.stepId
+    );
+    variableTable?.rows.forEach((row, rowIndex) => {
+      variableTable.columns.forEach((column) => {
+        record[`table.${variableTable.key}[${rowIndex}].${column.key}`] =
+          row.cells[column.key] || '';
+      });
+    });
+
     return record;
   });
 };
@@ -118,4 +128,3 @@ export const buildBatchResultExport = ({
     mimeType: 'text/csv',
   };
 };
-

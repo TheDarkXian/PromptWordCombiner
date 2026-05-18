@@ -9,11 +9,39 @@ const variableSourceTypeSchema = z.enum([
   'manual',
 ]);
 
+export const projectVariableTableColumnSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
+
+export const projectVariableTableRowSchema = z.object({
+  id: z.string(),
+  cells: z.record(z.string(), z.string()),
+});
+
+export const projectVariableTableSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  label: z.string(),
+  sourceStepId: z.string().optional(),
+  columns: z.array(projectVariableTableColumnSchema),
+  rows: z.array(projectVariableTableRowSchema),
+  updatedAt: z.number(),
+});
+
 export const projectVariableSchema = z.object({
   id: z.string(),
   key: z.string(),
   label: z.string(),
+  type: z.enum(['text', 'table']).optional(),
   value: z.string(),
+  tableValue: z
+    .object({
+      columns: z.array(projectVariableTableColumnSchema),
+      rows: z.array(projectVariableTableRowSchema),
+    })
+    .optional(),
   sourceType: variableSourceTypeSchema,
   sourceRef: z.string().optional(),
   createdAt: z.number(),
@@ -67,6 +95,7 @@ export const projectSchema = z.object({
   customInputs: z.array(templateInputSchema).default([]),
   stepOutputs: z.record(z.string(), z.string()).default({}),
   stepStructuredOutputs: z.record(z.string(), z.record(z.string(), z.string())).default({}),
+  variableTables: z.array(projectVariableTableSchema).default([]),
   stepOutputMeta: z.record(z.string(), stepOutputMetaSchema).default({}),
   stepRunLogs: z.record(z.string(), z.array(stepRunLogSchema)).default({}),
   stepOverrides: z.record(z.string(), stepOverrideSchema).default({}),
@@ -168,6 +197,23 @@ export const structuredOutputVariableBindingSchema = z.object({
   variableLabel: z.string().optional(),
 });
 
+export const stepVariableInputSchema = z.object({
+  key: z.string(),
+  label: z.string().optional(),
+  type: z.enum(['text', 'table']).optional(),
+});
+
+export const stepVariableOutputSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  type: z.enum(['text', 'table']),
+  tableSchema: z
+    .object({
+      columns: z.array(projectVariableTableColumnSchema),
+    })
+    .optional(),
+});
+
 export const stepTypeSchema = z.enum(['text_generation', 'manual', 'external']);
 
 export const templateModelRefSchema = z.object({
@@ -181,6 +227,8 @@ export const templateStepSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   content: z.string(),
+  inputs: z.array(stepVariableInputSchema).optional(),
+  outputs: z.array(stepVariableOutputSchema).optional(),
   outputBinding: stepOutputBindingSchema.optional(),
   structuredOutputFields: z.array(structuredOutputFieldDefinitionSchema).optional(),
   structuredOutputBindings: z.array(structuredOutputVariableBindingSchema).optional(),
@@ -225,6 +273,7 @@ export const templateSchema = z.object({
           edgeKeys: z.array(z.string()).optional(),
           commentIds: z.array(z.string()).optional(),
           expandedPromptStepIds: z.array(z.string()).optional(),
+          collapsedPromptStepIds: z.array(z.string()).optional(),
         })
         .optional(),
     })

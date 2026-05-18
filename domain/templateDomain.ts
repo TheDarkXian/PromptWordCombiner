@@ -8,6 +8,7 @@ import {
   Template,
   TemplateModelRef,
 } from '../types';
+import { getStepOutputs } from '../services/stepVariablePortsService';
 
 export const LEGACY_MODEL_PRESET_MAP: Record<string, string> = {
   'openai:gpt-4.1': 'model_openai_gpt_4_1',
@@ -95,6 +96,7 @@ export const normalizeTemplate = (template: Template, modelCatalog: ModelCatalog
             edgeKeys: template.blueprint.selection?.edgeKeys || [],
             commentIds: template.blueprint.selection?.commentIds || [],
             expandedPromptStepIds: template.blueprint.selection?.expandedPromptStepIds || [],
+            collapsedPromptStepIds: template.blueprint.selection?.collapsedPromptStepIds || [],
           },
         }
       : undefined,
@@ -107,10 +109,19 @@ export const normalizeTemplate = (template: Template, modelCatalog: ModelCatalog
           ? 'text_generation'
           : 'manual';
 
-    return {
+    const normalizedStep = {
       ...step,
       stepType: normalizedStepType,
       autoRunEnabled: normalizedStepType === 'text_generation' ? step.autoRunEnabled === true : false,
+      inputs: Array.isArray((step as any).inputs)
+        ? (step as any).inputs
+            .map((input: any) => ({
+              key: String(input?.key || '').trim(),
+              label: String(input?.label || input?.key || '').trim(),
+              type: input?.type === 'table' ? 'table' : input?.type === 'text' ? 'text' : undefined,
+            }))
+            .filter((input: any) => input.key)
+        : [],
       structuredOutputFields: Array.isArray((step as any).structuredOutputFields)
         ? (step as any).structuredOutputFields.map((field: any) => ({
             key: field?.key || '',
@@ -135,6 +146,35 @@ export const normalizeTemplate = (template: Template, modelCatalog: ModelCatalog
         temperature: typeof step.execution?.temperature === 'number' ? step.execution.temperature : undefined,
         maxTokens: typeof step.execution?.maxTokens === 'number' ? step.execution.maxTokens : undefined,
       },
+    };
+
+    const normalizedOutputs = Array.isArray((step as any).outputs)
+      ? (step as any).outputs
+          .map((output: any) => ({
+            key: String(output?.key || '').trim(),
+            label: String(output?.label || output?.key || '').trim(),
+            type: output?.type === 'table' ? 'table' : 'text',
+            tableSchema:
+              output?.type === 'table'
+                ? {
+                    columns: Array.isArray(output?.tableSchema?.columns)
+                      ? output.tableSchema.columns
+                          .map((column: any) => ({
+                            key: String(column?.key || '').trim(),
+                            label: String(column?.label || column?.key || '').trim(),
+                            description: String(column?.description || '').trim() || undefined,
+                          }))
+                          .filter((column: any) => column.key && column.label)
+                      : [],
+                  }
+                : undefined,
+          }))
+          .filter((output: any) => output.key)
+      : [];
+
+    return {
+      ...normalizedStep,
+      outputs: normalizedOutputs.length > 0 ? normalizedOutputs : getStepOutputs(normalizedStep),
     };
   }),
 });

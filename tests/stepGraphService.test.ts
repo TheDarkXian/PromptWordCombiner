@@ -106,6 +106,65 @@ describe('stepGraphService', () => {
     expect(byId.get('step-b')?.downstreamStepIds).toEqual(['step-c']);
   });
 
+  it('maps variable table cell references to the table variable producer', () => {
+    const template = buildTemplate([
+      buildStep({
+        id: 'step-a',
+        name: 'A',
+        content: 'produce',
+        outputs: [
+          {
+            key: 'characters',
+            label: 'Characters',
+            type: 'table',
+            tableSchema: { columns: [{ key: 'name', label: 'Name' }] },
+          },
+        ],
+      }),
+      buildStep({
+        id: 'step-b',
+        name: 'B',
+        content: 'use {{characters[0].name}}',
+      }),
+    ]);
+
+    const graph = buildStepGraph(template);
+    expect(graph.edges).toEqual([
+      { fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'characters' },
+    ]);
+    expect(graph.nodes.find((node) => node.stepId === 'step-b')?.inputVariableKeys).toEqual(['characters']);
+  });
+
+  it('uses outputs[] as producer declarations for multiple outputs', () => {
+    const template = buildTemplate([
+      buildStep({
+        id: 'step-a',
+        name: 'A',
+        content: 'produce',
+        outputs: [
+          { key: 'summary', label: 'Summary', type: 'text' },
+          { key: 'characters', label: 'Characters', type: 'table', tableSchema: { columns: [] } },
+        ],
+      }),
+      buildStep({
+        id: 'step-b',
+        name: 'B',
+        content: 'use {{summary}} and {{characters[0].name}}',
+      }),
+    ]);
+
+    const graph = buildStepGraph(template);
+    const producer = graph.nodes.find((node) => node.stepId === 'step-a');
+
+    expect(producer?.outputVariableKeys).toEqual(['summary', 'characters']);
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        { fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'summary' },
+        { fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'characters' },
+      ])
+    );
+  });
+
   it('maps repeated producers of the same variable to one consumer', () => {
     const template = buildTemplate([
       buildStep({
@@ -304,4 +363,3 @@ describe('stepGraphService', () => {
     expect(allMap.get('step-missing')?.status).toBe('blocked');
   });
 });
-

@@ -49,8 +49,13 @@ import { useProjectTemplateActions } from './hooks/useProjectTemplateActions';
 import {
   buildStructuredParsePrompt,
   hasStructuredFieldValues,
-  parseStructuredOutputResponse,
 } from './services/structuredOutputService';
+import {
+  buildVariableTableFromStepRows,
+  buildVariableTableColumnsForStep,
+  parseVariableTableRowsFromResponse,
+} from './services/variableTableService.runtime';
+import { getStepOutputs } from './services/stepVariablePortsService';
 import { mergeBlueprintLayout } from './services/templateBlueprintService';
 
 const BLUEPRINT_NODE_WIDTH = 260;
@@ -221,14 +226,82 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleUpdateVariableTableCell = (
+    tableId: string,
+    rowId: string,
+    columnKey: string,
+    value: string
+  ) => {
+    if (!activeTabId || activeTabId === 'library') return;
+    updateProjectWithSync(activeTabId, (project) => {
+      const now = Date.now();
+      const matchingLegacyTable = (project.variableTables || []).find((table) => table.id === tableId);
+      const nextVariables = (project.variables || []).map((variable) => {
+        const isTargetVariable = variable.id === tableId;
+        const isMatchingLegacyVariable =
+          matchingLegacyTable && variable.type === 'table' && variable.key === matchingLegacyTable.key;
+        if (!isTargetVariable && !isMatchingLegacyVariable) return variable;
+
+        return {
+          ...variable,
+          tableValue: variable.tableValue
+            ? {
+                ...variable.tableValue,
+                rows: variable.tableValue.rows.map((row) =>
+                  row.id === rowId
+                    ? {
+                        ...row,
+                        cells: {
+                          ...row.cells,
+                          [columnKey]: value,
+                        },
+                      }
+                    : row
+                ),
+              }
+            : variable.tableValue,
+          updatedAt: now,
+        };
+      });
+
+      return {
+        ...project,
+        variables: nextVariables,
+        variableTables: (project.variableTables || []).map((table) =>
+          table.id === tableId || table.key === nextVariables.find((variable) => variable.id === tableId)?.key
+            ? {
+                ...table,
+                rows: table.rows.map((row) =>
+                  row.id === rowId
+                    ? {
+                        ...row,
+                        cells: {
+                          ...row.cells,
+                          [columnKey]: value,
+                        },
+                      }
+                    : row
+                ),
+                updatedAt: now,
+              }
+            : table
+        ),
+      };
+    });
+  };
+
   const handleExportProjectVariableTable = async (format: 'json' | 'csv') => {
     if (!activeProject || !activeProjectTemplate) return;
-    const exported = buildProjectVariableTableExport({
-      project: activeProject,
-      template: activeProjectTemplate,
-      format,
-    });
-    await ioService.exportFile(exported.filename, exported.content, exported.mimeType);
+    try {
+      const exported = buildProjectVariableTableExport({
+        project: activeProject,
+        template: activeProjectTemplate,
+        format,
+      });
+      await ioService.exportFile(exported.filename, exported.content, exported.mimeType);
+    } catch (error) {
+      openAlert('Export failed', error instanceof Error ? error.message : 'Variable data export failed.');
+    }
   };
 
   const handleImportProjectVariableTable = (content: string) => {
@@ -246,9 +319,9 @@ const App: React.FC = () => {
         };
       });
 
-      openAlert("Import complete", "The variable table has been imported into the current project.");
+      openAlert("Import complete", "The variable data has been imported into the current project.");
     } catch (error) {
-      openAlert("Import failed", error instanceof Error ? error.message : "Variable table import failed.");
+      openAlert("Import failed", error instanceof Error ? error.message : "Variable data import failed.");
     }
   };
 
@@ -275,6 +348,13 @@ const App: React.FC = () => {
     maxTokens?: number;
     options?: ExecuteProjectStepOptions;
   }): Promise<StepStructuredParseSummary> => {
+    if (getStepOutputs(step).some((output) => output.type === 'table')) {
+      return {
+        status: 'skipped',
+        message: 'Table variable output was parsed from the prompt function JSON result.',
+      };
+    }
+
     const structuredFields = (step.structuredOutputFields || []).filter(
       (field) => field.key.trim() && field.label.trim()
     );
@@ -282,31 +362,36 @@ const App: React.FC = () => {
     if (structuredFields.length === 0 || !rawOutput.trim()) {
       return {
         status: 'not_applicable',
-        message: 'No structured fields configured.',
+        message: 'No variable table fields configured.',
       };
     }
 
     const existingValues = project.stepStructuredOutputs?.[step.id] || {};
+    const existingTable = (project.variableTables || []).find(
+      (table) => table.sourceStepId === step.id
+    );
     const hasExistingValues = hasStructuredFieldValues({
       values: existingValues,
       fields: structuredFields,
-    });
+    }) || Boolean(existingTable?.rows.some((row) =>
+      Object.values(row.cells).some((value) => String(value || '').trim())
+    ));
 
     if (hasExistingValues) {
       options?.onStructuredParseStateChange?.(
         'awaiting_confirm',
-        'Structured fields already have values and need overwrite confirmation.'
+        'Table variable fields already have values and need overwrite confirmation.'
       );
 
       if (!options?.confirmStructuredOverwrite) {
         options?.onStructuredParseStateChange?.(
           'skipped',
-          'Structured parse skipped because no overwrite confirmation handler was available.'
+          'Table variable parse skipped because no overwrite confirmation handler was available.'
         );
         return {
           status: 'skipped',
           message:
-            'Structured parse skipped because existing field values were kept.',
+            'Table variable parse skipped because existing field values were kept.',
         };
       }
 
@@ -320,18 +405,18 @@ const App: React.FC = () => {
       if (decision !== 'overwrite') {
         options?.onStructuredParseStateChange?.(
           'skipped',
-          'Structured parse skipped and existing field values were kept.'
+          'Table variable parse skipped and existing field values were kept.'
         );
         return {
           status: 'skipped',
-          message: 'Structured parse skipped and existing field values were kept.',
+          message: 'Table variable parse skipped and existing field values were kept.',
         };
       }
     }
 
     options?.onStructuredParseStateChange?.(
       'running',
-      'Parsing the generated result into structured fields.'
+      'Parsing the generated result into variable table fields.'
     );
 
     try {
@@ -351,10 +436,20 @@ const App: React.FC = () => {
         maxTokens,
       });
 
-      const parsedFields = parseStructuredOutputResponse({
+      const tableColumns = buildVariableTableColumnsForStep(step);
+      const parsedRows = parseVariableTableRowsFromResponse({
         responseText: parseResult.output,
-        fields: structuredFields,
+        columns: tableColumns,
       });
+      const previousTable = (project.variableTables || []).find(
+        (table) => table.sourceStepId === step.id
+      );
+      const nextTable = buildVariableTableFromStepRows({
+        step,
+        rows: parsedRows,
+        previous: previousTable,
+      });
+      const firstRow = parsedRows[0] || {};
 
       updateProjectWithSync(project.id, (currentProject) => ({
         ...currentProject,
@@ -362,26 +457,34 @@ const App: React.FC = () => {
           ...(currentProject.stepStructuredOutputs || {}),
           [step.id]: {
             ...(currentProject.stepStructuredOutputs?.[step.id] || {}),
-            ...parsedFields,
+            ...firstRow,
           },
         },
+        variableTables: nextTable
+          ? [
+              ...(currentProject.variableTables || []).filter(
+                (table) => table.sourceStepId !== step.id
+              ),
+              nextTable,
+            ]
+          : currentProject.variableTables || [],
       }));
 
       options?.onStructuredParseStateChange?.(
         'success',
-        'Structured fields were updated from the generated result.'
+        'Table variable fields were updated from the generated result.'
       );
 
       return {
         status: 'success',
-        message: 'Structured fields were updated from the generated result.',
+        message: 'Table variable fields were updated from the generated result.',
         updatedFieldKeys: structuredFields.map((field) => field.key),
       };
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : 'Structured parse failed.';
+          : 'Table variable parse failed.';
       options?.onStructuredParseStateChange?.('error', message);
       return {
         status: 'error',
@@ -435,7 +538,7 @@ const App: React.FC = () => {
         options?.structuredParseMode === 'library_batch'
           ? ({
               status: 'skipped',
-              message: 'Structured parse is skipped for library batch execution.',
+              message: 'Table variable parse is skipped for library batch execution.',
             } satisfies StepStructuredParseSummary)
           : await runStructuredOutputParse({
               project: projectAfterSuccess,
@@ -693,7 +796,7 @@ const App: React.FC = () => {
             commands: [
               {
                 id: 'select-all-nodes',
-                label: settings.language === 'zh-CN' ? '全选节点' : 'Select All Nodes',
+                label: settings.language === 'zh-CN' ? '全选函数' : 'Select All Functions',
                 shortcut: 'Ctrl+A',
                 run: () =>
                   updateActiveTemplateWorkspace({ selectedStepIds: activeProjectTemplate.steps.map((step) => step.id) }),
@@ -815,7 +918,7 @@ const App: React.FC = () => {
             commands: [
               {
                 id: 'about',
-                label: settings.language === 'zh-CN' ? '提示词拼接器 Pro' : 'Prompt Splicer Pro',
+                label: settings.language === 'zh-CN' ? '提示词函数流 Pro' : 'Prompt Function Flow Pro',
                 enabled: false,
                 run: () => undefined,
               },
@@ -894,6 +997,7 @@ const App: React.FC = () => {
           onDeleteLocalVariable={handleDeleteLocalVariable}
           onImportVariableTable={handleImportProjectVariableTable}
           onExportVariableTable={handleExportProjectVariableTable}
+          onUpdateVariableTableCell={handleUpdateVariableTableCell}
           onBakeDownload={handleBakeDownload}
           onRequestAlert={openAlert}
           activeTab={(activeTemplateWorkspace.sidebarTab as SidebarTab) || 'vars'}

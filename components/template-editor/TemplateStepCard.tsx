@@ -11,7 +11,6 @@ import {
   StepExecutionConfig,
   StepOutputBinding,
   StructuredOutputFieldDefinition,
-  StructuredOutputVariableBinding,
   Template,
   TemplateModelRef,
   TemplateStep,
@@ -45,8 +44,6 @@ interface TemplateStepCardProps {
   isCollapsed: boolean;
   isSelected: boolean;
   isExecutionExpanded: boolean;
-  isBindingExpanded: boolean;
-  isStructuredExpanded: boolean;
   availability: StepExecutionAvailability;
   binding: StepOutputBinding;
   execution: StepExecutionConfig;
@@ -61,8 +58,6 @@ interface TemplateStepCardProps {
   enabledExecutionPresetTemplates: ExecutionPresetTemplate[];
   executionSummaryParts: string[];
   structuredFields: StructuredOutputFieldDefinition[];
-  structuredBindings: StructuredOutputVariableBinding[];
-  structuredSummary: string;
   copiedExecutionConfigSourceStepId?: string;
   copiedExecutionConfigSourceStepName?: string;
   savingExecutionPresetStepId: string | null;
@@ -75,6 +70,8 @@ interface TemplateStepCardProps {
   filteredAutocompleteItems: VariableAutocompleteItem[];
   onToggleSelection: () => void;
   onToggleCollapse: () => void;
+  onOpenFunctionTab?: () => void;
+  isFunctionTabOpen?: boolean;
   onMoveStep: (direction: 'up' | 'down') => void;
   onRemoveStep: () => void;
   onToggleStepMenu: () => void;
@@ -104,20 +101,14 @@ interface TemplateStepCardProps {
   onUpdateStepExecution: (updates: Partial<StepExecutionConfig>) => void;
   onUpdateStepMeta: (updates: Partial<Pick<TemplateStep, 'stepType' | 'autoRunEnabled'>>) => void;
   onApplyStepModelRef: (modelRefId?: string) => void;
-  onToggleBindingSection: () => void;
   onUpdateStepBinding: (updates: Partial<StepOutputBinding>) => void;
-  onToggleStructuredSection: () => void;
   onAddStructuredField: () => void;
   onUpdateStructuredField: (
     fieldIndex: number,
     updates: Partial<StructuredOutputFieldDefinition>
   ) => void;
-  onMoveStructuredField: (fieldIndex: number, direction: 'up' | 'down') => void;
+  onReorderStructuredField: (fromIndex: number, toIndex: number) => void;
   onRemoveStructuredField: (fieldIndex: number) => void;
-  onUpdateStructuredBinding: (
-    fieldKey: string,
-    updates: Partial<StructuredOutputVariableBinding>
-  ) => void;
   getExecutionBadgeClassName: (
     availability: StepExecutionAvailability
   ) => string;
@@ -132,8 +123,6 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   isCollapsed,
   isSelected,
   isExecutionExpanded,
-  isBindingExpanded,
-  isStructuredExpanded,
   availability,
   binding,
   execution,
@@ -148,8 +137,6 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   enabledExecutionPresetTemplates,
   executionSummaryParts,
   structuredFields,
-  structuredBindings,
-  structuredSummary,
   copiedExecutionConfigSourceStepId,
   copiedExecutionConfigSourceStepName,
   savingExecutionPresetStepId,
@@ -158,6 +145,8 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   filteredAutocompleteItems,
   onToggleSelection,
   onToggleCollapse,
+  onOpenFunctionTab,
+  isFunctionTabOpen = false,
   onMoveStep,
   onRemoveStep,
   onToggleStepMenu,
@@ -183,14 +172,11 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   onUpdateStepExecution,
   onUpdateStepMeta,
   onApplyStepModelRef,
-  onToggleBindingSection,
   onUpdateStepBinding,
-  onToggleStructuredSection,
   onAddStructuredField,
   onUpdateStructuredField,
-  onMoveStructuredField,
+  onReorderStructuredField,
   onRemoveStructuredField,
-  onUpdateStructuredBinding,
   getExecutionBadgeClassName,
 }) => {
   const stepType = step.stepType || 'manual';
@@ -208,8 +194,34 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
       : stepType === 'external'
         ? t(language, 'templateEditor.stepTypeHelpExternal')
         : t(language, 'templateEditor.stepTypeHelpManual');
-  const getStructuredBinding = (fieldKey: string) =>
-    structuredBindings.find((binding) => binding.fieldKey === fieldKey);
+  const [draggingStructuredFieldIndex, setDraggingStructuredFieldIndex] = React.useState<number | null>(null);
+  const draggingStructuredFieldIndexRef = React.useRef<number | null>(null);
+  const structuredFieldRowRefs = React.useRef<Record<number, HTMLDivElement | null>>({});
+
+  const updateStructuredFieldDragTarget = React.useCallback(
+    (clientY: number) => {
+      const fromIndex = draggingStructuredFieldIndexRef.current;
+      if (fromIndex === null) return;
+
+      const toIndex = structuredFields.findIndex((_, index) => {
+        const row = structuredFieldRowRefs.current[index];
+        if (!row) return false;
+        const rect = row.getBoundingClientRect();
+        return clientY >= rect.top && clientY <= rect.bottom;
+      });
+
+      if (toIndex < 0 || toIndex === fromIndex) return;
+      onReorderStructuredField(fromIndex, toIndex);
+      draggingStructuredFieldIndexRef.current = toIndex;
+      setDraggingStructuredFieldIndex(toIndex);
+    },
+    [onReorderStructuredField, structuredFields]
+  );
+
+  const finishStructuredFieldDrag = React.useCallback(() => {
+    draggingStructuredFieldIndexRef.current = null;
+    setDraggingStructuredFieldIndex(null);
+  }, []);
 
   return (
   <div
@@ -404,28 +416,47 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
         </div>
 
         <div className="mb-4 space-y-2">
-          <button
-            type="button"
-            onClick={onTogglePromptCollapsed}
-            className="flex w-full items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-2 text-left transition-colors hover:border-slate-700"
-          >
-            <span className="text-xs font-bold uppercase text-slate-400">
-              {t(language, 'templateEditor.promptContent')}
-            </span>
-            <span className="text-[11px] text-slate-500">
-              {isPromptCollapsed
-                ? language === 'zh-CN'
-                  ? '已折叠'
-                  : 'Collapsed'
-                : language === 'zh-CN'
-                  ? '已展开'
-                  : 'Expanded'}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onTogglePromptCollapsed}
+              className="flex min-w-0 flex-1 items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-2 text-left transition-colors hover:border-slate-700"
+            >
+              <span className="truncate text-xs font-bold uppercase text-slate-400">
+                {t(language, 'templateEditor.promptContent')}
+              </span>
+              <span className="shrink-0 text-[11px] text-slate-500">
+                {isPromptCollapsed
+                  ? language === 'zh-CN'
+                    ? '已折叠'
+                    : 'Collapsed'
+                  : language === 'zh-CN'
+                    ? '已展开'
+                    : 'Expanded'}
+              </span>
+            </button>
+            {onOpenFunctionTab && (
+              <button
+                type="button"
+                onClick={onOpenFunctionTab}
+                className="shrink-0 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-[11px] font-bold text-violet-200 transition-colors hover:border-violet-400/60 hover:text-white"
+              >
+                {language === 'zh-CN'
+                  ? isFunctionTabOpen
+                    ? '切到函数标签'
+                    : '打开函数标签'
+                  : isFunctionTabOpen
+                    ? 'Show function tab'
+                    : 'Open function tab'}
+              </button>
+            )}
+          </div>
           {!isPromptCollapsed && (
           <div className="relative flex h-auto flex-col rounded border border-slate-700 bg-slate-950 p-4">
             <AutoResizeTextarea
-              className="font-mono text-sm leading-relaxed text-slate-300"
+              className="rounded-md border border-slate-800 bg-slate-950/70 p-3 font-mono text-sm leading-relaxed text-slate-300"
+              minHeight={180}
+              allowManualResize
               value={step.content}
               onChange={onPromptChange}
               onKeyDown={onPromptKeyDown}
@@ -907,192 +938,119 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
           )}
         </div>
 
-        <div className="border-t border-slate-800 pt-4">
-          <button
-            type="button"
-            onClick={onToggleBindingSection}
-            className="flex w-full items-start justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-left transition-colors hover:border-slate-700"
-          >
-            <div>
-              <div className="text-xs font-bold uppercase text-violet-400">
-                {t(language, 'templateEditor.outputToVar')}
-              </div>
-              <div className="mt-1 text-xs text-slate-400">
-                {bindingKey
-                  ? t(language, 'templateEditor.bindingSummaryBound', {
-                      key: bindingKey,
-                    })
-                  : t(language, 'templateEditor.bindingSummaryUnbound')}
-              </div>
+        <div className="border-t border-slate-800 pt-3">
+          <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-3">
+            <div className="text-xs font-bold text-violet-300">
+              {language === 'zh-CN' ? '返回文本' : 'Text return'}
             </div>
-            <span className="text-[11px] font-bold text-violet-300">
-              {isBindingExpanded
-                ? t(language, 'templateEditor.collapseBinding')
-                : t(language, 'templateEditor.expandBinding')}
-            </span>
-          </button>
-          {isBindingExpanded && (
-            <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
-              <div className="text-xs text-slate-500">
-                {t(language, 'templateEditor.bindingHelp')}
-              </div>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold uppercase text-slate-500">
-                    {t(language, 'templateEditor.varKey')}
-                  </label>
-                  <input
-                    value={binding.variableKey || ''}
-                    onChange={(event) =>
-                      onUpdateStepBinding({ variableKey: event.target.value })
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                    placeholder="scene_description"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold uppercase text-slate-500">
-                    {t(language, 'templateEditor.displayName')}
-                  </label>
-                  <input
-                    value={binding.variableLabel || ''}
-                    onChange={(event) =>
-                      onUpdateStepBinding({ variableLabel: event.target.value })
-                    }
-                    className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
-                    placeholder={t(language, 'templateEditor.displayName')}
-                  />
-                </div>
-              </div>
+            <div className="flex min-w-0 items-center gap-2">
+              <input
+                value={binding.variableKey || ''}
+                onChange={(event) =>
+                  onUpdateStepBinding({
+                    variableKey: event.target.value,
+                    variableLabel: event.target.value,
+                  })
+                }
+                className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-blue-500"
+                placeholder={language === 'zh-CN' ? '变量名，例如：场景描述' : 'Variable name, e.g. scene_description'}
+              />
               {bindingKey && (
-                <div
-                  className={`text-xs ${
+                <span
+                  className={`shrink-0 text-[11px] ${
                     isKnownVariable ? 'text-emerald-400' : 'text-amber-400'
                   }`}
                 >
                   {isKnownVariable
-                    ? t(language, 'templateEditor.bindingKnown')
-                    : t(language, 'templateEditor.bindingNew')}
-                </div>
+                    ? language === 'zh-CN'
+                      ? '已存在'
+                      : 'Existing'
+                    : language === 'zh-CN'
+                      ? '新建'
+                      : 'New'}
+                </span>
               )}
             </div>
-          )}
+          </div>
         </div>
 
-        <div className="border-t border-slate-800 pt-4">
-          <button
-            type="button"
-            onClick={onToggleStructuredSection}
-            className="flex w-full items-start justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3 text-left transition-colors hover:border-slate-700"
-          >
-            <div>
-              <div className="text-xs font-bold uppercase text-fuchsia-400">
-                {language === 'zh-CN' ? '结构化输出' : 'Structured output'}
+        <div className="border-t border-slate-800 pt-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="text-xs font-bold text-fuchsia-300">
+                {language === 'zh-CN' ? '返回表' : 'Table return'}
               </div>
-              <div className="mt-1 text-xs text-slate-400">
-                {structuredSummary ||
-                  (structuredFields.length > 0
-                    ? language === 'zh-CN'
-                      ? `${structuredFields.length} 个字段，尚未绑定变量`
-                      : `${structuredFields.length} fields, no variable bindings yet`
-                    : language === 'zh-CN'
-                      ? '未定义结构化字段'
-                      : 'No structured fields')}
-              </div>
+              <span className="text-[11px] text-slate-500">
+                {structuredFields.length > 0
+                  ? language === 'zh-CN'
+                    ? `${structuredFields.length} 列`
+                    : `${structuredFields.length} columns`
+                  : language === 'zh-CN'
+                    ? '未设置'
+                    : 'None'}
+              </span>
             </div>
-            <span className="text-[11px] font-bold text-fuchsia-300">
-              {isStructuredExpanded
-                ? language === 'zh-CN'
-                  ? '收起字段'
-                  : 'Collapse fields'
-                : language === 'zh-CN'
-                  ? '展开字段'
-                  : 'Expand fields'}
-            </span>
-          </button>
-          {isStructuredExpanded && (
-            <div className="mt-3 space-y-3 rounded-xl border border-slate-800 bg-slate-950/50 p-4">
+            <button
+              type="button"
+              onClick={onAddStructuredField}
+              className="rounded border border-dashed border-fuchsia-500/30 bg-fuchsia-500/5 px-2 py-1 text-[11px] font-bold text-fuchsia-300 transition-colors hover:border-fuchsia-400/50 hover:text-white"
+            >
+              {language === 'zh-CN' ? '新增列' : 'Add column'}
+            </button>
+          </div>
+          <div className="space-y-2">
               {structuredFields.map((field, fieldIndex) => {
-                const bindingItem = getStructuredBinding(field.key);
                 return (
                   <div
                     key={`${step.id}_structured_${fieldIndex}`}
-                    className="rounded-lg border border-slate-800 bg-slate-950/70 p-3"
+                    ref={(node) => {
+                      structuredFieldRowRefs.current[fieldIndex] = node;
+                    }}
+                    className={`grid grid-cols-[auto_minmax(0,1fr)_minmax(0,1.4fr)_auto] items-center gap-2 rounded border p-2 transition-colors ${
+                      draggingStructuredFieldIndex === fieldIndex
+                        ? 'border-fuchsia-500/50 bg-fuchsia-500/10 opacity-70'
+                        : 'border-slate-800 bg-slate-950/50'
+                    }`}
                   >
-                    <div className="mb-3 flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-bold uppercase text-slate-500">
-                        {language === 'zh-CN' ? `字段 ${fieldIndex + 1}` : `Field ${fieldIndex + 1}`}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => onMoveStructuredField(fieldIndex, 'up')}
-                          disabled={fieldIndex === 0}
-                          className={`rounded border px-2 py-1 text-[10px] font-bold ${
-                            fieldIndex === 0
-                              ? 'cursor-not-allowed border-slate-800 bg-slate-900 text-slate-700'
-                              : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
-                          }`}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onMoveStructuredField(fieldIndex, 'down')}
-                          disabled={fieldIndex === structuredFields.length - 1}
-                          className={`rounded border px-2 py-1 text-[10px] font-bold ${
-                            fieldIndex === structuredFields.length - 1
-                              ? 'cursor-not-allowed border-slate-800 bg-slate-900 text-slate-700'
-                              : 'border-slate-700 bg-slate-950 text-slate-300 hover:border-slate-500 hover:text-white'
-                          }`}
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onRemoveStructuredField(fieldIndex)}
-                          className="rounded border border-red-500/20 bg-red-500/10 px-2 py-1 text-[10px] font-bold text-red-300 hover:border-red-400/40 hover:text-white"
-                        >
-                          {t(language, 'templateEditor.delete')}
-                        </button>
-                      </div>
+                    <button
+                      type="button"
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        draggingStructuredFieldIndexRef.current = fieldIndex;
+                        setDraggingStructuredFieldIndex(fieldIndex);
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                      }}
+                      onPointerMove={(event) => {
+                        if (draggingStructuredFieldIndexRef.current === null) return;
+                        event.preventDefault();
+                        updateStructuredFieldDragTarget(event.clientY);
+                      }}
+                      onPointerUp={(event) => {
+                        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                          event.currentTarget.releasePointerCapture(event.pointerId);
+                        }
+                        finishStructuredFieldDrag();
+                      }}
+                      onPointerCancel={finishStructuredFieldDrag}
+                      className="touch-none cursor-grab select-none rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-bold text-slate-500 active:cursor-grabbing"
+                      title={language === 'zh-CN' ? '拖拽排序' : 'Drag to reorder'}
+                    >
+                      ⋮⋮
+                    </button>
+                    <div className="min-w-0">
+                      <input
+                        value={field.key}
+                        onChange={(event) =>
+                          onUpdateStructuredField(fieldIndex, {
+                            key: event.target.value,
+                            label: event.target.value,
+                          })
+                        }
+                        className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
+                        placeholder={language === 'zh-CN' ? `列 ${fieldIndex + 1} 变量名` : `Column ${fieldIndex + 1} name`}
+                      />
                     </div>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-bold uppercase text-slate-500">
-                          Key
-                        </label>
-                        <input
-                          value={field.key}
-                          onChange={(event) =>
-                            onUpdateStructuredField(fieldIndex, {
-                              key: event.target.value,
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
-                          placeholder="subject_description"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-bold uppercase text-slate-500">
-                          {t(language, 'templateEditor.displayName')}
-                        </label>
-                        <input
-                          value={field.label}
-                          onChange={(event) =>
-                            onUpdateStructuredField(fieldIndex, {
-                              label: event.target.value,
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
-                          placeholder={language === 'zh-CN' ? '主体描述' : 'Subject description'}
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-3 space-y-2">
-                      <label className="text-[11px] font-bold uppercase text-slate-500">
-                        {t(language, 'templateEditor.description')}
-                      </label>
+                    <div className="min-w-0">
                       <input
                         value={field.description || ''}
                         onChange={(event) =>
@@ -1100,54 +1058,23 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                             description: event.target.value,
                           })
                         }
-                        className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
-                        placeholder={language === 'zh-CN' ? '字段说明（可选）' : 'Field description (optional)'}
+                        className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
+                        placeholder={language === 'zh-CN' ? '说明（可选）' : 'Description (optional)'}
                       />
                     </div>
-                    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-bold uppercase text-slate-500">
-                          {t(language, 'templateEditor.varKey')}
-                        </label>
-                        <input
-                          value={bindingItem?.variableKey || ''}
-                          onChange={(event) =>
-                            onUpdateStructuredBinding(field.key, {
-                              variableKey: event.target.value,
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
-                          placeholder="subject_description"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-bold uppercase text-slate-500">
-                          {t(language, 'templateEditor.displayName')}
-                        </label>
-                        <input
-                          value={bindingItem?.variableLabel || ''}
-                          onChange={(event) =>
-                            onUpdateStructuredBinding(field.key, {
-                              variableLabel: event.target.value,
-                            })
-                          }
-                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
-                          placeholder={language === 'zh-CN' ? '变量显示名称（可选）' : 'Variable label (optional)'}
-                        />
-                      </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onRemoveStructuredField(fieldIndex)}
+                        className="rounded border border-red-500/20 bg-red-500/10 px-1.5 py-1 text-[10px] font-bold text-red-300 hover:border-red-400/40 hover:text-white"
+                      >
+                        ×
+                      </button>
                     </div>
                   </div>
                 );
               })}
-              <button
-                type="button"
-                onClick={onAddStructuredField}
-                className="w-full rounded-lg border border-dashed border-fuchsia-500/30 bg-fuchsia-500/5 px-3 py-2 text-xs font-bold text-fuchsia-300 transition-colors hover:border-fuchsia-400/50 hover:text-white"
-              >
-                {language === 'zh-CN' ? '新增字段' : 'Add field'}
-              </button>
             </div>
-          )}
         </div>
       </div>
     )}
