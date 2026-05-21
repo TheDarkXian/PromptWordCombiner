@@ -3,8 +3,17 @@ import {
   TemplateBlueprint,
   TemplateBlueprintCommentBox,
   TemplateBlueprintNodePosition,
+  StepVariableInput,
+  VariableValueType,
 } from '../types';
 import { buildStepGraph, extractTemplateVariableKeys } from './stepGraphService';
+import {
+  checkPortCompatibility,
+  getStepInputs,
+  getStepOutputs,
+  normalizePortValueType,
+} from './stepVariablePortsService';
+import { syncStepParametersFromContent } from './stepParameterService';
 
 const NODE_W = 240;
 const NODE_H = 112;
@@ -17,6 +26,8 @@ export interface BlueprintEdgeChangeInput {
   fromStepId: string;
   toStepId: string;
   toVariableKey?: string;
+  fromOutputKey?: string;
+  toInputKey?: string;
   mode: 'add' | 'remove';
 }
 
@@ -35,9 +46,69 @@ export interface TidyBlueprintLayoutOptions {
   gapY?: number;
 }
 
+const getTargetPort = (
+  toStep: Template['steps'][number],
+  targetPortKey: string,
+  targetVariableKey: string
+): StepVariableInput => {
+  if (toStep.kind === 'math_operation') {
+    return {
+      key: targetPortKey === 'right' ? toStep.math?.rightKey || '' : toStep.math?.leftKey || '',
+      label: targetPortKey === 'right' ? 'B' : 'A',
+      type: 'text',
+      portKey: targetPortKey === 'right' ? 'right' : 'left',
+    };
+  }
+  if (toStep.kind === 'variable') {
+    return {
+      key: toStep.variable?.inputKey || '',
+      label: 'value',
+      type: 'text',
+      portKey: 'value',
+    };
+  }
+  if ((toStep.kind === 'prompt_function' || !toStep.kind) && targetPortKey === 'model') {
+    return {
+      key: toStep.execution?.modelSourceStepId ? `${toStep.execution.modelSourceStepId}:model` : '',
+      label: 'model',
+      type: 'model',
+      portKey: 'model',
+    };
+  }
+  const declaredInput = getStepInputs(toStep).find(
+    (input) => (input.portKey || input.key) === targetPortKey || input.key === targetVariableKey
+  );
+  return declaredInput || {
+    key: targetVariableKey,
+    label: targetVariableKey,
+    type: 'text',
+    portKey: targetPortKey,
+  };
+};
+
+const getSourceOutput = (
+  from: Template['steps'][number],
+  fromOutputKey?: string
+): { key: string; type: VariableValueType; label: string } | undefined => {
+  const outputs = getStepOutputs(from);
+  const requestedKey = fromOutputKey?.trim();
+  const output = requestedKey
+    ? outputs.find((item) => item.key === requestedKey)
+    : outputs[0];
+  if (!output?.key?.trim()) return undefined;
+  return {
+    key: output.key.trim(),
+    label: output.label,
+    type: normalizePortValueType(output.type),
+  };
+};
+
 const removeVariableTokens = (content: string, variableKey: string) => {
   const escaped = variableKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`\\s*\\{\\{\\s*${escaped}\\s*\\}\\}\\s*`, 'g');
+  const pattern = new RegExp(
+    `\\s*(?:\\{\\{\\s*${escaped}\\s*\\}\\}|\\[\\[\\s*${escaped}\\s*\\]\\])\\s*`,
+    'g'
+  );
   const next = content.replace(pattern, ' ');
   return next.replace(/\s{2,}/g, ' ').trim();
 };
@@ -210,17 +281,103 @@ export const applyBlueprintEdgeChange = (
   if (from.id === input.toStepId) {
     return { ok: false, template, message: 'Cannot connect a step to itself.' };
   }
-  const variableKey = from.outputBinding?.variableKey?.trim();
-  if (!variableKey) {
-    return { ok: false, template, message: 'Source step has no output variable key.' };
+  const sourceOutput = getSourceOutput(from, input.fromOutputKey);
+  const variableKey = sourceOutput?.key || from.outputBinding?.variableKey?.trim();
+  if (!sourceOutput || !variableKey) {
+    return { ok: false, template, message: 'Source node has no output variable.' };
   }
 
   const toStep = template.steps[toIndex];
   const targetVariableKey = input.toVariableKey?.trim() || variableKey;
-  const token = `{{${targetVariableKey}}}`;
-  const currentKeys = extractTemplateVariableKeys(toStep.content || '');
-  const hasToken = currentKeys.includes(targetVariableKey);
+  const targetPortKey = input.toInputKey?.trim() || targetVariableKey;
+  const targetPort = getTargetPort(toStep, targetPortKey, targetVariableKey);
+  const compatibility = checkPortCompatibility(sourceOutput.type, targetPort.type);
+  if (!compatibility.ok) {
+    return { ok: false, template, message: compatibility.message };
+  }
+  const steps = [...template.steps];
+
+  if ((toStep.kind === 'prompt_function' || !toStep.kind) && targetPortKey === 'model') {
+    if (from.kind !== 'model') {
+      return { ok: false, template, message: 'Model input only accepts model nodes.' };
+    }
+    const execution = { ...(toStep.execution || { systemPrompt: '' }) };
+    steps[toIndex] = {
+      ...toStep,
+      execution: {
+        ...execution,
+        modelSourceStepId:
+          input.mode === 'add'
+            ? from.id
+            : execution.modelSourceStepId === from.id
+              ? undefined
+              : execution.modelSourceStepId,
+      },
+    };
+    return {
+      ok: true,
+      template: { ...template, steps, blueprint: mergeBlueprintLayout({ ...template, steps }) },
+    };
+  }
+
+  if (toStep.kind === 'math_operation') {
+    const math = { ...(toStep.math || { operation: 'add' as const, leftKey: '', rightKey: '', outputKey: '' }) };
+    if (targetPortKey === 'right') {
+      math.rightKey = input.mode === 'add' ? variableKey : math.rightKey === variableKey ? '' : math.rightKey;
+    } else {
+      math.leftKey = input.mode === 'add' ? variableKey : math.leftKey === variableKey ? '' : math.leftKey;
+    }
+    steps[toIndex] = { ...toStep, math };
+    return {
+      ok: true,
+      template: { ...template, steps, blueprint: mergeBlueprintLayout({ ...template, steps }) },
+    };
+  }
+
+  if (toStep.kind === 'variable') {
+    const variable = {
+      ...(toStep.variable || { name: '', defaultValue: '', outputKey: toStep.outputBinding?.variableKey || '' }),
+      inputKey:
+        input.mode === 'add'
+          ? variableKey
+          : toStep.variable?.inputKey === variableKey
+            ? undefined
+            : toStep.variable?.inputKey,
+    };
+    steps[toIndex] = { ...toStep, variable };
+    return {
+      ok: true,
+      template: { ...template, steps, blueprint: mergeBlueprintLayout({ ...template, steps }) },
+    };
+  }
+
+  if (Array.isArray(toStep.parameters)) {
+    const parameters = syncStepParametersFromContent(toStep).map((parameter) =>
+      parameter.name === targetPortKey
+        ? {
+            ...parameter,
+            source:
+              input.mode === 'add'
+                ? { type: 'step_return' as const, stepId: from.id, key: variableKey }
+                : parameter.source?.type === 'step_return' &&
+                    parameter.source.stepId === from.id &&
+                    parameter.source.key === variableKey
+                  ? undefined
+                  : parameter.source,
+          }
+        : parameter
+    );
+    steps[toIndex] = { ...toStep, parameters };
+    return {
+      ok: true,
+      template: { ...template, steps, blueprint: mergeBlueprintLayout({ ...template, steps }) },
+    };
+  }
+
+  const token = `[[${targetVariableKey}]]`;
   let nextContent = toStep.content || '';
+  const currentKeys = extractTemplateVariableKeys(nextContent);
+  const hasToken = currentKeys.includes(targetVariableKey) || nextContent.includes(token);
   if (input.mode === 'add') {
     if (hasToken) return { ok: true, template };
     nextContent = `${nextContent.trim()} ${token}`.trim();
@@ -229,7 +386,6 @@ export const applyBlueprintEdgeChange = (
     nextContent = removeVariableTokens(nextContent, targetVariableKey);
   }
 
-  const steps = [...template.steps];
   steps[toIndex] = { ...toStep, content: nextContent };
   return {
     ok: true,

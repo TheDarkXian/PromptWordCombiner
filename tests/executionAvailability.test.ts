@@ -127,4 +127,56 @@ describe('executionAvailability', () => {
     expect(availability.modelCatalogItem?.id).toBe('model-1');
     expect(availability.providerConfig?.id).toBe('provider-1');
   });
+
+  it('uses a connected model node before the function fallback model ref', () => {
+    const availability = resolveStepExecutionAvailability({
+      step: createStep({
+        modelRefId: 'fallback-missing',
+        modelSourceStepId: 'model-node',
+        systemPrompt: '',
+      }),
+      template: {
+        ...template,
+        steps: [
+          {
+            id: 'model-node',
+            name: 'Model',
+            kind: 'model',
+            content: '',
+            model: { modelRefId: 'model-ref-1' },
+            execution: { systemPrompt: '' },
+          },
+        ],
+      },
+      modelCatalog,
+      providerConfigs,
+    });
+
+    expect(availability.status).toBe('ready');
+    expect(availability.modelRef?.id).toBe('model-ref-1');
+  });
+
+  it('blocks a function connected to an unbound model node', () => {
+    const availability = resolveStepExecutionAvailability({
+      step: createStep({ modelSourceStepId: 'model-node', systemPrompt: '' }),
+      template: {
+        ...template,
+        steps: [
+          {
+            id: 'model-node',
+            name: 'Model',
+            kind: 'model',
+            content: '',
+            model: {},
+            execution: { systemPrompt: '' },
+          },
+        ],
+      },
+      modelCatalog,
+      providerConfigs,
+    });
+
+    expect(availability.status).toBe('missing_model_ref');
+    expect(availability.isRunnable).toBe(false);
+  });
 });

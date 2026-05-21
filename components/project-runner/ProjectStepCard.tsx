@@ -22,6 +22,22 @@ import { getVariableTableCellValue } from '../../services/variableTableService.r
 type ViewMode = 'compact' | 'detail';
 
 const getStepRoleMeta = (language: UiLanguage, step: TemplateStep) => {
+  if (step.kind === 'variable') {
+    return {
+      stepType: 'variable',
+      roleLabel: language === 'zh-CN' ? '变量节点' : 'Variable node',
+      autoRunEnabled: true,
+    };
+  }
+
+  if (step.kind === 'math_operation') {
+    return {
+      stepType: 'math_operation',
+      roleLabel: language === 'zh-CN' ? '数学节点' : 'Math node',
+      autoRunEnabled: true,
+    };
+  }
+
   const stepType =
     step.stepType ||
     (step.execution?.modelRefId ? 'text_generation' : 'manual');
@@ -291,11 +307,11 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
     resultValue.trim().length > 0 &&
     structuredFields.some((field) => !String(structuredValues[field.key] || '').trim());
   const promptSectionLabel = language === 'zh-CN' ? '函数体' : 'Function body';
-  const resultSectionLabel = language === 'zh-CN' ? '输出变量' : 'Output variable';
+  const resultSectionLabel = language === 'zh-CN' ? '返回值' : 'Return value';
   const flowSummary =
     language === 'zh-CN'
-      ? '输入变量 -> 函数体 -> 输出变量'
-      : 'Input variables -> Function body -> Output variables';
+      ? '输入变量 -> 函数体 -> 返回值'
+      : 'Input variables -> Function body -> Return values';
   const showFlowSummary = stepRoleMeta.stepType === 'text_generation';
   const currentStepAssetUpdatedAt = Math.max(
     project.stepOutputMeta?.[step.id]?.updatedAt || 0,

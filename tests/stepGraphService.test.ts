@@ -93,9 +93,9 @@ describe('stepGraphService', () => {
 
     expect(graph.edges).toEqual(
       expect.arrayContaining([
-        { fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'var_a' },
-        { fromStepId: 'step-a', toStepId: 'step-c', variableKey: 'var_a' },
-        { fromStepId: 'step-b', toStepId: 'step-c', variableKey: 'var_b' },
+        expect.objectContaining({ fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'var_a' }),
+        expect.objectContaining({ fromStepId: 'step-a', toStepId: 'step-c', variableKey: 'var_a' }),
+        expect.objectContaining({ fromStepId: 'step-b', toStepId: 'step-c', variableKey: 'var_b' }),
       ])
     );
     expect(byId.get('step-a')?.nodeRole).toBe('producer');
@@ -130,7 +130,7 @@ describe('stepGraphService', () => {
 
     const graph = buildStepGraph(template);
     expect(graph.edges).toEqual([
-      { fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'characters' },
+      expect.objectContaining({ fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'characters' }),
     ]);
     expect(graph.nodes.find((node) => node.stepId === 'step-b')?.inputVariableKeys).toEqual(['characters']);
   });
@@ -159,10 +159,45 @@ describe('stepGraphService', () => {
     expect(producer?.outputVariableKeys).toEqual(['summary', 'characters']);
     expect(graph.edges).toEqual(
       expect.arrayContaining([
-        { fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'summary' },
-        { fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'characters' },
+        expect.objectContaining({ fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'summary' }),
+        expect.objectContaining({ fromStepId: 'step-a', toStepId: 'step-b', variableKey: 'characters' }),
       ])
     );
+  });
+
+  it('builds model edges from model nodes into function model ports', () => {
+    const template = buildTemplate([
+      {
+        id: 'model-node',
+        name: 'Model',
+        kind: 'model',
+        content: '',
+        model: { modelRefId: 'model-ref-main' },
+        execution: { systemPrompt: '' },
+      },
+      buildStep({
+        id: 'step-fn',
+        name: 'Function',
+        content: 'produce',
+        outputBinding: { variableKey: 'result' },
+        execution: {
+          modelRefId: 'model-ref-main',
+          modelSourceStepId: 'model-node',
+          systemPrompt: 'system',
+        },
+      }),
+    ]);
+
+    const graph = buildStepGraph(template);
+    expect(graph.edges).toEqual([
+      expect.objectContaining({
+        fromStepId: 'model-node',
+        toStepId: 'step-fn',
+        variableKey: 'model-node:model',
+        fromOutputKey: 'model-node:model',
+        toInputKey: 'model',
+      }),
+    ]);
   });
 
   it('maps repeated producers of the same variable to one consumer', () => {

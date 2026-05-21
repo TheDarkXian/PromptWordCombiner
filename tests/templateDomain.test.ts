@@ -113,6 +113,40 @@ describe('templateDomain', () => {
     ]);
   });
 
+  it('normalizes model nodes without generating them for old templates', () => {
+    const template = normalizeTemplate(
+      {
+        id: 'template-1',
+        name: 'Template',
+        inputs: [],
+        modelRefs: [{ id: 'ref-1', label: 'Ref 1' }],
+        steps: [
+          {
+            id: 'model-node',
+            name: 'Model',
+            kind: 'model',
+            content: '',
+            model: { modelRefId: 'ref-1' },
+          },
+          {
+            id: 'legacy',
+            name: 'Legacy',
+            content: 'hello',
+          },
+        ],
+      },
+      DEFAULT_MODEL_CATALOG
+    );
+
+    expect(template.steps[0]).toEqual(
+      expect.objectContaining({
+        kind: 'model',
+        model: { modelRefId: 'ref-1' },
+      })
+    );
+    expect(template.steps[1].kind).toBe('prompt_function');
+  });
+
   it('creates default settings with default providers and model catalog', () => {
     const settings = createDefaultSettings();
 

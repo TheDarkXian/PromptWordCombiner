@@ -55,3 +55,5 @@ status: draft | active | archived
 - [导入兼容与旧备份迁移方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/导入兼容与旧备份迁移方案.md:1)
 - [蓝图节点升级测试方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/蓝图节点升级测试方案.md:1)
 - [函数节点入口参数与诊断控制台方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/函数节点入口参数与诊断控制台方案.md:1)
+- [函数节点入口参数与诊断控制台实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/函数节点入口参数与诊断控制台实施方案.md:1)
+- [函数体引用语法约定.md](/E:/Project/Vscode/PromptWordSplicer/docs/函数体引用语法约定.md:1)

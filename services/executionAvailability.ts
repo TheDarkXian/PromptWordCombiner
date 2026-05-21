@@ -16,13 +16,60 @@ interface ResolveExecutionAvailabilityParams {
 
 export const SUPPORTED_EXECUTION_PROVIDERS: ProviderType[] = ['openai', 'anthropic', 'deepseek', 'openai_compatible'];
 
+const getConnectedModelSource = (step: TemplateStep, template: Template) => {
+  const sourceStepId = step.execution?.modelSourceStepId?.trim();
+  if (!sourceStepId) return undefined;
+  const sourceStep = template.steps.find((item) => item.id === sourceStepId);
+  return {
+    sourceStepId,
+    sourceStep,
+    modelRefId: sourceStep?.kind === 'model' ? sourceStep.model?.modelRefId?.trim() : undefined,
+  };
+};
+
 export const resolveStepExecutionAvailability = ({
   step,
   template,
   modelCatalog,
   providerConfigs,
 }: ResolveExecutionAvailabilityParams): StepExecutionAvailability => {
-  const modelRefId = step.execution?.modelRefId;
+  if (step.kind === 'model') {
+    return {
+      status: 'manual',
+      label: '模型节点',
+      message: '模型节点只提供模型引用，不需要单独执行。',
+      isRunnable: false,
+    };
+  }
+
+  if (step.kind === 'variable' || step.kind === 'math_operation') {
+    return {
+      status: 'ready',
+      label: step.kind === 'variable' ? '本地变量节点' : '本地数学节点',
+      message: '这个节点在本地执行，不需要模型引用。',
+      isRunnable: true,
+    };
+  }
+
+  const connectedModel = getConnectedModelSource(step, template);
+  if (connectedModel && (!connectedModel.sourceStep || connectedModel.sourceStep.kind !== 'model')) {
+    return {
+      status: 'missing_model_ref',
+      label: '模型节点缺失',
+      message: '连接的模型节点不存在，请重新连接函数节点的模型输入端。',
+      isRunnable: false,
+    };
+  }
+  if (connectedModel && !connectedModel.modelRefId) {
+    return {
+      status: 'missing_model_ref',
+      label: '模型节点未绑定',
+      message: '连接的模型节点没有选择模型引用。',
+      isRunnable: false,
+    };
+  }
+
+  const modelRefId = connectedModel?.modelRefId || step.execution?.modelRefId;
   if (!modelRefId) {
     return {
       status: 'manual',

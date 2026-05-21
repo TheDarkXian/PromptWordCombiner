@@ -1,12 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { buildStepGraph, extractTemplateVariableKeys } from '../../services/stepGraphService';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildStepGraph } from '../../services/stepGraphService';
+import {
+  checkPortCompatibility,
+  getStepInputs,
+  getStepOutputs,
+  normalizePortValueType,
+} from '../../services/stepVariablePortsService';
 import { t } from '../../services/i18n';
-import { Template, UiLanguage } from '../../types';
+import { StepVariableInput, Template, TemplateStep, UiLanguage, VariableValueType } from '../../types';
 
 interface ConnectRequest {
   fromStepId: string;
   toStepId: string;
   toVariableKey: string;
+  fromOutputKey?: string;
+  toInputKey?: string;
 }
 
 interface DebugState {
@@ -16,6 +24,35 @@ interface DebugState {
   blockedStepIds?: string[];
   recentPathEdgeKeys?: string[];
 }
+
+interface LinkingPinState {
+  stepId: string;
+  outputKey: string;
+  outputType: VariableValueType;
+}
+
+const PORT_COLORS: Record<VariableValueType, { stroke: string; hover: string; fill: string; shadow: string }> = {
+  text: {
+    stroke: 'rgba(56,189,248,0.85)',
+    hover: 'hover:border-cyan-400/40 hover:bg-cyan-400/10',
+    fill: 'border-cyan-300 bg-slate-950',
+    shadow: 'shadow-[0_0_8px_rgba(34,211,238,0.45)]',
+  },
+  table: {
+    stroke: 'rgba(217,70,239,0.85)',
+    hover: 'hover:border-fuchsia-300/50 hover:bg-fuchsia-400/10',
+    fill: 'border-fuchsia-300 bg-slate-950',
+    shadow: 'shadow-[0_0_8px_rgba(217,70,239,0.5)]',
+  },
+  model: {
+    stroke: 'rgba(167,139,250,0.9)',
+    hover: 'hover:border-violet-300/50 hover:bg-violet-400/10',
+    fill: 'border-violet-300 bg-slate-950',
+    shadow: 'shadow-[0_0_8px_rgba(167,139,250,0.55)]',
+  },
+};
+
+const getPortColor = (type?: VariableValueType) => PORT_COLORS[normalizePortValueType(type)];
 
 interface TemplateBlueprintCanvasProps {
   language: UiLanguage;
@@ -28,7 +65,8 @@ interface TemplateBlueprintCanvasProps {
   onViewportChange: (x: number, y: number, zoom: number) => void;
   onTidyLayout: () => void;
   onResetLayout: () => void;
-  onCreateStepRequest: () => void;
+  onCreateStepRequest: (position?: { x: number; y: number }) => void;
+  createNodeMenu?: React.ReactNode;
   onOpenStepTab?: (stepId: string) => void;
   debugState?: DebugState;
   activeTool?: BlueprintActiveTool;
@@ -39,6 +77,11 @@ interface TemplateBlueprintCanvasProps {
 
 const NODE_W = 260;
 const NODE_H = 130;
+const INPUT_PORT_TOP = 34;
+const INPUT_PORT_GAP = 22;
+const INPUT_PORT_SIZE = 20;
+const OUTPUT_PORT_TOP = 62;
+const OUTPUT_PORT_SIZE = 20;
 const MINIMAP_W = 200;
 const MINIMAP_H = 132;
 const MINIMAP_COMPACT_W = 152;
@@ -53,6 +96,39 @@ const isEditableEventTarget = (target: EventTarget | null) => {
   return Boolean(target.closest('input, textarea, select, [contenteditable="true"]'));
 };
 
+const getCanvasInputPorts = (step: TemplateStep, language: UiLanguage): StepVariableInput[] => {
+  if (step.kind === 'math_operation') {
+    return [
+      { key: step.math?.leftKey?.trim() || '', label: 'A', type: 'text', portKey: 'left' },
+      { key: step.math?.rightKey?.trim() || '', label: 'B', type: 'text', portKey: 'right' },
+    ];
+  }
+  if (step.kind === 'variable') {
+    return [
+      {
+        key: step.variable?.inputKey?.trim() || '',
+        label: language === 'zh-CN' ? '值' : 'value',
+        type: 'text',
+        portKey: 'value',
+      },
+    ];
+  }
+  if (step.kind === 'prompt_function' || !step.kind) {
+    return [
+      {
+        key: step.execution?.modelSourceStepId?.trim()
+          ? `${step.execution.modelSourceStepId.trim()}:model`
+          : '',
+        label: 'model',
+        type: 'model',
+        portKey: 'model',
+      },
+      ...getStepInputs(step).filter((input) => (input.portKey || input.key) !== 'model'),
+    ];
+  }
+  return getStepInputs(step);
+};
+
 export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = ({
   language,
   template,
@@ -65,6 +141,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
   onTidyLayout,
   onResetLayout,
   onCreateStepRequest,
+  createNodeMenu,
   onOpenStepTab,
   debugState,
   activeTool: controlledActiveTool,
@@ -78,9 +155,9 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
   const [mode, setMode] = useState<Mode>('idle');
   const [localActiveTool, setLocalActiveTool] = useState<BlueprintActiveTool>('move');
   const [spacePressed, setSpacePressed] = useState(false);
-  const [linkingFromStepId, setLinkingFromStepId] = useState<string | null>(null);
+  const [linkingPin, setLinkingPin] = useState<LinkingPinState | null>(null);
   const [selectedEdgeKey, setSelectedEdgeKey] = useState<string | null>(null);
-  const [hoverConnectTarget, setHoverConnectTarget] = useState<{ stepId: string; variableKey?: string } | null>(null);
+  const [hoverConnectTarget, setHoverConnectTarget] = useState<{ stepId: string; variableKey?: string; inputKey?: string; inputType?: VariableValueType } | null>(null);
   const [mousePoint, setMousePoint] = useState<{ x: number; y: number } | null>(null);
   const [marqueeRect, setMarqueeRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [canvasSize, setCanvasSize] = useState({ width: 1, height: 1 });
@@ -200,6 +277,14 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
     width: canvasSize.width / viewport.zoom,
     height: canvasSize.height / viewport.zoom,
   };
+  const getViewportCenterNodePosition = useCallback(
+    () => ({
+      x: -viewport.x / viewport.zoom + canvasSize.width / viewport.zoom / 2 - NODE_W / 2,
+      y: -viewport.y / viewport.zoom + canvasSize.height / viewport.zoom / 2 - NODE_H / 2,
+    }),
+    [canvasSize.height, canvasSize.width, viewport.x, viewport.y, viewport.zoom]
+  );
+
 
   const visibleMinimapRect = {
     x: worldToMinimap(visibleWorldRect.x, visibleWorldRect.y).x,
@@ -250,7 +335,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
       }
       if (event.key === 'Tab') {
         event.preventDefault();
-        onCreateStepRequest();
+        onCreateStepRequest(getViewportCenterNodePosition());
       }
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedEdgeKey) {
         const [fromStepId, toStepId, variableKey] = selectedEdgeKey.split('__');
@@ -277,7 +362,16 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [mode, onCreateStepRequest, onRemoveEdge, onSelectSteps, onViewportChange, selectedEdgeKey, template.steps]);
+  }, [
+    getViewportCenterNodePosition,
+    mode,
+    onCreateStepRequest,
+    onRemoveEdge,
+    onSelectSteps,
+    onViewportChange,
+    selectedEdgeKey,
+    template.steps,
+  ]);
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded-lg border border-slate-800 bg-slate-950/40 p-2">
@@ -324,21 +418,31 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
               {language === 'zh-CN' ? '拖动节点' : 'Move'}
             </button>
           </div>
-          <button onClick={onCreateStepRequest} className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200">
-            + Node (Tab)
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => onCreateStepRequest(getViewportCenterNodePosition())}
+              className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
+            >
+              + Node (Tab)
+            </button>
+            {createNodeMenu && (
+              <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-56">
+                {createNodeMenu}
+              </div>
+            )}
+          </div>
           <button onClick={onTidyLayout} className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200">
             {language === 'zh-CN' ? '整理布局' : 'Tidy'}
           </button>
           <button onClick={onResetLayout} className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
-            {language === 'zh-CN' ? '重置布局' : 'Reset'}
+            {language === 'zh-CN' ? '閲嶇疆甯冨眬' : 'Reset'}
           </button>
           <button
             type="button"
             onClick={fitGraphToView}
             className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 transition-colors hover:border-cyan-500 hover:text-white"
           >
-            {language === 'zh-CN' ? '适配视图' : 'Fit'}
+            {language === 'zh-CN' ? '閫傞厤瑙嗗浘' : 'Fit'}
           </button>
           <button
             type="button"
@@ -453,13 +557,13 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
               onSelectSteps([]);
             }
           }
-          if (mode === 'linking_pin' && linkingFromStepId && hoverConnectTarget && linkingFromStepId !== hoverConnectTarget.stepId) {
-            const fromStep = template.steps.find((item) => item.id === linkingFromStepId);
-            const fallbackVariableKey = fromStep?.outputBinding?.variableKey?.trim() || '';
+          if (mode === 'linking_pin' && linkingPin && hoverConnectTarget && linkingPin.stepId !== hoverConnectTarget.stepId) {
             onConnect({
-              fromStepId: linkingFromStepId,
+              fromStepId: linkingPin.stepId,
               toStepId: hoverConnectTarget.stepId,
-              toVariableKey: hoverConnectTarget.variableKey || fallbackVariableKey,
+              toVariableKey: hoverConnectTarget.variableKey || linkingPin.outputKey,
+              fromOutputKey: linkingPin.outputKey,
+              toInputKey: hoverConnectTarget.inputKey || hoverConnectTarget.variableKey,
             });
           }
           setMode('idle');
@@ -468,7 +572,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
           dragStartWorldRef.current = null;
           draggingNodeIdsRef.current = [];
           canvasPointerStartRef.current = null;
-          setLinkingFromStepId(null);
+          setLinkingPin(null);
           setHoverConnectTarget(null);
         }}
         onMouseLeave={() => {
@@ -497,7 +601,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
           canvasPointerStartRef.current = null;
           setMousePoint(null);
           setHoverConnectTarget(null);
-          setLinkingFromStepId(null);
+          setLinkingPin(null);
         }}
         onWheel={(event) => {
           event.preventDefault();
@@ -520,24 +624,30 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
             const from = nodes[edge.fromStepId];
             const to = nodes[edge.toStepId];
             if (!from || !to) return null;
-            const inputKeys = extractTemplateVariableKeys(template.steps.find((step) => step.id === edge.toStepId)?.content || '');
-            const idx = Math.max(0, inputKeys.indexOf(edge.variableKey));
-            const yOffset = 32 + idx * 16;
-            const x1 = from.x * viewport.zoom + viewport.x + NODE_W * viewport.zoom;
-            const y1 = from.y * viewport.zoom + viewport.y + (NODE_H / 2) * viewport.zoom;
-            const x2 = to.x * viewport.zoom + viewport.x;
-            const y2 = to.y * viewport.zoom + viewport.y + yOffset * viewport.zoom;
+            const fromStep = template.steps.find((step) => step.id === edge.fromStepId);
+            const fromOutput = fromStep
+              ? getStepOutputs(fromStep).find((output) => output.key === edge.fromOutputKey) || getStepOutputs(fromStep)[0]
+              : undefined;
+            const edgeColor = getPortColor(fromOutput?.type).stroke;
+            const toStep = template.steps.find((step) => step.id === edge.toStepId);
+            const inputPorts = toStep ? getCanvasInputPorts(toStep, language) : [];
+            const idx = Math.max(0, inputPorts.findIndex((input) => (input.portKey || input.key) === (edge.toInputKey || edge.variableKey)));
+            const yOffset = INPUT_PORT_TOP + idx * INPUT_PORT_GAP + INPUT_PORT_SIZE / 2;
+            const x1 = from.x * viewport.zoom + viewport.x + NODE_W * viewport.zoom - OUTPUT_PORT_SIZE / 2;
+            const y1 = from.y * viewport.zoom + viewport.y + OUTPUT_PORT_TOP + OUTPUT_PORT_SIZE / 2;
+            const x2 = to.x * viewport.zoom + viewport.x - INPUT_PORT_SIZE / 2;
+            const y2 = to.y * viewport.zoom + viewport.y + yOffset;
             const cx1 = x1 + 48 * viewport.zoom;
             const cx2 = x2 - 48 * viewport.zoom;
             const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
-            const edgeKey = `${edge.fromStepId}__${edge.toStepId}__${edge.variableKey}`;
+            const edgeKey = `${edge.fromStepId}__${edge.toStepId}__${edge.toInputKey || edge.variableKey}`;
             const selected = selectedEdgeKey === edgeKey;
             const inRecentPath = debugState?.recentPathEdgeKeys?.includes(edgeKey);
             return (
               <g key={edgeKey}>
                 <path
                   d={d}
-                  stroke={selected ? 'rgba(251,191,36,1)' : inRecentPath ? 'rgba(34,197,94,0.95)' : 'rgba(56,189,248,0.85)'}
+                  stroke={selected ? 'rgba(251,191,36,1)' : inRecentPath ? 'rgba(34,197,94,0.95)' : edgeColor}
                   strokeWidth={selected ? 3 : 2}
                   fill="none"
                   pointerEvents="none"
@@ -556,21 +666,68 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
               </g>
             );
           })}
-          {linkingFromStepId && mousePoint && (() => {
-            const from = nodes[linkingFromStepId];
+          {linkingPin && mousePoint && (() => {
+            const from = nodes[linkingPin.stepId];
             if (!from) return null;
-            const x1 = from.x * viewport.zoom + viewport.x + NODE_W * viewport.zoom;
-            const y1 = from.y * viewport.zoom + viewport.y + (NODE_H / 2) * viewport.zoom;
+            const x1 = from.x * viewport.zoom + viewport.x + NODE_W * viewport.zoom - OUTPUT_PORT_SIZE / 2;
+            const y1 = from.y * viewport.zoom + viewport.y + OUTPUT_PORT_TOP + OUTPUT_PORT_SIZE / 2;
             const x2 = mousePoint.x;
             const y2 = mousePoint.y;
             const d = `M ${x1} ${y1} C ${x1 + 48 * viewport.zoom} ${y1}, ${x2 - 48 * viewport.zoom} ${y2}, ${x2} ${y2}`;
-            return <path d={d} stroke="rgba(251,191,36,0.95)" strokeWidth={2} strokeDasharray="6 4" fill="none" />;
+            return <path d={d} stroke={getPortColor(linkingPin.outputType).stroke} strokeWidth={2} strokeDasharray="6 4" fill="none" />;
           })()}
         </svg>
 
         {template.steps.map((step) => {
           const pos = nodes[step.id] || { x: 0, y: 0 };
-          const inputKeys = extractTemplateVariableKeys(step.content || '');
+          const graphNode = graph.nodes.find((node) => node.stepId === step.id);
+          const inputPorts = getCanvasInputPorts(step, language);
+          const outputPorts = getStepOutputs(step);
+          const outputKeys = graphNode?.outputVariableKeys || outputPorts.map((output) => output.key);
+          const firstOutputLabel = outputPorts[0]?.label || outputKeys[0] || '';
+          const nodeKind = step.kind || 'prompt_function';
+          const operationSymbol =
+            step.math?.operation === 'subtract'
+              ? '-'
+              : step.math?.operation === 'multiply'
+                ? '*'
+                : step.math?.operation === 'divide'
+                  ? '/'
+                  : '+';
+          const nodeKindLabel =
+            nodeKind === 'variable'
+              ? language === 'zh-CN'
+                ? '变量节点'
+                : 'Variable'
+              : nodeKind === 'math_operation'
+                ? language === 'zh-CN'
+                  ? '数学节点'
+                  : 'Math'
+                : language === 'zh-CN'
+                  ? '函数节点'
+                  : 'Function';
+          const displayNodeKindLabel =
+            nodeKind === 'model'
+              ? language === 'zh-CN'
+                ? '模型节点'
+                : 'Model'
+              : nodeKindLabel;
+          const modelRefLabel =
+            template.modelRefs?.find((item) => item.id === step.model?.modelRefId)?.label ||
+            step.model?.modelRefId ||
+            '-';
+          const nodeBodyLine =
+            nodeKind === 'variable'
+              ? `${language === 'zh-CN' ? '默认值' : 'Default'}: ${
+                  step.variable?.defaultValue ? step.variable.defaultValue.slice(0, 18) : '-'
+                }`
+              : nodeKind === 'math_operation'
+                ? `${step.math?.leftKey?.trim() || 'A'} ${operationSymbol} ${step.math?.rightKey?.trim() || 'B'}`
+                : nodeKind === 'model'
+                  ? `${language === 'zh-CN' ? '模型' : 'Model'}: ${modelRefLabel}`
+                : `${language === 'zh-CN' ? '入口' : 'In'} ${inputPorts.length} · ${
+                    language === 'zh-CN' ? '返回' : 'Out'
+                  } ${outputKeys.length}`;
           const selected = selectedStepIds.includes(step.id);
           const isCurrent = debugState?.currentStepId === step.id;
           const isError = debugState?.errorStepIds?.includes(step.id);
@@ -625,52 +782,97 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                 event.stopPropagation();
                 onOpenStepTab?.(step.id);
               }}
-              onMouseEnter={() => {
-                if (linkingFromStepId && linkingFromStepId !== step.id) {
-                  setHoverConnectTarget({ stepId: step.id, variableKey: inputKeys[0] });
-                }
-              }}
               onMouseLeave={() => {
                 setHoverConnectTarget((prev) => (prev?.stepId === step.id ? null : prev));
               }}
             >
               <div className="truncate text-sm font-semibold text-white">{step.name}</div>
-              <div className="mt-1 truncate text-xs text-slate-400">{step.stepType || 'manual'}</div>
-              <div className="mt-2 truncate text-[11px] text-cyan-300">
-                out: {step.outputBinding?.variableKey?.trim() ? `{{${step.outputBinding?.variableKey?.trim()}}}` : '(none)'}
+              <div className="mt-1 truncate text-xs text-slate-400">
+                {displayNodeKindLabel}
               </div>
-              <div className="mt-1 text-[11px] text-slate-400">in pins: {inputKeys.length}</div>
+              <div className="mt-2 truncate text-[11px] text-slate-300">{nodeBodyLine}</div>
+              <div className="mt-2 truncate text-[11px] text-cyan-300">
+                {language === 'zh-CN' ? '输出端' : 'out'}: {firstOutputLabel || '(none)'}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                {language === 'zh-CN' ? '输入口' : 'in pins'}: {inputPorts.length}
+              </div>
 
-              {inputKeys.length > 0 &&
-                inputKeys.map((key, index) => (
+              {inputPorts.length > 0 &&
+                inputPorts.map((input, index) => {
+                  const inputType = normalizePortValueType(input.type);
+                  const inputColor = getPortColor(inputType);
+                  const hoverCompatibility = linkingPin
+                    ? checkPortCompatibility(linkingPin.outputType, inputType)
+                    : undefined;
+                  const isHoveredTarget =
+                    hoverConnectTarget?.stepId === step.id &&
+                    hoverConnectTarget.inputKey === (input.portKey || input.key);
+                  return (
                 <button
-                  key={`${step.id}_${key}`}
-                  className="absolute -left-2 h-3 rounded-full border border-slate-500 bg-slate-800 px-1 text-[9px] text-slate-300"
-                  style={{ top: `${34 + index * 16}px` }}
-                  onMouseEnter={() => setHoverConnectTarget({ stepId: step.id, variableKey: key })}
+                  key={`${step.id}_${input.portKey || input.key}`}
+                  className={`absolute -left-3 flex h-5 w-5 items-center justify-center rounded-full border border-transparent bg-transparent transition-colors ${
+                    isHoveredTarget && hoverCompatibility && !hoverCompatibility.ok
+                      ? 'border-red-400/70 bg-red-500/10'
+                      : isHoveredTarget && hoverCompatibility?.ok
+                        ? 'border-emerald-300/60 bg-emerald-400/10'
+                        : inputColor.hover
+                  }`}
+                  style={{ top: `${INPUT_PORT_TOP + index * INPUT_PORT_GAP}px` }}
+                  onMouseEnter={() =>
+                    setHoverConnectTarget({
+                      stepId: step.id,
+                      variableKey: input.key,
+                      inputKey: input.portKey || input.key,
+                      inputType,
+                    })
+                  }
                   onMouseLeave={() =>
                     setHoverConnectTarget((prev) =>
-                      prev?.stepId === step.id && prev.variableKey === key ? null : prev
+                      prev?.stepId === step.id && prev.inputKey === (input.portKey || input.key) ? null : prev
                     )
                   }
-                  title={key}
+                  title={`${input.label || input.key}: ${input.key}`}
                   data-blueprint-pan-blocker="true"
+                  aria-label={`${input.label || input.key} input`}
                 >
-                  {key}
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full border bg-slate-950 ${
+                      isHoveredTarget && hoverCompatibility && !hoverCompatibility.ok
+                        ? 'border-red-300 shadow-[0_0_8px_rgba(248,113,113,0.55)]'
+                        : `${inputColor.fill} ${inputColor.shadow}`
+                    }`}
+                  />
                 </button>
-              ))}
-              {step.outputBinding?.variableKey?.trim() ? (
+              );
+            })}
+              {outputKeys[0] ? (
                 <button
-                  className="absolute -right-2 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-cyan-400 bg-cyan-500/40"
+                  aria-describedby={`${step.id}_output_type`}
+                  className={`absolute -right-3 flex h-5 w-5 items-center justify-center rounded-full border border-transparent bg-transparent transition-colors ${
+                    getPortColor(outputPorts[0]?.type).hover
+                  }`}
+                  style={{ top: `${OUTPUT_PORT_TOP}px` }}
                   onMouseDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    setLinkingFromStepId(step.id);
+                    setLinkingPin({
+                      stepId: step.id,
+                      outputKey: outputPorts[0]?.key || outputKeys[0],
+                      outputType: normalizePortValueType(outputPorts[0]?.type),
+                    });
                     setMode('linking_pin');
                   }}
-                  title="output"
+                  title={firstOutputLabel || 'output'}
                   data-blueprint-pan-blocker="true"
-                />
+                  aria-label={`${firstOutputLabel || 'output'} output`}
+                >
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full border ${
+                      `${getPortColor(outputPorts[0]?.type).fill} ${getPortColor(outputPorts[0]?.type).shadow}`
+                    }`}
+                  />
+                </button>
               ) : null}
             </div>
           );
@@ -736,7 +938,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                   if (!from || !to) return null;
                   const fromPoint = worldToMinimap(from.x + NODE_W, from.y + NODE_H / 2);
                   const toPoint = worldToMinimap(to.x, to.y + NODE_H / 2);
-                  const edgeKey = `${edge.fromStepId}__${edge.toStepId}__${edge.variableKey}`;
+                  const edgeKey = `${edge.fromStepId}__${edge.toStepId}__${edge.toInputKey || edge.variableKey}`;
                   const inRecentPath = debugState?.recentPathEdgeKeys?.includes(edgeKey);
                   return (
                     <line

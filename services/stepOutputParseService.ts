@@ -98,14 +98,14 @@ export const parseStepOutputVariablesFromResponse = ({
     if (output.type === 'table') {
       const rawTable = source[output.key];
       if (rawTable !== undefined && !Array.isArray(rawTable)) {
-        throw new Error(`Table output "${output.key}" must be an array.`);
+        throw new Error(`Table return "${output.key}" must be an array.`);
       }
       const rawRows = Array.isArray(rawTable) ? rawTable : [];
 
       const columns = output.tableSchema?.columns || [];
       const rows = rawRows.map<ProjectVariableTableRow>((rawRow, index) => {
         if (!rawRow || typeof rawRow !== 'object' || Array.isArray(rawRow)) {
-          throw new Error(`Table output "${output.key}" row ${index + 1} is not an object.`);
+          throw new Error(`Table return "${output.key}" row ${index + 1} is not an object.`);
         }
         const row = rawRow as Record<string, unknown>;
         return {

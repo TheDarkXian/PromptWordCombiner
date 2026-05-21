@@ -1,9 +1,12 @@
 import { DEFAULT_MODEL_CATALOG, DEFAULT_PROVIDER_CONFIGS } from '../constants';
 import {
   AppSettings,
+  BlueprintNodeKind,
   ExecutionPresetModelRefStrategy,
   ExecutionPresetTemplate,
   ModelCatalogItem,
+  StepParameter,
+  StepParameterSource,
   StepType,
   Template,
   TemplateModelRef,
@@ -37,6 +40,102 @@ const normalizeLegacyDeepSeekModel = (item: any) => {
     };
   }
   return item;
+};
+
+const normalizeStepParameterSource = (source: any): StepParameterSource | undefined => {
+  if (!source || typeof source !== 'object') return undefined;
+  if (source.type === 'same_name') {
+    const key = String(source.key || '').trim();
+    return key ? { type: 'same_name', key } : undefined;
+  }
+  if (source.type === 'project_input') {
+    const inputId = String(source.inputId || '').trim();
+    const key = String(source.key || '').trim();
+    return inputId && key ? { type: 'project_input', inputId, key } : undefined;
+  }
+  if (source.type === 'project_variable') {
+    const key = String(source.key || '').trim();
+    return key ? { type: 'project_variable', key } : undefined;
+  }
+  if (source.type === 'step_return') {
+    const stepId = String(source.stepId || '').trim();
+    const key = String(source.key || '').trim();
+    return stepId && key ? { type: 'step_return', stepId, key } : undefined;
+  }
+  if (source.type === 'literal') {
+    return { type: 'literal', value: String(source.value || '') };
+  }
+  return undefined;
+};
+
+const normalizeStepParameters = (step: any): StepParameter[] | undefined => {
+  if (!Array.isArray(step?.parameters)) return undefined;
+  return step.parameters
+    .map((parameter: any, index: number) => {
+      const name = String(parameter?.name || '').trim();
+      if (!name) return undefined;
+      return {
+        id: String(parameter?.id || `param_${step?.id || 'step'}_${index}_${name}`),
+        name,
+        type: parameter?.type === 'table' ? 'table' : 'text',
+        defaultValue:
+          typeof parameter?.defaultValue === 'string'
+            ? parameter.defaultValue
+            : parameter?.source?.type === 'literal'
+              ? String(parameter.source.value || '')
+              : undefined,
+        required: parameter?.required !== false,
+        source: normalizeStepParameterSource(parameter?.source),
+      } satisfies StepParameter;
+    })
+    .filter((parameter): parameter is StepParameter => Boolean(parameter));
+};
+
+const normalizeBlueprintNodeKind = (step: any): BlueprintNodeKind => {
+  if (
+    step?.kind === 'variable' ||
+    step?.kind === 'math_operation' ||
+    step?.kind === 'model' ||
+    step?.kind === 'prompt_function'
+  ) {
+    return step.kind;
+  }
+  return 'prompt_function';
+};
+
+const normalizeVariableNodeConfig = (step: any) => {
+  const source = step?.variable || {};
+  const name = String(source.name || '').trim();
+  return {
+    name,
+    defaultValue: typeof source.defaultValue === 'string' ? source.defaultValue : '',
+    outputKey: String(source.outputKey || name || '').trim(),
+    inputKey: String(source.inputKey || '').trim() || undefined,
+  };
+};
+
+const normalizeMathNodeConfig = (step: any) => {
+  const source = step?.math || {};
+  const operation =
+    source.operation === 'subtract' ||
+    source.operation === 'multiply' ||
+    source.operation === 'divide'
+      ? source.operation
+      : 'add';
+  return {
+    operation,
+    leftKey: String(source.leftKey || '').trim(),
+    rightKey: String(source.rightKey || '').trim(),
+    outputKey: String(source.outputKey || '').trim(),
+  };
+};
+
+const normalizeModelNodeConfig = (step: any) => {
+  const source = step?.model || {};
+  const modelRefId = String(source.modelRefId || '').trim();
+  return {
+    modelRefId: modelRefId || undefined,
+  };
 };
 
 export const normalizeTemplateModelRefs = (
@@ -102,6 +201,7 @@ export const normalizeTemplate = (template: Template, modelCatalog: ModelCatalog
       : undefined,
   modelRefs: normalizeTemplateModelRefs(template, modelCatalog),
   steps: template.steps.map((step) => {
+    const kind = normalizeBlueprintNodeKind(step);
     const normalizedStepType: StepType =
       step.stepType === 'text_generation' || step.stepType === 'manual' || step.stepType === 'external'
         ? step.stepType
@@ -111,14 +211,28 @@ export const normalizeTemplate = (template: Template, modelCatalog: ModelCatalog
 
     const normalizedStep = {
       ...step,
+      kind,
+      content: step.content || '',
       stepType: normalizedStepType,
       autoRunEnabled: normalizedStepType === 'text_generation' ? step.autoRunEnabled === true : false,
+      parameters: normalizeStepParameters(step),
+      variable: kind === 'variable' ? normalizeVariableNodeConfig(step) : step.variable,
+      math: kind === 'math_operation' ? normalizeMathNodeConfig(step) : step.math,
+      model: kind === 'model' ? normalizeModelNodeConfig(step) : step.model,
       inputs: Array.isArray((step as any).inputs)
         ? (step as any).inputs
             .map((input: any) => ({
               key: String(input?.key || '').trim(),
               label: String(input?.label || input?.key || '').trim(),
-              type: input?.type === 'table' ? 'table' : input?.type === 'text' ? 'text' : undefined,
+              type:
+                input?.type === 'table'
+                  ? 'table'
+                  : input?.type === 'model'
+                    ? 'model'
+                    : input?.type === 'text'
+                      ? 'text'
+                      : undefined,
+              portKey: String(input?.portKey || '').trim() || undefined,
             }))
             .filter((input: any) => input.key)
         : [],

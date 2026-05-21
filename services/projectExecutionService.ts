@@ -1,13 +1,19 @@
 import { appendStepRunLog, upsertVariable } from '../domain/projectDomain';
-import { createInterpolator } from './interpolationService';
+import { interpolateStepBody } from './interpolationService';
 import { resolveStepExecutionAvailability } from './modelService';
 import { getStepOutputs } from './stepVariablePortsService';
-import { parseStepOutputVariablesFromResponse } from './stepOutputParseService';
+import { resolveTextValueByKey } from './stepConnectionValueService';
+import {
+  parseStepOutputVariablesFromResponse,
+  shouldParseStepOutputsDirectly,
+} from './stepOutputParseService';
 import {
   AppSettings,
   Project,
+  ProjectVariable,
   ProjectVariableTable,
   StepRunLog,
+  StepStructuredParseSummary,
   Template,
   TemplateStep,
 } from '../types';
@@ -26,6 +32,158 @@ interface PreparedProjectStepExecution {
   baseUrl?: string;
   modelName: string;
 }
+
+const buildReturnFormatInstruction = (step: TemplateStep): string => {
+  const outputs = getStepOutputs(step);
+  if (outputs.length === 0 || !shouldParseStepOutputsDirectly(outputs)) return '';
+
+  const lines = outputs.map((output) => {
+    if (output.type === 'table') {
+      const columns = (output.tableSchema?.columns || []).map((column) => column.key).join(', ');
+      return `- ${output.key}: 表，必须是数组；每一行是对象，只包含这些字段：${columns || '无字段'}`;
+    }
+    return `- ${output.key}: 文本`;
+  });
+
+  return [
+    '请严格按 JSON 对象返回，不要添加 Markdown 代码块或额外说明。',
+    'JSON 对象的 key 必须与返回值名称完全一致。',
+    '返回值声明：',
+    ...lines,
+  ].join('\n');
+};
+
+const appendSystemInstruction = (systemPrompt: string, instruction: string): string => {
+  if (!instruction.trim()) return systemPrompt;
+  return [systemPrompt.trim(), instruction.trim()].filter(Boolean).join('\n\n');
+};
+
+const parseNumberLiteral = (value: string): number | undefined => {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const resolveMathOperand = (project: Project, template: Template, step: TemplateStep, raw: string): number => {
+  const literal = parseNumberLiteral(raw);
+  if (literal !== undefined) return literal;
+  const value = resolveTextValueByKey(raw, project, template, step);
+  if (value === undefined) {
+    throw new Error(`数学节点找不到输入变量：${raw}`);
+  }
+  const parsed = parseNumberLiteral(value);
+  if (parsed === undefined) {
+    throw new Error(`数学节点输入不是数字：${raw}`);
+  }
+  return parsed;
+};
+
+const makeLocalLogBase = (step: TemplateStep, userPrompt: string): Omit<StepRunLog, 'status' | 'output' | 'error'> => ({
+  id: `run_${Date.now()}`,
+  createdAt: Date.now(),
+  providerType: 'openai_compatible',
+  providerLabel: 'Local',
+  modelName: step.kind || 'local',
+  modelLabel: step.kind === 'math_operation' ? 'Math operation' : 'Variable',
+  systemPrompt: '',
+  userPrompt,
+  rawResponse: undefined,
+});
+
+export const isLocalExecutableStep = (step: TemplateStep) =>
+  step.kind === 'variable' || step.kind === 'math_operation';
+
+export const executeLocalProjectStep = ({
+  project,
+  template,
+  stepId,
+}: {
+  project: Project;
+  template: Template;
+  stepId: string;
+}): { project: Project; result: { output: string; structuredParse: StepStructuredParseSummary } } => {
+  const step = template.steps.find((item) => item.id === stepId);
+  if (!step) throw new Error('The requested step could not be found.');
+
+  const now = Date.now();
+  let outputKey = '';
+  let output = '';
+  let userPrompt = '';
+
+  if (step.kind === 'variable') {
+    const name = step.variable?.name?.trim() || '';
+    outputKey = step.variable?.outputKey?.trim() || `${step.id}:value`;
+    if (!name || !outputKey) throw new Error('变量节点需要填写变量名。');
+    const inputKey = step.variable?.inputKey?.trim();
+    const existingValue = inputKey
+      ? resolveTextValueByKey(inputKey, project, template, step)
+      : resolveTextValueByKey(name, project, template, step);
+    const hasDefaultValue = step.variable?.defaultValue !== undefined;
+    if (existingValue === undefined && !hasDefaultValue) {
+      throw new Error(`变量节点没有找到输入值，也没有默认值：${inputKey || name}`);
+    }
+    output = existingValue !== undefined ? existingValue : step.variable?.defaultValue || '';
+    userPrompt = `variable ${inputKey || name} -> ${outputKey}`;
+  } else if (step.kind === 'math_operation') {
+    const leftKey = step.math?.leftKey?.trim() || '';
+    const rightKey = step.math?.rightKey?.trim() || '';
+    outputKey = step.math?.outputKey?.trim() || `${step.id}:result`;
+    if (!leftKey || !rightKey || !outputKey) throw new Error('数学节点需要填写输入 A、输入 B 和输出端。');
+    const left = resolveMathOperand(project, template, step, leftKey);
+    const right = resolveMathOperand(project, template, step, rightKey);
+    const operation = step.math?.operation || 'add';
+    if (operation === 'divide' && right === 0) throw new Error('数学节点不能除以 0。');
+    const result =
+      operation === 'subtract'
+        ? left - right
+        : operation === 'multiply'
+          ? left * right
+          : operation === 'divide'
+            ? left / right
+            : left + right;
+    output = String(result);
+    userPrompt = `${leftKey} ${operation} ${rightKey} -> ${outputKey}`;
+  } else {
+    throw new Error('This is not a local executable node.');
+  }
+
+  const previous = (project.variables || []).find(
+    (variable) => variable.sourceType === 'step_output' && variable.sourceRef === step.id && variable.key === outputKey
+  );
+  const nextVariable: ProjectVariable = {
+    id: previous?.id || `var_step_${step.id}_${outputKey}`,
+    key: outputKey,
+    label: outputKey,
+    type: 'text',
+    value: output,
+    sourceType: 'step_output',
+    sourceRef: step.id,
+    createdAt: previous?.createdAt || now,
+    updatedAt: now,
+  };
+  const logBase = makeLocalLogBase(step, userPrompt);
+  const nextProject = applyProjectStepSuccess({
+    project: {
+      ...project,
+      variables: upsertVariable(project.variables || [], nextVariable),
+    },
+    step,
+    output,
+    logBase,
+  });
+
+  return {
+    project: nextProject,
+    result: {
+      output,
+      structuredParse: {
+        status: 'not_applicable',
+        message: 'Local node executed.',
+      },
+    },
+  };
+};
 
 export const prepareProjectStepExecution = ({
   project,
@@ -61,9 +219,15 @@ export const prepareProjectStepExecution = ({
   const override = project.stepOverrides[step.id];
   const rawContent =
     override?.content !== undefined ? override.content : step.content || '';
-  const interpolate = createInterpolator(project, template);
-  const userPrompt = interpolate(rawContent).trim();
-  const systemPrompt = step.execution?.systemPrompt || '';
+  const interpolation = interpolateStepBody(step.id, rawContent, project, template);
+  if (interpolation.diagnostics.length > 0) {
+    throw new Error(interpolation.diagnostics[0].message);
+  }
+  const userPrompt = interpolation.text.trim();
+  const systemPrompt = appendSystemInstruction(
+    step.execution?.systemPrompt || '',
+    buildReturnFormatInstruction(step)
+  );
   const temperature = step.execution?.temperature;
   const maxTokens = step.execution?.maxTokens;
 

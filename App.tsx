@@ -1,4 +1,4 @@
-﻿﻿import React, { useEffect, useRef, useState } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useEffect, useRef, useState } from 'react';
 import { DEFAULT_TEMPLATES } from './constants';
 import { ExportModal } from './components/ExportModal';
 import { FileLibrary } from './components/FileLibrary';
@@ -15,6 +15,8 @@ import { executeModelText } from './services/modelService';
 import {
   applyProjectStepError,
   applyProjectStepSuccess,
+  executeLocalProjectStep,
+  isLocalExecutableStep,
   prepareProjectStepExecution,
 } from './services/projectExecutionService';
 import {
@@ -503,6 +505,22 @@ const App: React.FC = () => {
     if (!project || !template) {
       throw new Error("Current project or template could not be found.");
     }
+    const step = template.steps.find((item) => item.id === stepId);
+    if (step && isLocalExecutableStep(step)) {
+      let localResult: ExecuteProjectStepResult | undefined;
+      updateProjectWithSync(project.id, (currentProject) => {
+        const executed = executeLocalProjectStep({
+          project: currentProject,
+          template,
+          stepId,
+        });
+        localResult = executed.result;
+        return executed.project;
+      });
+      if (!localResult) throw new Error('Local node did not return a result.');
+      return localResult;
+    }
+
     const prepared = prepareProjectStepExecution({
       project,
       template,

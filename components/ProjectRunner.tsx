@@ -8,12 +8,15 @@ import {
   ProducerRunResultItem,
   Project,
   ProviderConfig,
+  RuntimeDiagnostic,
+  StaticDiagnostic,
   StepFlowStatus,
   StructuredOverwriteConfirmRequest,
   StructuredParseLifecycleState,
   StepRunState,
   Template,
   UiLanguage,
+  WorkbenchOutputSnapshot,
 } from '../types';
 import { t } from '../services/i18n';
 import { FloatingToast, useToast } from './FloatingToast';
@@ -36,6 +39,9 @@ import {
   updateBlueprintNodePosition,
 } from '../services/templateBlueprintService';
 import { SplitPane } from './common/SplitPane';
+import { BottomPanel, BottomPanelTab } from './workbench/BottomPanel';
+import { StatusBar } from './workbench/StatusBar';
+import { validateTemplate } from '../services/templateDiagnosticsService';
 
 interface ProjectRunnerProps {
   project: Project;
@@ -120,6 +126,10 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   const [inspectedStepId, setInspectedStepId] = useState<string | null>(null);
   const [runStates, setRunStates] = useState<Record<string, StepRunState>>({});
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnostic[]>([]);
+  const [recentOutput, setRecentOutput] = useState<WorkbenchOutputSnapshot | null>(null);
+  const [bottomPanelVisible, setBottomPanelVisible] = useState(false);
+  const [bottomPanelTab, setBottomPanelTab] = useState<BottomPanelTab>('problems');
   const [producerPreflight, setProducerPreflight] = useState<ProducerPreflight | null>(null);
   const [producerRunScope, setProducerRunScope] = useState<ProducerRunScope>('changed_only');
   const [selectedOverwriteStepIds, setSelectedOverwriteStepIds] = useState<string[]>([]);
@@ -142,6 +152,31 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   >(null);
   const { toasts, showToast, removeToast } = useToast();
 
+  const addRuntimeDiagnostic = (
+    level: RuntimeDiagnostic['level'],
+    code: string,
+    message: string,
+    stepId?: string,
+    detail?: string
+  ) => {
+    const step = stepId ? template.steps.find((item) => item.id === stepId) : undefined;
+    setRuntimeDiagnostics((prev) => [
+      {
+        id: `runtime_${Date.now()}_${prev.length + 1}`,
+        level,
+        code,
+        message,
+        detail,
+        stepId,
+        stepName: step?.name,
+        timestamp: Date.now(),
+      },
+      ...prev,
+    ]);
+    setBottomPanelTab('console');
+    setBottomPanelVisible(true);
+  };
+
   const projectLogCount = useMemo(
     () =>
       (Object.values(project.stepRunLogs || {}) as Array<unknown[]>).reduce(
@@ -150,6 +185,9 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
       ),
     [project.stepRunLogs]
   );
+  const diagnostics = useMemo(() => validateTemplate(template, project), [template, project]);
+  const errorCount = diagnostics.filter((diagnostic) => diagnostic.level === 'error').length;
+  const warningCount = diagnostics.filter((diagnostic) => diagnostic.level === 'warning').length;
 
   const saveCurrentDetailsScroll = () => {
     if (!inspectedStepId || !detailsScrollRef.current) return;
@@ -399,6 +437,13 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     }
   };
 
+  const handleDiagnosticClick = (diagnostic: StaticDiagnostic) => {
+    if (!diagnostic.stepId) return;
+    setInspectedStepId(diagnostic.stepId);
+    onSelectedStepIdsChange([diagnostic.stepId]);
+    scrollToStep(diagnostic.stepId);
+  };
+
   const executeStepWithUi = async (
     stepId: string,
     options: {
@@ -409,6 +454,12 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   ) => {
     setRunStates((prev) => ({ ...prev, [stepId]: 'running' }));
     setRunErrors((prev) => ({ ...prev, [stepId]: '' }));
+    addRuntimeDiagnostic(
+      'info',
+      'STEP_RUN_STARTED',
+      language === 'zh-CN' ? '开始运行函数。' : 'Function run started.',
+      stepId
+    );
     setStructuredParseStates((prev) => ({
       ...prev,
       [stepId]: { state: 'idle' },
@@ -442,6 +493,27 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
         },
       });
       setRunStates((prev) => ({ ...prev, [stepId]: 'success' }));
+      const step = template.steps.find((item) => item.id === stepId);
+      setRecentOutput({
+        id: `output_${stepId}_${Date.now()}`,
+        stepId,
+        stepName: step?.name || stepId,
+        rawOutput: result.output,
+        structuredParse: result.structuredParse,
+        createdAt: Date.now(),
+      });
+      setBottomPanelTab('output');
+      setBottomPanelVisible(true);
+      addRuntimeDiagnostic(
+        result.structuredParse.status === 'error' ? 'error' : 'info',
+        result.structuredParse.status === 'error' ? 'STEP_PARSE_ERROR' : 'STEP_RUN_FINISHED',
+        result.structuredParse.status === 'error'
+          ? result.structuredParse.message
+          : language === 'zh-CN'
+            ? '函数运行完成。'
+            : 'Function run finished.',
+        stepId
+      );
       if (options.showSuccessToast !== false) {
         showToast(t(language, 'toast.generated'), Math.max(120, window.innerWidth / 2), 72);
       }
@@ -451,6 +523,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
         error instanceof Error ? error.message : t(language, 'step.failed');
       setRunStates((prev) => ({ ...prev, [stepId]: 'error' }));
       setRunErrors((prev) => ({ ...prev, [stepId]: message }));
+      addRuntimeDiagnostic('error', 'STEP_RUN_ERROR', message, stepId);
       return { ok: false as const, message };
     }
   };
@@ -893,11 +966,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                                 ? '选择蓝图节点后，这里会显示对应节点的运行详情、结果和日志。'
                                 : 'Select a blueprint node to inspect its run details, result, and logs.'}
                             </div>
-                            <div className="grid grid-cols-2 gap-2 text-[11px]">
-                              <div className="rounded border border-slate-800 bg-slate-950/70 p-2">
-                                <div className="text-slate-500">{language === 'zh-CN' ? '步骤数' : 'Steps'}</div>
-                                <div className="mt-1 font-bold text-slate-200">{template.steps.length}</div>
-                              </div>
+                            <div className="grid grid-cols-1 gap-2 text-[11px]">
                               <div className="rounded border border-slate-800 bg-slate-950/70 p-2">
                                 <div className="text-slate-500">{language === 'zh-CN' ? '日志数' : 'Logs'}</div>
                                 <div className="mt-1 font-bold text-slate-200">{projectLogCount}</div>
@@ -962,6 +1031,44 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                   </div>
                 </div>
               }
+            />
+            {bottomPanelVisible && (
+              <BottomPanel
+                language={language}
+                activeTab={bottomPanelTab}
+                onActiveTabChange={setBottomPanelTab}
+                onClose={() => setBottomPanelVisible(false)}
+                diagnostics={diagnostics}
+                runtimeDiagnostics={runtimeDiagnostics}
+                recentOutput={recentOutput}
+                variables={project.variables}
+                steps={template.steps}
+                onDiagnosticClick={handleDiagnosticClick}
+                onClearConsole={() => setRuntimeDiagnostics([])}
+              />
+            )}
+            <StatusBar
+              language={language}
+              errorCount={errorCount}
+              warningCount={warningCount}
+              consoleCount={runtimeDiagnostics.length}
+              activeLabel={
+                inspectedStepId
+                  ? language === 'zh-CN'
+                    ? `当前函数：${template.steps.find((step) => step.id === inspectedStepId)?.name || inspectedStepId}`
+                    : `Current function: ${template.steps.find((step) => step.id === inspectedStepId)?.name || inspectedStepId}`
+                  : language === 'zh-CN'
+                    ? '当前视图：蓝图'
+                    : 'Current view: Blueprint'
+              }
+              onOpenProblems={() => {
+                setBottomPanelTab('problems');
+                setBottomPanelVisible(true);
+              }}
+              onOpenConsole={() => {
+                setBottomPanelTab('console');
+                setBottomPanelVisible(true);
+              }}
             />
           </div>
           </div>

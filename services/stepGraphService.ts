@@ -17,8 +17,10 @@ import {
   getStepOutputs,
   getTableVariableKeyFromReference,
 } from './stepVariablePortsService';
+import { getBlockingDiagnosticsForStep } from './templateDiagnosticsService';
 
-const VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g;
+const GLOBAL_VARIABLE_PATTERN = /--([^-]+)--/g;
+const LEGACY_VARIABLE_PATTERN = /\{\{([^}]+)\}\}/g;
 
 export interface StepGraph {
   nodes: StepGraphNode[];
@@ -38,7 +40,10 @@ const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)))
 
 export const extractTemplateVariableKeys = (content: string): string[] =>
   unique(
-    Array.from(content.matchAll(VARIABLE_PATTERN))
+    [
+      ...Array.from(content.matchAll(GLOBAL_VARIABLE_PATTERN)),
+      ...Array.from(content.matchAll(LEGACY_VARIABLE_PATTERN)),
+    ]
       .map((match) => String(match[1]).trim())
       .map((key) => getTableVariableKeyFromReference(key) || key)
   );
@@ -81,6 +86,8 @@ export const buildStepGraph = (template: Template): StepGraph => {
   const edges: StepGraphEdge[] = [];
 
   nodeDrafts.forEach((node) => {
+    const step = template.steps.find((item) => item.id === node.stepId);
+    const inputPorts = step ? getStepInputs(step) : [];
     node.upstreamStepIds.forEach((upstreamStepId) => {
       const upstreamNode = nodeIndex.get(upstreamStepId);
       if (!upstreamNode?.outputVariableKey) return;
@@ -89,10 +96,13 @@ export const buildStepGraph = (template: Template): StepGraph => {
         node.inputVariableKeys.includes(key)
       );
       matchedVariableKeys.forEach((matchedVariableKey) => {
+        const matchedInput = inputPorts.find((input) => input.key === matchedVariableKey);
         edges.push({
           fromStepId: upstreamStepId,
           toStepId: node.stepId,
           variableKey: matchedVariableKey,
+          fromOutputKey: matchedVariableKey,
+          toInputKey: matchedInput?.portKey || matchedVariableKey,
         });
       });
     });
@@ -111,8 +121,8 @@ export const getProducerCandidates = (template: Template, graph?: StepGraph): Pr
       return Boolean(
         step &&
           node.outputVariableKey &&
-          step.stepType === 'text_generation' &&
-          step.autoRunEnabled === true
+          ((step.kind === 'variable' || step.kind === 'math_operation') ||
+            (step.stepType === 'text_generation' && step.autoRunEnabled === true))
       );
     })
     .map((node) => ({
@@ -247,9 +257,10 @@ export const buildProducerPreflight = ({
 
   const items = candidates.map((candidate) => {
     const step = stepById.get(candidate.stepId) as TemplateStep;
-    const missingInputs = candidate.inputVariableKeys.filter((key) =>
-      hasMissingReferencedVariable(project, key)
-    );
+    const blockingDiagnostics = getBlockingDiagnosticsForStep(template, candidate.stepId, project);
+    const missingInputs = Array.isArray(step.parameters)
+      ? []
+      : candidate.inputVariableKeys.filter((key) => hasMissingReferencedVariable(project, key));
     const hasExistingResult = hasExistingStepResult(project, candidate.stepId);
     const changeState = getProducerChangeState({ project, candidate });
 
@@ -264,7 +275,10 @@ export const buildProducerPreflight = ({
       reason = changeState.reason;
     }
 
-    if (status === 'ready' && cycleSet.has(candidate.stepId)) {
+    if (status === 'ready' && blockingDiagnostics.length > 0) {
+      status = 'blocked';
+      reason = blockingDiagnostics[0].message;
+    } else if (status === 'ready' && cycleSet.has(candidate.stepId)) {
       status = 'blocked';
       reason = 'Circular dependency detected between prompt functions.';
     } else if (status === 'ready' && missingInputs.length > 0) {

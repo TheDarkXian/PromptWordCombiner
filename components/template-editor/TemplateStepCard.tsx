@@ -10,6 +10,7 @@ import {
   StepExecutionAvailability,
   StepExecutionConfig,
   StepOutputBinding,
+  StepParameter,
   StructuredOutputFieldDefinition,
   Template,
   TemplateModelRef,
@@ -19,6 +20,8 @@ import {
 import { t } from '../../services/i18n';
 import { Button } from '../Button';
 import { AutoResizeTextarea } from '../common/AutoResizeTextarea';
+import { PromptCodeEditor } from './PromptCodeEditor';
+import { StepParametersPanel } from './StepParametersPanel';
 
 interface VariableAutocompleteItem {
   key: string;
@@ -48,7 +51,6 @@ interface TemplateStepCardProps {
   binding: StepOutputBinding;
   execution: StepExecutionConfig;
   bindingKey: string;
-  isKnownVariable: boolean;
   currentRef?: TemplateModelRef;
   matchedPreset?: { id: string; label: string; description?: string };
   recommendedPreset?: { id: string; label: string };
@@ -100,6 +102,10 @@ interface TemplateStepCardProps {
   }>) => void;
   onUpdateStepExecution: (updates: Partial<StepExecutionConfig>) => void;
   onUpdateStepMeta: (updates: Partial<Pick<TemplateStep, 'stepType' | 'autoRunEnabled'>>) => void;
+  onSyncParametersFromContent: () => void;
+  onAddParameter: () => void;
+  onUpdateParameter: (parameterIndex: number, updates: Partial<StepParameter>) => void;
+  onRemoveParameter: (parameterIndex: number) => void;
   onApplyStepModelRef: (modelRefId?: string) => void;
   onUpdateStepBinding: (updates: Partial<StepOutputBinding>) => void;
   onAddStructuredField: () => void;
@@ -127,7 +133,6 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   binding,
   execution,
   bindingKey,
-  isKnownVariable,
   currentRef,
   matchedPreset,
   recommendedPreset,
@@ -171,6 +176,10 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   onUpdateExecutionPresetDraft,
   onUpdateStepExecution,
   onUpdateStepMeta,
+  onSyncParametersFromContent,
+  onAddParameter,
+  onUpdateParameter,
+  onRemoveParameter,
   onApplyStepModelRef,
   onUpdateStepBinding,
   onAddStructuredField,
@@ -180,6 +189,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   getExecutionBadgeClassName,
 }) => {
   const stepType = step.stepType || 'manual';
+  const nodeKind = step.kind || 'prompt_function';
   const autoRunEnabled =
     stepType === 'text_generation' && step.autoRunEnabled === true;
   const stepTypeLabel =
@@ -197,6 +207,60 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
   const [draggingStructuredFieldIndex, setDraggingStructuredFieldIndex] = React.useState<number | null>(null);
   const draggingStructuredFieldIndexRef = React.useRef<number | null>(null);
   const structuredFieldRowRefs = React.useRef<Record<number, HTMLDivElement | null>>({});
+  const parameters = step.parameters || [];
+  const operationSymbol =
+    step.math?.operation === 'subtract'
+      ? '-'
+      : step.math?.operation === 'multiply'
+        ? '*'
+        : step.math?.operation === 'divide'
+          ? '/'
+          : '+';
+  const localOutputKey =
+    nodeKind === 'variable'
+      ? 'value'
+      : nodeKind === 'math_operation'
+        ? 'result'
+        : nodeKind === 'model'
+          ? 'model'
+        : '';
+  const modelNodeRef = modelRefs.find((item) => item.id === step.model?.modelRefId);
+  const connectedModelStep = step.execution?.modelSourceStepId
+    ? editedTemplate.steps.find((item) => item.id === step.execution?.modelSourceStepId)
+    : undefined;
+  const connectedModelRef = connectedModelStep?.kind === 'model'
+    ? modelRefs.find((item) => item.id === connectedModelStep.model?.modelRefId)
+    : undefined;
+  const nodeSummary =
+    nodeKind === 'variable'
+      ? `${language === 'zh-CN' ? '输出端' : 'Output'} ${language === 'zh-CN' ? '值' : localOutputKey}`
+      : nodeKind === 'math_operation'
+        ? `${step.math?.leftKey?.trim() || 'A'} ${operationSymbol} ${step.math?.rightKey?.trim() || 'B'} -> ${
+            language === 'zh-CN' ? '结果' : localOutputKey
+          }`
+        : `${language === 'zh-CN' ? '入口' : 'Inputs'} ${parameters.length} / ${language === 'zh-CN' ? '返回' : 'Returns'} ${
+            structuredFields.length > 0 ? 2 : bindingKey ? 1 : 0
+          }`;
+  const displayNodeSummary =
+    nodeKind === 'model'
+      ? `${language === 'zh-CN' ? '输出端' : 'Output'} model`
+      : nodeSummary;
+  const displayNodeKindLabel =
+    nodeKind === 'model'
+      ? language === 'zh-CN'
+        ? '模型节点'
+        : 'Model'
+      : nodeKind === 'variable'
+        ? language === 'zh-CN'
+          ? '变量节点'
+          : 'Variable'
+        : nodeKind === 'math_operation'
+          ? language === 'zh-CN'
+            ? '数学节点'
+            : 'Math'
+          : language === 'zh-CN'
+            ? '函数节点'
+            : 'Function';
 
   const updateStructuredFieldDragTarget = React.useCallback(
     (clientY: number) => {
@@ -254,7 +318,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
           {isSelected ? '✓' : ''}
         </button>
         <span className="rounded bg-slate-700 px-2 py-0.5 text-xs font-bold text-slate-300">
-          Step {stepIndex + 1}
+          {displayNodeKindLabel}
         </span>
         <span className="truncate text-sm font-bold text-slate-200">
           {step.name || t(language, 'templateEditor.untitledStep')}
@@ -264,8 +328,13 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
             {currentRef?.label || t(language, 'templateEditor.modelRef')}
           </span>
         )}
-        <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-300">
-          {stepTypeLabel}
+        {nodeKind === 'prompt_function' && (
+          <span className="rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-300">
+            {stepTypeLabel}
+          </span>
+        )}
+        <span className="min-w-0 truncate rounded-full border border-slate-700 bg-slate-950 px-2 py-0.5 text-[10px] text-slate-400">
+          {displayNodeSummary}
         </span>
         {autoRunEnabled && (
           <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300">
@@ -298,7 +367,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
             }`}
             title={t(language, 'templateEditor.moveUp')}
           >
-            ↑
+            ^
           </button>
           <div className="h-4 w-px bg-slate-800" />
           <button
@@ -314,7 +383,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
             }`}
             title={t(language, 'templateEditor.moveDown')}
           >
-            ↓
+            v
           </button>
         </div>
 
@@ -415,6 +484,172 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
           </div>
         </div>
 
+        {nodeKind === 'variable' && (
+          <div className="mb-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-emerald-300">
+                {language === 'zh-CN' ? '变量节点' : 'Variable node'}
+              </div>
+              <div className="truncate font-mono text-[11px] text-emerald-200">
+                {language === 'zh-CN' ? '输出端：值' : 'Output: value'}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              <label className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-500">
+                  {language === 'zh-CN' ? '变量名' : 'Variable name'}
+                </span>
+                <input
+                  value={step.variable?.name || ''}
+                  onChange={(event) => {
+                    const name = event.target.value;
+                    onUpdateStep({
+                      variable: {
+                        ...(step.variable || { defaultValue: '' }),
+                        name,
+                      },
+                    });
+                  }}
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500"
+                  placeholder={language === 'zh-CN' ? '例如 topic' : 'e.g. topic'}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-500">
+                  {language === 'zh-CN' ? '默认值' : 'Default value'}
+                </span>
+                <textarea
+                  value={step.variable?.defaultValue || ''}
+                  onChange={(event) =>
+                    onUpdateStep({
+                      variable: {
+                        ...(step.variable || {}),
+                        name: step.variable?.name || '',
+                        defaultValue: event.target.value,
+                      },
+                    })
+                  }
+                  className="min-h-24 w-full resize-y rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500"
+                  placeholder={language === 'zh-CN' ? '没有本地值时使用这个值' : 'Used when no local value exists'}
+                />
+              </label>
+            </div>
+          </div>
+        )}
+
+        {nodeKind === 'math_operation' && (
+          <div className="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-amber-300">
+                {language === 'zh-CN' ? '数学节点' : 'Math node'}
+              </div>
+              <div className="truncate font-mono text-[11px] text-amber-200">
+                {step.math?.leftKey?.trim() || 'A'} {operationSymbol} {step.math?.rightKey?.trim() || 'B'} -&gt;{' '}
+                {language === 'zh-CN' ? '结果' : localOutputKey}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_72px_minmax(0,1fr)]">
+              <input
+                value={step.math?.leftKey || ''}
+                onChange={(event) =>
+                  onUpdateStep({ math: { ...(step.math || { operation: 'add', rightKey: '', outputKey: `${step.id}:result` }), leftKey: event.target.value } })
+                }
+                className="rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-amber-500"
+                placeholder={language === 'zh-CN' ? '输入 A：变量名或数字' : 'Input A: name or number'}
+              />
+              <select
+                value={step.math?.operation || 'add'}
+                onChange={(event) =>
+                  onUpdateStep({
+                    math: {
+                      leftKey: step.math?.leftKey || '',
+                      rightKey: step.math?.rightKey || '',
+                      outputKey: step.math?.outputKey || `${step.id}:result`,
+                      operation: event.target.value as 'add' | 'subtract' | 'multiply' | 'divide',
+                    },
+                  })
+                }
+                className="rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-amber-500"
+              >
+                <option value="add">+</option>
+                <option value="subtract">-</option>
+                <option value="multiply">*</option>
+                <option value="divide">/</option>
+              </select>
+              <input
+                value={step.math?.rightKey || ''}
+                onChange={(event) =>
+                  onUpdateStep({ math: { ...(step.math || { operation: 'add', leftKey: '', outputKey: `${step.id}:result` }), rightKey: event.target.value } })
+                }
+                className="rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-amber-500"
+                placeholder={language === 'zh-CN' ? '输入 B：变量名或数字' : 'Input B: name or number'}
+              />
+            </div>
+          </div>
+        )}
+
+        {nodeKind === 'model' && (
+          <div className="mb-4 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-violet-300">
+                {language === 'zh-CN' ? '模型节点' : 'Model node'}
+              </div>
+              <div className="truncate font-mono text-[11px] text-violet-200">
+                {language === 'zh-CN' ? '输出端' : 'Output'}: model
+              </div>
+            </div>
+            <label className="space-y-1">
+              <span className="text-[11px] font-bold text-slate-500">
+                {language === 'zh-CN' ? '模型引用' : 'Model reference'}
+              </span>
+              <select
+                value={step.model?.modelRefId || ''}
+                onChange={(event) =>
+                  onUpdateStep({
+                    model: {
+                      ...(step.model || {}),
+                      modelRefId: event.target.value || undefined,
+                    },
+                  })
+                }
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-violet-500"
+              >
+                <option value="">
+                  {language === 'zh-CN' ? '未绑定' : 'Unbound'}
+                </option>
+                {modelRefs.map((modelRef) => (
+                  <option key={modelRef.id} value={modelRef.id}>
+                    {modelRef.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="mt-2 text-[11px] text-slate-500">
+              {modelNodeRef
+                ? language === 'zh-CN'
+                  ? `当前会传递：${modelNodeRef.label}`
+                  : `Passing: ${modelNodeRef.label}`
+                : language === 'zh-CN'
+                  ? '未选择模型引用时，连接到函数节点会阻断执行。'
+                  : 'Execution is blocked when a connected model node is unbound.'}
+            </div>
+          </div>
+        )}
+
+        {nodeKind === 'prompt_function' && (
+          <>
+        <div className="mb-4">
+          <StepParametersPanel
+            language={language}
+            template={editedTemplate}
+            step={step}
+            onSyncParametersFromContent={onSyncParametersFromContent}
+            onAddParameter={onAddParameter}
+            onUpdateParameter={onUpdateParameter}
+            onRemoveParameter={onRemoveParameter}
+          />
+        </div>
+
         <div className="mb-4 space-y-2">
           <div className="flex items-center gap-2">
             <button
@@ -453,10 +688,12 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
           </div>
           {!isPromptCollapsed && (
           <div className="relative flex h-auto flex-col rounded border border-slate-700 bg-slate-950 p-4">
-            <AutoResizeTextarea
-              className="rounded-md border border-slate-800 bg-slate-950/70 p-3 font-mono text-sm leading-relaxed text-slate-300"
+            <PromptCodeEditor
+              className="rounded-md border border-slate-800 bg-slate-950/70 p-3 focus-within:border-cyan-500"
               minHeight={180}
               allowManualResize
+              language={language}
+              parameters={step.parameters || []}
               value={step.content}
               onChange={onPromptChange}
               onKeyDown={onPromptKeyDown}
@@ -490,7 +727,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                         }`}
                       >
                         <div>
-                          <div className="font-mono text-xs">{`{{${item.key}}}`}</div>
+                          <div className="font-mono text-xs">{`--${item.key}--`}</div>
                           <div className="text-[11px] text-slate-500">
                             {item.label}
                           </div>
@@ -518,7 +755,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                 {t(language, 'templateEditor.executionSummary')}
               </div>
               <div className="mt-1 text-xs text-slate-400">
-                {executionSummaryParts.join(' · ')}
+                {executionSummaryParts.join(' / ')}
               </div>
             </div>
             <span className="text-[11px] font-bold text-cyan-300">
@@ -803,6 +1040,13 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                         : t(language, 'templateEditor.recommendedPresetManual')}
                     </div>
                   )}
+                  {execution.modelSourceStepId && (
+                    <div className="text-[11px] text-violet-300">
+                      {language === 'zh-CN'
+                        ? `已连接模型节点，运行时优先使用：${connectedModelRef?.label || connectedModelStep?.name || execution.modelSourceStepId}`
+                        : `Connected model node takes priority: ${connectedModelRef?.label || connectedModelStep?.name || execution.modelSourceStepId}`}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[11px] font-bold uppercase text-slate-500">
@@ -939,9 +1183,21 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
         </div>
 
         <div className="border-t border-slate-800 pt-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-violet-300">
+                {language === 'zh-CN' ? '返回值' : 'Return values'}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                {language === 'zh-CN'
+                  ? '不声明返回值时，只保留 AI 的原始返回。'
+                  : 'When no return value is declared, the raw AI response is kept.'}
+              </div>
+            </div>
+          </div>
           <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-3">
             <div className="text-xs font-bold text-violet-300">
-              {language === 'zh-CN' ? '返回文本' : 'Text return'}
+              {language === 'zh-CN' ? '文本' : 'Text'}
             </div>
             <div className="flex min-w-0 items-center gap-2">
               <input
@@ -953,23 +1209,8 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                   })
                 }
                 className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-blue-500"
-                placeholder={language === 'zh-CN' ? '变量名，例如：场景描述' : 'Variable name, e.g. scene_description'}
+                placeholder={language === 'zh-CN' ? '返回值名，例如：summary' : 'Return name, e.g. summary'}
               />
-              {bindingKey && (
-                <span
-                  className={`shrink-0 text-[11px] ${
-                    isKnownVariable ? 'text-emerald-400' : 'text-amber-400'
-                  }`}
-                >
-                  {isKnownVariable
-                    ? language === 'zh-CN'
-                      ? '已存在'
-                      : 'Existing'
-                    : language === 'zh-CN'
-                      ? '新建'
-                      : 'New'}
-                </span>
-              )}
             </div>
           </div>
         </div>
@@ -978,7 +1219,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
           <div className="mb-2 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <div className="text-xs font-bold text-fuchsia-300">
-                {language === 'zh-CN' ? '返回表' : 'Table return'}
+                {language === 'zh-CN' ? '表' : 'Table'}
               </div>
               <span className="text-[11px] text-slate-500">
                 {structuredFields.length > 0
@@ -1047,7 +1288,7 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                           })
                         }
                         className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-fuchsia-500"
-                        placeholder={language === 'zh-CN' ? `列 ${fieldIndex + 1} 变量名` : `Column ${fieldIndex + 1} name`}
+                        placeholder={language === 'zh-CN' ? `第 ${fieldIndex + 1} 列变量名` : `Column ${fieldIndex + 1} name`}
                       />
                     </div>
                     <div className="min-w-0">
@@ -1076,6 +1317,8 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
               })}
             </div>
         </div>
+          </>
+        )}
       </div>
     )}
   </div>

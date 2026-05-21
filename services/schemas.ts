@@ -180,6 +180,7 @@ export const stepOutputBindingSchema = z.object({
 
 export const stepExecutionConfigSchema = z.object({
   modelRefId: z.string().optional(),
+  modelSourceStepId: z.string().optional(),
   systemPrompt: z.string(),
   temperature: z.number().optional(),
   maxTokens: z.number().optional(),
@@ -200,13 +201,14 @@ export const structuredOutputVariableBindingSchema = z.object({
 export const stepVariableInputSchema = z.object({
   key: z.string(),
   label: z.string().optional(),
-  type: z.enum(['text', 'table']).optional(),
+  type: z.enum(['text', 'table', 'model']).optional(),
+  portKey: z.string().optional(),
 });
 
 export const stepVariableOutputSchema = z.object({
   key: z.string(),
   label: z.string(),
-  type: z.enum(['text', 'table']),
+  type: z.enum(['text', 'table', 'model']),
   tableSchema: z
     .object({
       columns: z.array(projectVariableTableColumnSchema),
@@ -214,7 +216,44 @@ export const stepVariableOutputSchema = z.object({
     .optional(),
 });
 
+export const stepParameterSourceSchema = z.union([
+  z.object({ type: z.literal('same_name'), key: z.string() }),
+  z.object({ type: z.literal('project_input'), inputId: z.string(), key: z.string() }),
+  z.object({ type: z.literal('project_variable'), key: z.string() }),
+  z.object({ type: z.literal('step_return'), stepId: z.string(), key: z.string() }),
+  z.object({ type: z.literal('literal'), value: z.string() }),
+]);
+
+export const stepParameterSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(['text', 'table']),
+  defaultValue: z.string().optional(),
+  required: z.boolean().optional(),
+  source: stepParameterSourceSchema.optional(),
+});
+
 export const stepTypeSchema = z.enum(['text_generation', 'manual', 'external']);
+export const blueprintNodeKindSchema = z.enum(['prompt_function', 'variable', 'math_operation', 'model']);
+export const mathOperationSchema = z.enum(['add', 'subtract', 'multiply', 'divide']);
+
+export const variableNodeConfigSchema = z.object({
+  name: z.string(),
+  defaultValue: z.string().optional(),
+  outputKey: z.string().optional(),
+  inputKey: z.string().optional(),
+});
+
+export const mathNodeConfigSchema = z.object({
+  operation: mathOperationSchema,
+  leftKey: z.string(),
+  rightKey: z.string(),
+  outputKey: z.string(),
+});
+
+export const modelNodeConfigSchema = z.object({
+  modelRefId: z.string().optional(),
+});
 
 export const templateModelRefSchema = z.object({
   id: z.string(),
@@ -227,8 +266,13 @@ export const templateStepSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   content: z.string(),
+  kind: blueprintNodeKindSchema.optional(),
+  parameters: z.array(stepParameterSchema).optional(),
   inputs: z.array(stepVariableInputSchema).optional(),
   outputs: z.array(stepVariableOutputSchema).optional(),
+  variable: variableNodeConfigSchema.optional(),
+  math: mathNodeConfigSchema.optional(),
+  model: modelNodeConfigSchema.optional(),
   outputBinding: stepOutputBindingSchema.optional(),
   structuredOutputFields: z.array(structuredOutputFieldDefinitionSchema).optional(),
   structuredOutputBindings: z.array(structuredOutputVariableBindingSchema).optional(),

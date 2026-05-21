@@ -116,6 +116,56 @@ describe('projectExecutionService', () => {
     );
   });
 
+  it('does not append return format instructions when there are no declared returns', () => {
+    const prepared = prepareProjectStepExecution({
+      project,
+      template: {
+        ...template,
+        steps: [
+          {
+            ...template.steps[0],
+            outputBinding: { variableKey: '' },
+            outputs: [],
+          },
+        ],
+      },
+      stepId: 'step-1',
+      settings,
+    });
+
+    expect(prepared.systemPrompt).toBe('System');
+  });
+
+  it('appends JSON return format instructions for table or multiple returns', () => {
+    const prepared = prepareProjectStepExecution({
+      project,
+      template: {
+        ...template,
+        steps: [
+          {
+            ...template.steps[0],
+            outputs: [
+              { key: 'summary', label: 'Summary', type: 'text' },
+              {
+                key: 'characters',
+                label: 'Characters',
+                type: 'table',
+                tableSchema: { columns: [{ key: 'name', label: 'Name' }] },
+              },
+            ],
+          },
+        ],
+      },
+      stepId: 'step-1',
+      settings,
+    });
+
+    expect(prepared.systemPrompt).toContain('请严格按 JSON 对象返回');
+    expect(prepared.systemPrompt).toContain('summary');
+    expect(prepared.systemPrompt).toContain('characters');
+    expect(prepared.systemPrompt).toContain('name');
+  });
+
   it('writes step output, variable binding, and run log on success', () => {
     vi.spyOn(Date, 'now').mockReturnValue(2000);
 

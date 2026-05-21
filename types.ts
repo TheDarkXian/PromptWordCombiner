@@ -64,7 +64,7 @@ export interface ProjectVariable {
   updatedAt: number;
 }
 
-export type VariableValueType = 'text' | 'table';
+export type VariableValueType = 'text' | 'table' | 'model';
 
 export interface ProjectVariableTableColumn {
   key: string;
@@ -277,8 +277,13 @@ export interface TemplateStep {
   name: string;
   description?: string;
   content: string;
+  kind?: BlueprintNodeKind;
+  parameters?: StepParameter[];
   inputs?: StepVariableInput[];
   outputs?: StepVariableOutput[];
+  variable?: VariableNodeConfig;
+  math?: MathNodeConfig;
+  model?: ModelNodeConfig;
   outputBinding?: StepOutputBinding;
   structuredOutputFields?: StructuredOutputFieldDefinition[];
   structuredOutputBindings?: StructuredOutputVariableBinding[];
@@ -287,10 +292,51 @@ export interface TemplateStep {
   autoRunEnabled?: boolean;
 }
 
+export type BlueprintNodeKind = 'prompt_function' | 'variable' | 'math_operation' | 'model';
+
+export interface VariableNodeConfig {
+  name: string;
+  defaultValue?: string;
+  outputKey?: string;
+  inputKey?: string;
+}
+
+export type MathOperation = 'add' | 'subtract' | 'multiply' | 'divide';
+
+export interface MathNodeConfig {
+  operation: MathOperation;
+  leftKey: string;
+  rightKey: string;
+  outputKey: string;
+}
+
+export interface ModelNodeConfig {
+  modelRefId?: string;
+}
+
+export type StepParameterType = 'text' | 'table';
+
+export type StepParameterSource =
+  | { type: 'same_name'; key: string }
+  | { type: 'project_input'; inputId: string; key: string }
+  | { type: 'project_variable'; key: string }
+  | { type: 'step_return'; stepId: string; key: string }
+  | { type: 'literal'; value: string };
+
+export interface StepParameter {
+  id: string;
+  name: string;
+  type: StepParameterType;
+  defaultValue?: string;
+  required?: boolean;
+  source?: StepParameterSource;
+}
+
 export interface StepVariableInput {
   key: string;
   label?: string;
   type?: VariableValueType;
+  portKey?: string;
 }
 
 export interface StepVariableOutput {
@@ -332,6 +378,40 @@ export interface StepGraphEdge {
   fromStepId: string;
   toStepId: string;
   variableKey: string;
+  fromOutputKey?: string;
+  toInputKey?: string;
+}
+
+export interface StaticDiagnostic {
+  id: string;
+  level: 'error' | 'warning' | 'info';
+  code: string;
+  message: string;
+  stepId?: string;
+  target?: {
+    kind: 'function_body' | 'parameter' | 'return_text' | 'return_table' | 'table_column';
+    key?: string;
+  };
+}
+
+export interface RuntimeDiagnostic {
+  id: string;
+  level: 'error' | 'warning' | 'info';
+  code: string;
+  message: string;
+  detail?: string;
+  stepId?: string;
+  stepName?: string;
+  timestamp: number;
+}
+
+export interface WorkbenchOutputSnapshot {
+  id: string;
+  stepId: string;
+  stepName: string;
+  rawOutput: string;
+  structuredParse?: StepStructuredParseSummary;
+  createdAt: number;
 }
 
 export interface ProducerCandidate {
@@ -431,6 +511,7 @@ export interface StepOutputBinding {
 
 export interface StepExecutionConfig {
   modelRefId?: string;
+  modelSourceStepId?: string;
   systemPrompt: string;
   temperature?: number;
   maxTokens?: number;
