@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git ls-tree *)",
+      "Bash(Select-String \"src-tauri\")",
+      "Bash(npm install *)",
+      "PowerShell(winget install *)",
+      "PowerShell(rustc *)",
+      "PowerShell(npm run *)"
+    ]
+  }
+}
