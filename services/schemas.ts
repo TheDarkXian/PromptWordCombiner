@@ -234,7 +234,7 @@ export const stepParameterSchema = z.object({
 });
 
 export const stepTypeSchema = z.enum(['text_generation', 'manual', 'external']);
-export const blueprintNodeKindSchema = z.enum(['prompt_function', 'variable', 'math_operation', 'model']);
+export const blueprintNodeKindSchema = z.enum(['prompt_function', 'variable', 'math_operation', 'model', 'table_row']);
 export const mathOperationSchema = z.enum(['add', 'subtract', 'multiply', 'divide']);
 
 export const variableNodeConfigSchema = z.object({
@@ -255,6 +255,11 @@ export const modelNodeConfigSchema = z.object({
   modelRefId: z.string().optional(),
 });
 
+export const tableRowNodeConfigSchema = z.object({
+  tableKey: z.string(),
+  rowIndex: z.string(),
+});
+
 export const templateModelRefSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -273,6 +278,7 @@ export const templateStepSchema = z.object({
   variable: variableNodeConfigSchema.optional(),
   math: mathNodeConfigSchema.optional(),
   model: modelNodeConfigSchema.optional(),
+  tableRow: tableRowNodeConfigSchema.optional(),
   outputBinding: stepOutputBindingSchema.optional(),
   structuredOutputFields: z.array(structuredOutputFieldDefinitionSchema).optional(),
   structuredOutputBindings: z.array(structuredOutputVariableBindingSchema).optional(),

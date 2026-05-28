@@ -18,8 +18,212 @@ import { PromptEditor } from '../PromptEditor';
 import { AutoResizeTextarea } from '../common/AutoResizeTextarea';
 import { ProjectRunLogPanel } from './ProjectRunLogPanel';
 import { getVariableTableCellValue } from '../../services/variableTableService.runtime';
+import {
+  buildStepInputPreviews,
+  buildStepOutputPreviews,
+  StepInputPreviewItem,
+  StepOutputPreviewItem,
+  TablePreviewSummary,
+} from '../../services/stepPreviewService';
 
 type ViewMode = 'compact' | 'detail';
+
+const summarizeText = (value: string) => {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  return normalized.length > 160 ? `${normalized.slice(0, 160)}...` : normalized;
+};
+
+const PreviewTable: React.FC<{
+  language: UiLanguage;
+  table: TablePreviewSummary;
+}> = ({ language, table }) => (
+  <div className="mt-2 overflow-hidden rounded-lg border border-slate-800 bg-slate-950/60">
+    <div className="flex items-center justify-between border-b border-slate-800 px-2.5 py-1.5 text-[10px] text-slate-500">
+      <span>
+        {language === 'zh-CN'
+          ? `${table.columns.length} 列 / ${table.totalRows} 行`
+          : `${table.columns.length} columns / ${table.totalRows} rows`}
+      </span>
+      {table.totalRows > table.rows.length && (
+        <span>
+          {language === 'zh-CN'
+            ? `预览前 ${table.rows.length} 行`
+            : `First ${table.rows.length} rows`}
+        </span>
+      )}
+    </div>
+    {table.columns.length > 0 && table.rows.length > 0 ? (
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-collapse text-left text-[11px]">
+          <thead className="bg-slate-900/80 text-slate-400">
+            <tr>
+              {table.columns.map((column) => (
+                <th key={column.key} className="border-b border-slate-800 px-2 py-1 font-semibold">
+                  {column.label || column.key}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, rowIndex) => (
+              <tr key={row.id || `row_${rowIndex}`} className="border-t border-slate-900">
+                {table.columns.map((column) => (
+                  <td key={`${row.id || rowIndex}_${column.key}`} className="max-w-48 truncate px-2 py-1 text-slate-300">
+                    {row.cells[column.key] || ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <div className="px-2.5 py-2 text-[11px] text-slate-500">
+        {language === 'zh-CN' ? '暂无表格数据' : 'No table data yet'}
+      </div>
+    )}
+  </div>
+);
+
+const InputPreviewPanel: React.FC<{
+  language: UiLanguage;
+  items: StepInputPreviewItem[];
+}> = ({ language, items }) => {
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-4 rounded-xl border border-slate-800 bg-slate-950/55 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          {language === 'zh-CN' ? '输入预览' : 'Input preview'}
+        </div>
+        <div className="text-[10px] text-slate-500">
+          {language === 'zh-CN' ? `${items.length} 个输入` : `${items.length} inputs`}
+        </div>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {items.map((item) => (
+          <div
+            key={`${item.label}_${item.key || 'missing'}`}
+            className={`rounded-lg border p-2.5 ${
+              item.missing
+                ? 'border-red-500/25 bg-red-500/5'
+                : item.type === 'table'
+                  ? 'border-fuchsia-500/20 bg-fuchsia-500/5'
+                  : 'border-slate-800 bg-slate-950/60'
+            }`}
+          >
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-bold text-slate-200">{item.label}</div>
+                <div className="truncate text-[10px] text-slate-500">
+                  {item.sourceLabel || (language === 'zh-CN' ? '未连接' : 'Unconnected')}
+                </div>
+              </div>
+              <span
+                className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] ${
+                  item.missing
+                    ? 'border-red-500/30 text-red-300'
+                    : item.type === 'table'
+                      ? 'border-fuchsia-500/30 text-fuchsia-200'
+                      : 'border-cyan-500/30 text-cyan-200'
+                }`}
+              >
+                {item.missing ? (language === 'zh-CN' ? '缺失' : 'Missing') : item.type}
+              </span>
+            </div>
+            {item.table ? (
+              <PreviewTable language={language} table={item.table} />
+            ) : (
+              <div className="mt-2 rounded border border-slate-800 bg-slate-950/70 px-2 py-1.5 text-[11px] text-slate-300">
+                {item.value.trim()
+                  ? summarizeText(item.value)
+                  : language === 'zh-CN'
+                    ? '暂无值'
+                    : 'No value yet'}
+              </div>
+            )}
+            {item.selectedRow && (
+              <div className="mt-2 rounded border border-cyan-500/20 bg-cyan-500/5 px-2 py-1.5 text-[11px]">
+                <div className="mb-1 font-semibold text-cyan-200">
+                  {language === 'zh-CN'
+                    ? `当前选择第 ${item.selectedRow.rowNumber || '?'} 行`
+                    : `Selected row ${item.selectedRow.rowNumber || '?'}`}
+                </div>
+                {item.selectedRow.row ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(item.selectedRow.row.cells).map(([key, value]) => (
+                      <span key={key} className="rounded bg-slate-950 px-1.5 py-0.5 text-slate-300">
+                        <span className="text-slate-500">{key}=</span>{value}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-red-300">
+                    {item.selectedRow.message || (language === 'zh-CN' ? '找不到该行' : 'Row not found')}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const OutputPreviewPanel: React.FC<{
+  language: UiLanguage;
+  items: StepOutputPreviewItem[];
+}> = ({ language, items }) => {
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-xl border border-slate-800 bg-slate-950/55 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          {language === 'zh-CN' ? '输出预览' : 'Output preview'}
+        </div>
+        <div className="text-[10px] text-slate-500">
+          {language === 'zh-CN' ? `${items.length} 个输出` : `${items.length} outputs`}
+        </div>
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {items.map((item) => (
+          <div
+            key={item.key}
+            className={`rounded-lg border p-2.5 ${
+              item.missing
+                ? 'border-slate-800 bg-slate-950/50'
+                : item.type === 'table'
+                  ? 'border-fuchsia-500/20 bg-fuchsia-500/5'
+                  : 'border-cyan-500/20 bg-cyan-500/5'
+            }`}
+          >
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-xs font-bold text-slate-200">{item.label}</div>
+                <div className="truncate font-mono text-[10px] text-slate-500">{item.key}</div>
+              </div>
+              <span className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300">
+                {item.type}
+              </span>
+            </div>
+            {item.table ? (
+              <PreviewTable language={language} table={item.table} />
+            ) : (
+              <div className="mt-2 rounded border border-slate-800 bg-slate-950/70 px-2 py-1.5 text-[11px] text-slate-300">
+                {item.value.trim()
+                  ? summarizeText(item.value)
+                  : language === 'zh-CN'
+                    ? '暂无输出'
+                    : 'No output yet'}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const getStepRoleMeta = (language: UiLanguage, step: TemplateStep) => {
   if (step.kind === 'variable') {
@@ -34,6 +238,14 @@ const getStepRoleMeta = (language: UiLanguage, step: TemplateStep) => {
     return {
       stepType: 'math_operation',
       roleLabel: language === 'zh-CN' ? '数学节点' : 'Math node',
+      autoRunEnabled: true,
+    };
+  }
+
+  if (step.kind === 'table_row') {
+    return {
+      stepType: 'table_row',
+      roleLabel: language === 'zh-CN' ? '表行节点' : 'Table row node',
       autoRunEnabled: true,
     };
   }
@@ -317,6 +529,8 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
     project.stepOutputMeta?.[step.id]?.updatedAt || 0,
     latestLog?.createdAt || 0
   );
+  const inputPreviews = buildStepInputPreviews(project, template, step);
+  const outputPreviews = buildStepOutputPreviews(project, step);
 
   const extractVariableKeys = (content: string) => {
     if (!content) return [];
@@ -647,6 +861,10 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
             </div>
           )}
 
+          {viewMode === 'detail' && (
+            <InputPreviewPanel language={language} items={inputPreviews} />
+          )}
+
           <PromptEditor
             language={language}
             label={promptSectionLabel}
@@ -809,6 +1027,9 @@ export const ProjectStepCard: React.FC<ProjectStepCardProps> = ({
                   </div>
                 )}
               </div>
+            )}
+            {viewMode === 'detail' && (
+              <OutputPreviewPanel language={language} items={outputPreviews} />
             )}
             {(structuredOutputResultView === 'raw' || !hasStructuredFields) ? (
             <>

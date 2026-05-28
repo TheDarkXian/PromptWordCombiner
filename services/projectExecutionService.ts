@@ -2,7 +2,7 @@ import { appendStepRunLog, upsertVariable } from '../domain/projectDomain';
 import { interpolateStepBody } from './interpolationService';
 import { resolveStepExecutionAvailability } from './modelService';
 import { getStepOutputs } from './stepVariablePortsService';
-import { resolveTextValueByKey } from './stepConnectionValueService';
+import { resolveConnectedValueByKey, resolveTextValueByKey } from './stepConnectionValueService';
 import {
   parseStepOutputVariablesFromResponse,
   shouldParseStepOutputsDirectly,
@@ -85,14 +85,19 @@ const makeLocalLogBase = (step: TemplateStep, userPrompt: string): Omit<StepRunL
   providerType: 'openai_compatible',
   providerLabel: 'Local',
   modelName: step.kind || 'local',
-  modelLabel: step.kind === 'math_operation' ? 'Math operation' : 'Variable',
+  modelLabel:
+    step.kind === 'math_operation'
+      ? 'Math operation'
+      : step.kind === 'table_row'
+        ? 'Table row'
+        : 'Variable',
   systemPrompt: '',
   userPrompt,
   rawResponse: undefined,
 });
 
 export const isLocalExecutableStep = (step: TemplateStep) =>
-  step.kind === 'variable' || step.kind === 'math_operation';
+  step.kind === 'variable' || step.kind === 'math_operation' || step.kind === 'table_row';
 
 export const executeLocalProjectStep = ({
   project,
@@ -144,6 +149,56 @@ export const executeLocalProjectStep = ({
             : left + right;
     output = String(result);
     userPrompt = `${leftKey} ${operation} ${rightKey} -> ${outputKey}`;
+  } else if (step.kind === 'table_row') {
+    const tableKey = step.tableRow?.tableKey?.trim() || '';
+    if (!tableKey) throw new Error('表行节点需要连接一张表。');
+
+    const resolved = resolveConnectedValueByKey(tableKey, project, template, step);
+    if (resolved.missing || !resolved.tableValue) {
+      throw new Error(`表行节点找不到表变量：${tableKey}`);
+    }
+
+    const rowIndexRaw = step.tableRow?.rowIndex?.trim() || '1';
+    const rowIndexValue = parseNumberLiteral(rowIndexRaw) ?? parseNumberLiteral(resolveTextValueByKey(rowIndexRaw, project, template, step) || '');
+    if (rowIndexValue === undefined || rowIndexValue < 1 || !Number.isInteger(rowIndexValue)) {
+      throw new Error('表行节点行号必须是大于 0 的整数。');
+    }
+
+    const row = resolved.tableValue.rows[rowIndexValue - 1];
+    if (!row) throw new Error(`表行节点找不到第 ${rowIndexValue} 行。`);
+
+    const declaredOutputs = getStepOutputs(step);
+    const fallbackOutputs = resolved.tableValue.columns.map((column) => ({
+      key: column.key,
+      label: column.label || column.key,
+      type: 'text' as const,
+    }));
+    const outputs = declaredOutputs.length > 0 ? declaredOutputs : fallbackOutputs;
+    const rowOutput = outputs.reduce<Record<string, string>>((cells, item) => {
+      cells[item.key] = row.cells[item.key] || '';
+      return cells;
+    }, {});
+    output = JSON.stringify(rowOutput, null, 2);
+    userPrompt = `table ${tableKey} row ${rowIndexValue}`;
+
+    const logBase = makeLocalLogBase(step, userPrompt);
+    const nextProject = applyProjectStepSuccess({
+      project,
+      step: declaredOutputs.length > 0 ? step : { ...step, outputs },
+      output,
+      logBase,
+    });
+
+    return {
+      project: nextProject,
+      result: {
+        output,
+        structuredParse: {
+          status: 'not_applicable',
+          message: 'Table row selected.',
+        },
+      },
+    };
   } else {
     throw new Error('This is not a local executable node.');
   }

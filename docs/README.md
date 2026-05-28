@@ -1,59 +1,67 @@
-﻿---
-title: PromptWordSplicer 鏂囨。绱㈠紩
+---
+title: PromptWordSplicer 文档索引
 author: Codex
 created_at: 2026-04-30 11:50:00 +08:00
-updated_at: 2026-05-14 09:19:33 +08:00
+updated_at: 2026-05-25 11:35:00 +08:00
 type: index
 status: active
 ---
 
-# PromptWordSplicer 鏂囨。绱㈠紩
+# PromptWordSplicer 文档索引
 
-## 鐩殑
+## 目的
 
-`docs/` 鐢ㄤ簬娌夋穩椤圭洰鍐呯殑闀挎湡鏂囨。璧勪骇锛屽寘鎷皟鏌ユ姤鍛娿€侀噸鏋勬柟妗堛€佽璁¤鏄庡拰鍐崇瓥璁板綍銆?
-## 瑙勮寖
+`docs/` 用于沉淀项目内的长期文档资产，包括调查报告、重构方案、设计说明和决策记录。
 
-鎵€鏈夋寮忔枃妗ｅ簲鏀惧湪 `docs/` 涓嬶紝骞跺甫鏈夌粺涓€鐨勫厓鏁版嵁澶达細
+## 规范
+
+所有正式文档应放在 `docs/` 下，并带有统一的元数据头：
 
 ```yaml
 ---
-title: 鏂囨。鏍囬
-author: 浣滆€?created_at: YYYY-MM-DD HH:mm:ss +08:00
+title: 文档标题
+author: 作者
+created_at: YYYY-MM-DD HH:mm:ss +08:00
 updated_at: YYYY-MM-DD HH:mm:ss +08:00
 type: report | plan | spec | decision | note | index
 status: draft | active | archived
 ---
 ```
 
-- `created_at` 琛ㄧず棣栨鍒涘缓鏃堕棿锛屽悗缁洿鏂颁笉鏀广€?- `updated_at` 琛ㄧず鏈€杩戜竴娆″疄璐ㄦ洿鏂扮殑鏃堕棿銆?- `type` 鐢ㄤ簬鍖哄垎鏂囨。鐢ㄩ€旓紝渚夸簬妫€绱㈠拰褰掓。銆?- `status` 鐢ㄤ簬鍖哄垎鑽夌銆佺幇琛屾枃妗ｅ拰褰掓。鏂囨。銆?
-## 褰撳墠鏂囨。
+- `created_at` 表示首次创建时间，后续更新不修改。
+- `updated_at` 表示最近一次实质更新的时间。
+- `type` 用于区分文档用途，便于检索和归档。
+- `status` 用于区分草稿、现行文档和归档文档。
 
-- [椤圭洰璋冩煡鎶ュ憡.md](/E:/Project/Vscode/PromptWordSplicer/docs/椤圭洰璋冩煡鎶ュ憡.md:1)
-- [浠ｇ爜鏋舵瀯涓庝紭鍖栬皟鏌ユ姤鍛?md](/E:/Project/Vscode/PromptWordSplicer/docs/浠ｇ爜鏋舵瀯涓庝紭鍖栬皟鏌ユ姤鍛?md:1)
-- [浠ｇ爜鏋舵瀯浼樺寲瀹炴柦鏂规.md](/E:/Project/Vscode/PromptWordSplicer/docs/浠ｇ爜鏋舵瀯浼樺寲瀹炴柦鏂规.md:1)
-- [鍙橀噺绯荤粺閲嶆瀯鏂规.md](/E:/Project/Vscode/PromptWordSplicer/docs/鍙橀噺绯荤粺閲嶆瀯鏂规.md:1)
-- [浜烘帶浼樺厛涓嶢I鎵ц鍘熷垯.md](/E:/Project/Vscode/PromptWordSplicer/docs/浜烘帶浼樺厛涓嶢I鎵ц鍘熷垯.md:1)
-- [姝ラ浜や簰涓庢ā鍨嬪紩鐢ㄩ噸鏋勬柟妗?md](/E:/Project/Vscode/PromptWordSplicer/docs/姝ラ浜や簰涓庢ā鍨嬪紩鐢ㄩ噸鏋勬柟妗?md:1)
-- [妯″瀷璁剧疆涓庡嚟鎹鐞嗘柟妗?md](/E:/Project/Vscode/PromptWordSplicer/docs/妯″瀷璁剧疆涓庡嚟鎹鐞嗘柟妗?md:1)
+## 当前文档
 
-## 鍚庣画鍙ˉ鍏?
-- [产品路线清单.md](/E:/Project/Vscode/PromptWordSplicer/docs/产品路线清单.md:1)
-- [下一阶段升级实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/下一阶段升级实施方案.md:1)
-- [侧边栏与步骤卡片交互优化方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/侧边栏与步骤卡片交互优化方案.md:1)
-- [升级改进清单.md](/E:/Project/Vscode/PromptWordSplicer/docs/升级改进清单.md:1)
-- [TemplateEditor清理与统一实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/TemplateEditor清理与统一实施方案.md:1)
-- [技术负债调查报告.md](/E:/Project/Vscode/PromptWordSplicer/docs/技术负债调查报告.md:1)
-- [技术负债治理实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/技术负债治理实施方案.md:1)
-- [自动化深度与半自动工作流方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/自动化深度与半自动工作流方案.md:1)
-- [步骤类型与自动执行标记实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/步骤类型与自动执行标记实施方案.md:1)
-- [半自动批量文本生成实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/半自动批量文本生成实施方案.md:1)
-- [结构化输出与输出拆变量实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/结构化输出与输出拆变量实施方案.md:1)
-- [当前阶段补充项调查报告.md](/E:/Project/Vscode/PromptWordSplicer/docs/当前阶段补充项调查报告.md:1)
-- [批量结果导出增强实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/批量结果导出增强实施方案.md:1)
-- [批量结果导出增强实施计划.md](/E:/Project/Vscode/PromptWordSplicer/docs/批量结果导出增强实施计划.md:1)
-- [导入兼容与旧备份迁移方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/导入兼容与旧备份迁移方案.md:1)
-- [蓝图节点升级测试方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/蓝图节点升级测试方案.md:1)
-- [函数节点入口参数与诊断控制台方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/函数节点入口参数与诊断控制台方案.md:1)
-- [函数节点入口参数与诊断控制台实施方案.md](/E:/Project/Vscode/PromptWordSplicer/docs/函数节点入口参数与诊断控制台实施方案.md:1)
-- [函数体引用语法约定.md](/E:/Project/Vscode/PromptWordSplicer/docs/函数体引用语法约定.md:1)
+- [项目调查报告.md](项目调查报告.md)
+- [代码架构与优化调查报告.md](代码架构与优化调查报告.md)
+- [代码架构优化实施方案.md](代码架构优化实施方案.md)
+- [变量系统重构方案.md](变量系统重构方案.md)
+- [人控优先与AI执行原则.md](人控优先与AI执行原则.md)
+- [步骤交互与模型引用重构方案.md](步骤交互与模型引用重构方案.md)
+- [模型设置与凭据管理方案.md](模型设置与凭据管理方案.md)
+- [功能实现状态与下一步计划.md](功能实现状态与下一步计划.md)
+- [当前阶段补充项调查报告.md](当前阶段补充项调查报告.md)
+
+## 后续规划与实施文档
+
+- [产品路线清单.md](产品路线清单.md)
+- [下一阶段升级实施方案.md](下一阶段升级实施方案.md)
+- [升级改进清单.md](升级改进清单.md)
+- [侧边栏与步骤卡片交互优化方案.md](侧边栏与步骤卡片交互优化方案.md)
+- [TemplateEditor清理与统一实施方案.md](TemplateEditor清理与统一实施方案.md)
+- [技术负债调查报告.md](技术负债调查报告.md)
+- [技术负债治理实施方案.md](技术负债治理实施方案.md)
+- [自动化深度与半自动工作流方案.md](自动化深度与半自动工作流方案.md)
+- [步骤类型与自动执行标记实施方案.md](步骤类型与自动执行标记实施方案.md)
+- [半自动批量文本生成实施方案.md](半自动批量文本生成实施方案.md)
+- [结构化输出与输出拆变量实施方案.md](结构化输出与输出拆变量实施方案.md)
+- [批量结果导出增强实施方案.md](批量结果导出增强实施方案.md)
+- [批量结果导出增强实施计划.md](批量结果导出增强实施计划.md)
+- [导入兼容与旧备份迁移方案.md](导入兼容与旧备份迁移方案.md)
+- [蓝图节点升级测试方案.md](蓝图节点升级测试方案.md)
+- [函数节点入口参数与诊断控制台方案.md](函数节点入口参数与诊断控制台方案.md)
+- [函数节点入口参数与诊断控制台实施方案.md](函数节点入口参数与诊断控制台实施方案.md)
+- [函数体引用语法约定.md](函数体引用语法约定.md)

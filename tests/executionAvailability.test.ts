@@ -128,6 +128,26 @@ describe('executionAvailability', () => {
     expect(availability.providerConfig?.id).toBe('provider-1');
   });
 
+  it('returns ready for local table row nodes without a model ref', () => {
+    const availability = resolveStepExecutionAvailability({
+      step: {
+        id: 'row-step',
+        name: 'Row',
+        kind: 'table_row',
+        content: '',
+        tableRow: { tableKey: 'items', rowIndex: '1' },
+        stepType: 'manual',
+        execution: { systemPrompt: '' },
+      },
+      template,
+      modelCatalog,
+      providerConfigs,
+    });
+
+    expect(availability.status).toBe('ready');
+    expect(availability.isRunnable).toBe(true);
+  });
+
   it('uses a connected model node before the function fallback model ref', () => {
     const availability = resolveStepExecutionAvailability({
       step: createStep({

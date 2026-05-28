@@ -313,6 +313,70 @@ describe('templateBlueprintService', () => {
     expect(modelToText.template).toEqual(originalTemplate);
   });
 
+  it('connects table outputs to table row nodes and derives row output ports', () => {
+    const template: Template = {
+      ...buildTemplate(),
+      steps: [
+        {
+          id: 'table-source',
+          name: 'Table Source',
+          content: '',
+          outputs: [
+            {
+              key: 'rows',
+              label: 'Rows',
+              type: 'table',
+              tableSchema: {
+                columns: [
+                  { key: 'name', label: 'Name' },
+                  { key: 'prompt', label: 'Prompt' },
+                ],
+              },
+            },
+          ],
+          execution: { systemPrompt: '' },
+        },
+        {
+          id: 'row',
+          name: 'Row',
+          kind: 'table_row',
+          content: '',
+          tableRow: { tableKey: '', rowIndex: '3' },
+          stepType: 'manual',
+          execution: { systemPrompt: '' },
+        },
+      ],
+    };
+
+    const addResult = applyBlueprintEdgeChange(template, {
+      fromStepId: 'table-source',
+      toStepId: 'row',
+      fromOutputKey: 'rows',
+      toInputKey: 'table',
+      mode: 'add',
+    });
+
+    expect(addResult.ok).toBe(true);
+    const rowStep = addResult.template.steps.find((step) => step.id === 'row');
+    expect(rowStep?.tableRow).toEqual({ tableKey: 'rows', rowIndex: '3' });
+    expect(rowStep?.outputs).toEqual([
+      { key: 'name', label: 'Name', type: 'text' },
+      { key: 'prompt', label: 'Prompt', type: 'text' },
+    ]);
+
+    const removeResult = applyBlueprintEdgeChange(addResult.template, {
+      fromStepId: 'table-source',
+      toStepId: 'row',
+      fromOutputKey: 'rows',
+      toInputKey: 'table',
+      mode: 'remove',
+    });
+    expect(removeResult.ok).toBe(true);
+    const disconnectedRowStep = removeResult.template.steps.find((step) => step.id === 'row');
+    expect(disconnectedRowStep?.tableRow?.tableKey).toBe('');
+    expect(disconnectedRowStep?.outputs).toEqual([]);
+  });
+
   it('tidies horizontal layouts without resetting their direction', () => {
     const template: Template = {
       ...buildTemplate(),

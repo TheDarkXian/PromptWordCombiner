@@ -223,7 +223,10 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
         ? 'result'
         : nodeKind === 'model'
           ? 'model'
+          : nodeKind === 'table_row'
+            ? 'row'
         : '';
+  const tableRowOutputCount = step.outputs?.length || 0;
   const modelNodeRef = modelRefs.find((item) => item.id === step.model?.modelRefId);
   const connectedModelStep = step.execution?.modelSourceStepId
     ? editedTemplate.steps.find((item) => item.id === step.execution?.modelSourceStepId)
@@ -238,6 +241,10 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
         ? `${step.math?.leftKey?.trim() || 'A'} ${operationSymbol} ${step.math?.rightKey?.trim() || 'B'} -> ${
             language === 'zh-CN' ? '结果' : localOutputKey
           }`
+        : nodeKind === 'table_row'
+          ? `${step.tableRow?.tableKey?.trim() || 'table'}[${step.tableRow?.rowIndex?.trim() || '1'}] -> ${
+              language === 'zh-CN' ? `${tableRowOutputCount} 个字段` : `${tableRowOutputCount} fields`
+            }`
         : `${language === 'zh-CN' ? '入口' : 'Inputs'} ${parameters.length} / ${language === 'zh-CN' ? '返回' : 'Returns'} ${
             structuredFields.length > 0 ? 2 : bindingKey ? 1 : 0
           }`;
@@ -258,6 +265,10 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
           ? language === 'zh-CN'
             ? '数学节点'
             : 'Math'
+          : nodeKind === 'table_row'
+            ? language === 'zh-CN'
+              ? '表行节点'
+              : 'Table Row'
           : language === 'zh-CN'
             ? '函数节点'
             : 'Function';
@@ -632,6 +643,94 @@ export const TemplateStepCard: React.FC<TemplateStepCardProps> = ({
                 : language === 'zh-CN'
                   ? '未选择模型引用时，连接到函数节点会阻断执行。'
                   : 'Execution is blocked when a connected model node is unbound.'}
+            </div>
+          </div>
+        )}
+
+        {nodeKind === 'table_row' && (
+          <div className="mb-4 rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-bold text-cyan-300">
+                {language === 'zh-CN' ? '取表行节点' : 'Table row node'}
+              </div>
+              <div
+                className={`rounded border px-2 py-0.5 text-[11px] ${
+                  step.tableRow?.tableKey?.trim()
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                    : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                }`}
+              >
+                {step.tableRow?.tableKey?.trim()
+                  ? language === 'zh-CN'
+                    ? '已连接表'
+                    : 'Table connected'
+                  : language === 'zh-CN'
+                    ? '等待连接表'
+                    : 'Waiting for table'}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_160px]">
+              <label className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-500">
+                  {language === 'zh-CN' ? '已连接表' : 'Connected table'}
+                </span>
+                <input
+                  value={step.tableRow?.tableKey || ''}
+                  readOnly
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-300 outline-none"
+                  placeholder={language === 'zh-CN' ? '从表输出端连线到此节点' : 'Connect a table output to this node'}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] font-bold text-slate-500">
+                  {language === 'zh-CN' ? '行号' : 'Row number'}
+                </span>
+                <input
+                  value={step.tableRow?.rowIndex || '1'}
+                  onChange={(event) =>
+                    onUpdateStep({
+                      tableRow: {
+                        tableKey: step.tableRow?.tableKey || '',
+                        rowIndex: event.target.value,
+                      },
+                    })
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                  placeholder="1"
+                />
+              </label>
+            </div>
+            <div className="mt-3 rounded border border-slate-800 bg-slate-950/70 p-2">
+              <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
+                <span className="font-bold text-slate-400">
+                  {language === 'zh-CN' ? '执行效果' : 'Execution effect'}
+                </span>
+                <span className="font-mono text-cyan-200">
+                  {step.tableRow?.tableKey?.trim() || 'table'}[{step.tableRow?.rowIndex?.trim() || '1'}]
+                </span>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                {language === 'zh-CN'
+                  ? '运行后会把选中行拆成下面这些字段输出，继续连到下游节点。'
+                  : 'Running this node publishes the selected row as the field outputs below.'}
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {(step.outputs || []).length > 0 ? (
+                (step.outputs || []).map((output) => (
+                  <span
+                    key={output.key}
+                    className="rounded border border-cyan-500/20 bg-slate-950 px-2 py-1 font-mono text-[11px] text-cyan-200"
+                    title={output.key}
+                  >
+                    {output.label || output.key}
+                  </span>
+                ))
+              ) : (
+                <span className="text-[11px] text-slate-500">
+                  {language === 'zh-CN' ? '连接表输出后，会按表字段生成输出端。' : 'Connecting a table output creates one output per column.'}
+                </span>
+              )}
             </div>
           </div>
         )}

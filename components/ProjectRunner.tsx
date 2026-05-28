@@ -571,8 +571,10 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     await ioService.exportFile(exported.filename, exported.content, exported.mimeType);
   };
 
+  const isProducerPreflightOpen = producerPreflight !== null;
+
   useEffect(() => {
-    if (!producerPreflight) return;
+    if (!isProducerPreflightOpen) return;
     const nextPreflight = buildProducerPreflight({
       project,
       template,
@@ -584,7 +586,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     setSelectedOverwriteStepIds((prev) =>
       prev.filter((stepId) => nextPreflight.existingResultStepIds.includes(stepId))
     );
-  }, [producerPreflight !== null, producerRunScope, project, template, modelCatalog, providerConfigs]);
+  }, [isProducerPreflightOpen, producerRunScope, project, template, modelCatalog, providerConfigs]);
 
   const toggleProducerOverwriteStep = (stepId: string) => {
     setSelectedOverwriteStepIds((prev) =>

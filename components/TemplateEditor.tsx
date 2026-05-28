@@ -1167,11 +1167,12 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   };
 
   const createBlueprintNode = (
-    nodeOption: { kind: BlueprintNodeKind; stepType: StepType; label: string }
+    nodeOption: { kind: BlueprintNodeKind; stepType: StepType; label: string; preset?: 'table_generator' }
   ) => {
     const nextStepId = `step_${Date.now()}`;
     commitBlueprintCommand('create_step', (prev) => {
       const defaultVariableName = `var_${prev.steps.length + 1}`;
+      const isTableGenerator = nodeOption.preset === 'table_generator';
       const defaultOutputKey =
         nodeOption.kind === 'math_operation'
           ? `${nextStepId}:result`
@@ -1179,7 +1180,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
             ? `${nextStepId}:value`
             : nodeOption.kind === 'model'
               ? `${nextStepId}:model`
-            : '';
+              : '';
       const nextStep: TemplateStep = {
         id: nextStepId,
         name:
@@ -1188,18 +1189,30 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               ? '模型节点'
               : 'Model Node'
             : nodeOption.kind === 'prompt_function'
-            ? language === 'zh-CN'
-              ? '函数节点'
-              : 'Function Node'
+            ? isTableGenerator
+              ? language === 'zh-CN'
+                ? '生成表格节点'
+                : 'Table Generator Node'
+              : language === 'zh-CN'
+                ? '函数节点'
+                : 'Function Node'
             : nodeOption.kind === 'variable'
               ? language === 'zh-CN'
                 ? '变量节点'
                 : 'Variable Node'
+              : nodeOption.kind === 'table_row'
+                ? language === 'zh-CN'
+                  ? '取表行节点'
+                  : 'Table Row Node'
               : language === 'zh-CN'
                 ? '数学节点'
                 : 'Math Node',
         kind: nodeOption.kind,
-        content: '',
+        content: isTableGenerator
+          ? language === 'zh-CN'
+            ? '请根据输入内容生成一张表，每一行是一条可继续处理的数据。'
+            : 'Generate a table from the input. Each row should be one item that can continue through the workflow.'
+          : '',
         variable:
           nodeOption.kind === 'variable'
             ? { name: defaultVariableName, defaultValue: '', outputKey: defaultOutputKey }
@@ -1212,7 +1225,28 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           nodeOption.kind === 'model'
             ? { modelRefId: prev.modelRefs?.[0]?.id }
             : undefined,
-        outputBinding: { variableKey: nodeOption.kind === 'prompt_function' ? '' : defaultOutputKey },
+        tableRow:
+          nodeOption.kind === 'table_row'
+            ? { tableKey: '', rowIndex: '1' }
+            : undefined,
+        outputBinding: {
+          variableKey:
+            nodeOption.kind === 'prompt_function' || nodeOption.kind === 'table_row'
+              ? ''
+              : defaultOutputKey,
+        },
+        structuredOutputFields: isTableGenerator
+          ? [
+              {
+                key: 'name',
+                label: language === 'zh-CN' ? '名称' : 'Name',
+              },
+              {
+                key: 'prompt',
+                label: language === 'zh-CN' ? '提示词' : 'Prompt',
+              },
+            ]
+          : undefined,
         execution: { systemPrompt: '' },
         stepType: nodeOption.stepType,
         autoRunEnabled: nodeOption.kind === 'prompt_function',
@@ -1246,12 +1280,14 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       <div className="space-y-1">
         {([
           { kind: 'prompt_function', stepType: 'text_generation', label: language === 'zh-CN' ? '函数节点' : 'Function' },
+          { kind: 'prompt_function', stepType: 'text_generation', label: language === 'zh-CN' ? '生成表格' : 'Generate Table', preset: 'table_generator' },
           { kind: 'variable', stepType: 'manual', label: language === 'zh-CN' ? '变量节点' : 'Variable' },
           { kind: 'math_operation', stepType: 'manual', label: language === 'zh-CN' ? '数学节点' : 'Math' },
+          { kind: 'table_row', stepType: 'manual', label: language === 'zh-CN' ? '取表行节点' : 'Table Row' },
           { kind: 'model', stepType: 'manual', label: language === 'zh-CN' ? '模型节点' : 'Model' },
-        ] satisfies Array<{ kind: BlueprintNodeKind; stepType: StepType; label: string }>).map((nodeOption) => (
+        ] satisfies Array<{ kind: BlueprintNodeKind; stepType: StepType; label: string; preset?: 'table_generator' }>).map((nodeOption) => (
           <button
-            key={nodeOption.kind}
+            key={`${nodeOption.kind}_${nodeOption.preset || 'default'}`}
             onClick={() => createBlueprintNode(nodeOption)}
             className="block w-full rounded border border-transparent px-2 py-1.5 text-left text-xs text-slate-200 hover:border-cyan-500/50 hover:bg-cyan-500/10"
           >

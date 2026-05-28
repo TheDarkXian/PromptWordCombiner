@@ -284,6 +284,7 @@ export interface TemplateStep {
   variable?: VariableNodeConfig;
   math?: MathNodeConfig;
   model?: ModelNodeConfig;
+  tableRow?: TableRowNodeConfig;
   outputBinding?: StepOutputBinding;
   structuredOutputFields?: StructuredOutputFieldDefinition[];
   structuredOutputBindings?: StructuredOutputVariableBinding[];
@@ -292,7 +293,7 @@ export interface TemplateStep {
   autoRunEnabled?: boolean;
 }
 
-export type BlueprintNodeKind = 'prompt_function' | 'variable' | 'math_operation' | 'model';
+export type BlueprintNodeKind = 'prompt_function' | 'variable' | 'math_operation' | 'model' | 'table_row';
 
 export interface VariableNodeConfig {
   name: string;
@@ -312,6 +313,11 @@ export interface MathNodeConfig {
 
 export interface ModelNodeConfig {
   modelRefId?: string;
+}
+
+export interface TableRowNodeConfig {
+  tableKey: string;
+  rowIndex: string;
 }
 
 export type StepParameterType = 'text' | 'table';

@@ -2,6 +2,19 @@
 
 PromptWordSplicer is a local desktop tool built with React, Vite, and Tauri 2 for managing prompt templates, project variables, and multi-step execution flows.
 
+The product name is **PromptWordSplicer**. The Chinese display name `提示词拼接器` is used for the app window title and user-facing Chinese UI.
+
+## Current Capabilities
+
+- Template, project, variable, and multi-step prompt workflow management
+- Project-level variable interpolation and step output reuse
+- Text model execution through OpenAI, DeepSeek, Anthropic, and OpenAI-compatible providers
+- Provider API connectivity checks from the settings UI
+- Structured output parsing into fields, variables, and table-like data
+- Producer-node preflight checks, semi-automated batch runs, and run logs
+- CSV and JSON export for batch run results
+- Local persistence, backup export, import compatibility checks, and merge workflows
+
 ## Prerequisites
 
 Install the following before running the project locally:
@@ -74,6 +87,19 @@ npm run verify
 ```
 
 `verify` runs `typecheck`, `lint`, `test`, and `build` in sequence.
+
+## Pre-release Verification
+
+Before sharing a local build, run:
+
+```bash
+npm run verify
+npm run tauri:build -- --debug
+```
+
+The Tauri debug build should produce a local MSI under `src-tauri/target/debug/bundle/msi/`.
+
+In restricted sandbox environments, Vite or Vitest may fail with `spawn EPERM` while starting the esbuild child process. In that case, rerun the same command in a normal local shell or with the required permission; this is an environment permission issue, not a source failure.
 
 ## Repository Notes
 

@@ -96,6 +96,7 @@ const normalizeBlueprintNodeKind = (step: any): BlueprintNodeKind => {
     step?.kind === 'variable' ||
     step?.kind === 'math_operation' ||
     step?.kind === 'model' ||
+    step?.kind === 'table_row' ||
     step?.kind === 'prompt_function'
   ) {
     return step.kind;
@@ -135,6 +136,14 @@ const normalizeModelNodeConfig = (step: any) => {
   const modelRefId = String(source.modelRefId || '').trim();
   return {
     modelRefId: modelRefId || undefined,
+  };
+};
+
+const normalizeTableRowNodeConfig = (step: any) => {
+  const source = step?.tableRow || {};
+  return {
+    tableKey: String(source.tableKey || '').trim(),
+    rowIndex: String(source.rowIndex || '1').trim() || '1',
   };
 };
 
@@ -219,6 +228,7 @@ export const normalizeTemplate = (template: Template, modelCatalog: ModelCatalog
       variable: kind === 'variable' ? normalizeVariableNodeConfig(step) : step.variable,
       math: kind === 'math_operation' ? normalizeMathNodeConfig(step) : step.math,
       model: kind === 'model' ? normalizeModelNodeConfig(step) : step.model,
+      tableRow: kind === 'table_row' ? normalizeTableRowNodeConfig(step) : step.tableRow,
       inputs: Array.isArray((step as any).inputs)
         ? (step as any).inputs
             .map((input: any) => ({

@@ -42,10 +42,16 @@ export const resolveStepExecutionAvailability = ({
     };
   }
 
-  if (step.kind === 'variable' || step.kind === 'math_operation') {
+  if (step.kind === 'variable' || step.kind === 'math_operation' || step.kind === 'table_row') {
+    const label =
+      step.kind === 'variable'
+        ? '本地变量节点'
+        : step.kind === 'math_operation'
+          ? '本地数学节点'
+          : '本地表行节点';
     return {
       status: 'ready',
-      label: step.kind === 'variable' ? '本地变量节点' : '本地数学节点',
+      label,
       message: '这个节点在本地执行，不需要模型引用。',
       isRunnable: true,
     };

@@ -29,6 +29,7 @@ interface LinkingPinState {
   stepId: string;
   outputKey: string;
   outputType: VariableValueType;
+  outputIndex?: number;
 }
 
 const PORT_COLORS: Record<VariableValueType, { stroke: string; hover: string; fill: string; shadow: string }> = {
@@ -81,6 +82,7 @@ const INPUT_PORT_TOP = 34;
 const INPUT_PORT_GAP = 22;
 const INPUT_PORT_SIZE = 20;
 const OUTPUT_PORT_TOP = 62;
+const OUTPUT_PORT_GAP = 22;
 const OUTPUT_PORT_SIZE = 20;
 const MINIMAP_W = 200;
 const MINIMAP_H = 132;
@@ -110,6 +112,16 @@ const getCanvasInputPorts = (step: TemplateStep, language: UiLanguage): StepVari
         label: language === 'zh-CN' ? '值' : 'value',
         type: 'text',
         portKey: 'value',
+      },
+    ];
+  }
+  if (step.kind === 'table_row') {
+    return [
+      {
+        key: step.tableRow?.tableKey?.trim() || '',
+        label: 'table',
+        type: 'table',
+        portKey: 'table',
       },
     ];
   }
@@ -435,14 +447,14 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
             {language === 'zh-CN' ? '整理布局' : 'Tidy'}
           </button>
           <button onClick={onResetLayout} className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
-            {language === 'zh-CN' ? '閲嶇疆甯冨眬' : 'Reset'}
+            {language === 'zh-CN' ? '重置布局' : 'Reset'}
           </button>
           <button
             type="button"
             onClick={fitGraphToView}
             className="rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200 transition-colors hover:border-cyan-500 hover:text-white"
           >
-            {language === 'zh-CN' ? '閫傞厤瑙嗗浘' : 'Fit'}
+            {language === 'zh-CN' ? '适配视图' : 'Fit'}
           </button>
           <button
             type="button"
@@ -625,16 +637,16 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
             const to = nodes[edge.toStepId];
             if (!from || !to) return null;
             const fromStep = template.steps.find((step) => step.id === edge.fromStepId);
-            const fromOutput = fromStep
-              ? getStepOutputs(fromStep).find((output) => output.key === edge.fromOutputKey) || getStepOutputs(fromStep)[0]
-              : undefined;
+            const fromOutputs = fromStep ? getStepOutputs(fromStep) : [];
+            const fromOutputIndex = Math.max(0, fromOutputs.findIndex((output) => output.key === edge.fromOutputKey));
+            const fromOutput = fromOutputs[fromOutputIndex] || fromOutputs[0];
             const edgeColor = getPortColor(fromOutput?.type).stroke;
             const toStep = template.steps.find((step) => step.id === edge.toStepId);
             const inputPorts = toStep ? getCanvasInputPorts(toStep, language) : [];
             const idx = Math.max(0, inputPorts.findIndex((input) => (input.portKey || input.key) === (edge.toInputKey || edge.variableKey)));
             const yOffset = INPUT_PORT_TOP + idx * INPUT_PORT_GAP + INPUT_PORT_SIZE / 2;
             const x1 = from.x * viewport.zoom + viewport.x + NODE_W * viewport.zoom - OUTPUT_PORT_SIZE / 2;
-            const y1 = from.y * viewport.zoom + viewport.y + OUTPUT_PORT_TOP + OUTPUT_PORT_SIZE / 2;
+            const y1 = from.y * viewport.zoom + viewport.y + OUTPUT_PORT_TOP + fromOutputIndex * OUTPUT_PORT_GAP + OUTPUT_PORT_SIZE / 2;
             const x2 = to.x * viewport.zoom + viewport.x - INPUT_PORT_SIZE / 2;
             const y2 = to.y * viewport.zoom + viewport.y + yOffset;
             const cx1 = x1 + 48 * viewport.zoom;
@@ -670,7 +682,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
             const from = nodes[linkingPin.stepId];
             if (!from) return null;
             const x1 = from.x * viewport.zoom + viewport.x + NODE_W * viewport.zoom - OUTPUT_PORT_SIZE / 2;
-            const y1 = from.y * viewport.zoom + viewport.y + OUTPUT_PORT_TOP + OUTPUT_PORT_SIZE / 2;
+            const y1 = from.y * viewport.zoom + viewport.y + OUTPUT_PORT_TOP + (linkingPin.outputIndex || 0) * OUTPUT_PORT_GAP + OUTPUT_PORT_SIZE / 2;
             const x2 = mousePoint.x;
             const y2 = mousePoint.y;
             const d = `M ${x1} ${y1} C ${x1 + 48 * viewport.zoom} ${y1}, ${x2 - 48 * viewport.zoom} ${y2}, ${x2} ${y2}`;
@@ -684,7 +696,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
           const inputPorts = getCanvasInputPorts(step, language);
           const outputPorts = getStepOutputs(step);
           const outputKeys = graphNode?.outputVariableKeys || outputPorts.map((output) => output.key);
-          const firstOutputLabel = outputPorts[0]?.label || outputKeys[0] || '';
+          const outputLabels = outputPorts.map((output) => output.label || output.key).filter(Boolean);
           const nodeKind = step.kind || 'prompt_function';
           const operationSymbol =
             step.math?.operation === 'subtract'
@@ -703,6 +715,10 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                 ? language === 'zh-CN'
                   ? '数学节点'
                   : 'Math'
+                : nodeKind === 'table_row'
+                  ? language === 'zh-CN'
+                    ? '表行节点'
+                    : 'Table Row'
                 : language === 'zh-CN'
                   ? '函数节点'
                   : 'Function';
@@ -725,9 +741,15 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                 ? `${step.math?.leftKey?.trim() || 'A'} ${operationSymbol} ${step.math?.rightKey?.trim() || 'B'}`
                 : nodeKind === 'model'
                   ? `${language === 'zh-CN' ? '模型' : 'Model'}: ${modelRefLabel}`
+                  : nodeKind === 'table_row'
+                    ? `${step.tableRow?.tableKey?.trim() || 'table'}[${step.tableRow?.rowIndex?.trim() || '1'}]`
                 : `${language === 'zh-CN' ? '入口' : 'In'} ${inputPorts.length} · ${
                     language === 'zh-CN' ? '返回' : 'Out'
                   } ${outputKeys.length}`;
+          const nodeHeight = Math.max(
+            NODE_H,
+            40 + Math.max(inputPorts.length, outputPorts.length, 1) * INPUT_PORT_GAP + INPUT_PORT_SIZE
+          );
           const selected = selectedStepIds.includes(step.id);
           const isCurrent = debugState?.currentStepId === step.id;
           const isError = debugState?.errorStepIds?.includes(step.id);
@@ -752,7 +774,7 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                 left: pos.x * viewport.zoom + viewport.x,
                 top: pos.y * viewport.zoom + viewport.y,
                 width: NODE_W * viewport.zoom,
-                minHeight: NODE_H * viewport.zoom,
+                minHeight: nodeHeight * viewport.zoom,
               }}
               onMouseDown={(event) => {
                 const shouldAppend = event.shiftKey;
@@ -792,7 +814,8 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
               </div>
               <div className="mt-2 truncate text-[11px] text-slate-300">{nodeBodyLine}</div>
               <div className="mt-2 truncate text-[11px] text-cyan-300">
-                {language === 'zh-CN' ? '输出端' : 'out'}: {firstOutputLabel || '(none)'}
+                {language === 'zh-CN' ? '输出端' : 'out'}: {outputLabels[0] || '(none)'}
+                {outputLabels.length > 1 ? ` +${outputLabels.length - 1}` : ''}
               </div>
               <div className="mt-1 text-[11px] text-slate-400">
                 {language === 'zh-CN' ? '输入口' : 'in pins'}: {inputPorts.length}
@@ -808,71 +831,95 @@ export const TemplateBlueprintCanvas: React.FC<TemplateBlueprintCanvasProps> = (
                   const isHoveredTarget =
                     hoverConnectTarget?.stepId === step.id &&
                     hoverConnectTarget.inputKey === (input.portKey || input.key);
+                  const inputLabel = input.label || input.key || input.portKey || 'input';
                   return (
-                <button
-                  key={`${step.id}_${input.portKey || input.key}`}
-                  className={`absolute -left-3 flex h-5 w-5 items-center justify-center rounded-full border border-transparent bg-transparent transition-colors ${
-                    isHoveredTarget && hoverCompatibility && !hoverCompatibility.ok
-                      ? 'border-red-400/70 bg-red-500/10'
-                      : isHoveredTarget && hoverCompatibility?.ok
-                        ? 'border-emerald-300/60 bg-emerald-400/10'
-                        : inputColor.hover
-                  }`}
-                  style={{ top: `${INPUT_PORT_TOP + index * INPUT_PORT_GAP}px` }}
-                  onMouseEnter={() =>
-                    setHoverConnectTarget({
-                      stepId: step.id,
-                      variableKey: input.key,
-                      inputKey: input.portKey || input.key,
-                      inputType,
-                    })
-                  }
-                  onMouseLeave={() =>
-                    setHoverConnectTarget((prev) =>
-                      prev?.stepId === step.id && prev.inputKey === (input.portKey || input.key) ? null : prev
-                    )
-                  }
-                  title={`${input.label || input.key}: ${input.key}`}
-                  data-blueprint-pan-blocker="true"
-                  aria-label={`${input.label || input.key} input`}
-                >
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full border bg-slate-950 ${
-                      isHoveredTarget && hoverCompatibility && !hoverCompatibility.ok
-                        ? 'border-red-300 shadow-[0_0_8px_rgba(248,113,113,0.55)]'
-                        : `${inputColor.fill} ${inputColor.shadow}`
-                    }`}
-                  />
-                </button>
-              );
-            })}
-              {outputKeys[0] ? (
-                <button
-                  aria-describedby={`${step.id}_output_type`}
-                  className={`absolute -right-3 flex h-5 w-5 items-center justify-center rounded-full border border-transparent bg-transparent transition-colors ${
-                    getPortColor(outputPorts[0]?.type).hover
-                  }`}
-                  style={{ top: `${OUTPUT_PORT_TOP}px` }}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setLinkingPin({
-                      stepId: step.id,
-                      outputKey: outputPorts[0]?.key || outputKeys[0],
-                      outputType: normalizePortValueType(outputPorts[0]?.type),
-                    });
-                    setMode('linking_pin');
-                  }}
-                  title={firstOutputLabel || 'output'}
-                  data-blueprint-pan-blocker="true"
-                  aria-label={`${firstOutputLabel || 'output'} output`}
-                >
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full border ${
-                      `${getPortColor(outputPorts[0]?.type).fill} ${getPortColor(outputPorts[0]?.type).shadow}`
-                    }`}
-                  />
-                </button>
+                    <React.Fragment key={`${step.id}_${input.portKey || input.key}`}>
+                      <button
+                        className={`absolute -left-3 flex h-5 w-5 items-center justify-center rounded-full border border-transparent bg-transparent transition-colors ${
+                          isHoveredTarget && hoverCompatibility && !hoverCompatibility.ok
+                            ? 'border-red-400/70 bg-red-500/10'
+                            : isHoveredTarget && hoverCompatibility?.ok
+                              ? 'border-emerald-300/60 bg-emerald-400/10'
+                              : inputColor.hover
+                        }`}
+                        style={{ top: `${INPUT_PORT_TOP + index * INPUT_PORT_GAP}px` }}
+                        onMouseEnter={() =>
+                          setHoverConnectTarget({
+                            stepId: step.id,
+                            variableKey: input.key,
+                            inputKey: input.portKey || input.key,
+                            inputType,
+                          })
+                        }
+                        onMouseLeave={() =>
+                          setHoverConnectTarget((prev) =>
+                            prev?.stepId === step.id && prev.inputKey === (input.portKey || input.key) ? null : prev
+                          )
+                        }
+                        title={`${inputLabel}: ${input.key || (language === 'zh-CN' ? '待连接' : 'unconnected')}`}
+                        data-blueprint-pan-blocker="true"
+                        aria-label={`${inputLabel} input`}
+                      >
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full border bg-slate-950 ${
+                            isHoveredTarget && hoverCompatibility && !hoverCompatibility.ok
+                              ? 'border-red-300 shadow-[0_0_8px_rgba(248,113,113,0.55)]'
+                              : `${inputColor.fill} ${inputColor.shadow}`
+                          }`}
+                        />
+                      </button>
+                      <span
+                        className="pointer-events-none absolute left-2 max-w-[92px] truncate rounded bg-slate-950/85 px-1.5 py-0.5 text-[10px] text-slate-300 ring-1 ring-slate-800"
+                        style={{ top: `${INPUT_PORT_TOP + index * INPUT_PORT_GAP + 2}px` }}
+                      >
+                        {inputLabel}
+                      </span>
+                    </React.Fragment>
+                  );
+                })}
+              {outputPorts.length > 0 ? (
+                outputPorts.map((output, index) => {
+                  const outputType = normalizePortValueType(output.type);
+                  const outputColor = getPortColor(outputType);
+                  const outputLabel = output.label || output.key || 'output';
+                  return (
+                    <React.Fragment key={`${step.id}_${output.key}`}>
+                      <span
+                        className="pointer-events-none absolute right-2 max-w-[104px] truncate rounded bg-slate-950/85 px-1.5 py-0.5 text-right text-[10px] text-slate-300 ring-1 ring-slate-800"
+                        style={{ top: `${OUTPUT_PORT_TOP + index * OUTPUT_PORT_GAP + 2}px` }}
+                      >
+                        {outputLabel}
+                      </span>
+                      <button
+                        aria-describedby={`${step.id}_${output.key}_output_type`}
+                        className={`absolute -right-3 flex h-5 w-5 items-center justify-center rounded-full border border-transparent bg-transparent transition-colors ${
+                          outputColor.hover
+                        }`}
+                        style={{ top: `${OUTPUT_PORT_TOP + index * OUTPUT_PORT_GAP}px` }}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setLinkingPin({
+                            stepId: step.id,
+                            outputKey: output.key,
+                            outputType,
+                            outputIndex: index,
+                          });
+                          setMode('linking_pin');
+                        }}
+                        title={outputLabel}
+                        data-blueprint-pan-blocker="true"
+                        aria-label={`${outputLabel} output`}
+                      >
+                        <span
+                          className={`h-2.5 w-2.5 rounded-full border ${
+                            `${outputColor.fill} ${outputColor.shadow}`
+                          }`}
+                        />
+                      </button>
+                    </React.Fragment>
+                  );
+                })
               ) : null}
             </div>
           );

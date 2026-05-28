@@ -94,6 +94,13 @@ export const getStepOutputs = (step: TemplateStep): StepVariableOutput[] => {
     return [{ key: `${step.id}:model`, label: 'model', type: 'model' }];
   }
 
+  if (step.kind === 'table_row') {
+    const outputs = (step.outputs || [])
+      .map((output) => normalizeStepVariableOutput({ ...output, type: 'text' }))
+      .filter((output): output is StepVariableOutput => Boolean(output));
+    return outputs;
+  }
+
   const explicitOutputs = (step.outputs || [])
     .map((output) => normalizeStepVariableOutput(output))
     .filter((output): output is StepVariableOutput => Boolean(output));
@@ -164,6 +171,11 @@ export const getStepInputs = (step: TemplateStep): StepVariableInput[] => {
     ]
       .filter((input) => Boolean(input.key) && !isNumberLiteral(input.key))
       .map((input) => ({ ...input, type: 'text' as const }));
+  }
+
+  if (step.kind === 'table_row') {
+    const tableKey = step.tableRow?.tableKey?.trim() || '';
+    return tableKey ? [{ key: tableKey, label: 'table', type: 'table', portKey: 'table' }] : [];
   }
 
   const modelSourceStepId = step.execution?.modelSourceStepId?.trim();

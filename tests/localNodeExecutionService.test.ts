@@ -226,6 +226,56 @@ describe('local node execution', () => {
     expect(mathRun.project.variables.find((variable) => variable.key === 'math-step:result')?.value).toBe('3');
   });
 
+  it('executes table row nodes by publishing selected row fields', () => {
+    const template = buildTemplate({
+      id: 'row-step',
+      name: 'Row',
+      kind: 'table_row',
+      content: '',
+      tableRow: { tableKey: 'items', rowIndex: '2' },
+      outputs: [
+        { key: 'name', label: 'Name', type: 'text' },
+        { key: 'prompt', label: 'Prompt', type: 'text' },
+      ],
+      stepType: 'manual',
+    });
+
+    const { project, result } = executeLocalProjectStep({
+      project: {
+        ...baseProject,
+        variables: [
+          ...baseProject.variables,
+          {
+            id: 'var-items',
+            key: 'items',
+            label: 'Items',
+            type: 'table',
+            value: '',
+            tableValue: {
+              columns: [
+                { key: 'name', label: 'Name' },
+                { key: 'prompt', label: 'Prompt' },
+              ],
+              rows: [
+                { id: 'row-1', cells: { name: 'A', prompt: 'First' } },
+                { id: 'row-2', cells: { name: 'B', prompt: 'Second' } },
+              ],
+            },
+            sourceType: 'manual',
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      },
+      template,
+      stepId: 'row-step',
+    });
+
+    expect(JSON.parse(result.output)).toEqual({ name: 'B', prompt: 'Second' });
+    expect(project.variables.find((variable) => variable.key === 'name')?.value).toBe('B');
+    expect(project.variables.find((variable) => variable.key === 'prompt')?.value).toBe('Second');
+  });
+
   it('rejects divide by zero', () => {
     const template = buildTemplate({
       id: 'math-step',

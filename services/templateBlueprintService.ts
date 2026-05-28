@@ -67,6 +67,14 @@ const getTargetPort = (
       portKey: 'value',
     };
   }
+  if (toStep.kind === 'table_row') {
+    return {
+      key: toStep.tableRow?.tableKey || '',
+      label: 'table',
+      type: 'table',
+      portKey: 'table',
+    };
+  }
   if ((toStep.kind === 'prompt_function' || !toStep.kind) && targetPortKey === 'model') {
     return {
       key: toStep.execution?.modelSourceStepId ? `${toStep.execution.modelSourceStepId}:model` : '',
@@ -345,6 +353,32 @@ export const applyBlueprintEdgeChange = (
             : toStep.variable?.inputKey,
     };
     steps[toIndex] = { ...toStep, variable };
+    return {
+      ok: true,
+      template: { ...template, steps, blueprint: mergeBlueprintLayout({ ...template, steps }) },
+    };
+  }
+
+  if (toStep.kind === 'table_row') {
+    const sourceColumns = sourceOutput.type === 'table'
+      ? getStepOutputs(from).find((output) => output.key === variableKey)?.tableSchema?.columns || []
+      : [];
+    const nextOutputs =
+      input.mode === 'add'
+        ? sourceColumns.map((column) => ({
+            key: column.key,
+            label: column.label || column.key,
+            type: 'text' as const,
+          }))
+        : [];
+    steps[toIndex] = {
+      ...toStep,
+      tableRow: {
+        tableKey: input.mode === 'add' ? variableKey : '',
+        rowIndex: toStep.tableRow?.rowIndex || '1',
+      },
+      outputs: nextOutputs,
+    };
     return {
       ok: true,
       template: { ...template, steps, blueprint: mergeBlueprintLayout({ ...template, steps }) },

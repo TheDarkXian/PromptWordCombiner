@@ -1,5 +1,5 @@
 {
-  "name": "提示词拼接器",
+  "name": "prompt-word-splicer",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -32,6 +32,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "eslint": "^10.3.0",
