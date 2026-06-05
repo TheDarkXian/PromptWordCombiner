@@ -21,6 +21,7 @@ interface FileLibraryProps {
   onDeleteProjects: (ids: string[]) => void;
   onDeleteTemplate: (id: string) => void;
   onImportData: (projects: Project[], templates: Template[]) => void;
+  onImportBundle: (bundle: any) => void;
   onMergeData: (projects: Project[], templates: Template[]) => void;
   onOpenExport: () => void;
   onRequestAlert: (title: string, message: string) => void;
@@ -49,6 +50,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onDeleteProjects,
   onDeleteTemplate,
   onImportData,
+  onImportBundle,
   onMergeData,
   onOpenExport,
   onRequestAlert,
@@ -126,7 +128,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
       }
       const data = JSON.parse(content);
       if (data && Array.isArray(data.projects) && Array.isArray(data.templates)) {
-        onImportData(data.projects, data.templates);
+        onImportBundle(data);
       } else {
         onRequestAlert('失败', '文件格式不匹配。');
       }

@@ -1,6 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Button } from './Button';
+import { getBackupVersion } from '../services/dataCompatibility';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -61,7 +62,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose, data,
                 value={jsonString}
               />
               <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                <span className="text-[10px] bg-slate-950 px-2 py-1 rounded text-slate-600 border border-slate-800">JSON SOURCE V2.0</span>
+                <span className="text-[10px] bg-slate-950 px-2 py-1 rounded text-slate-600 border border-slate-800">JSON SOURCE V{getBackupVersion()}</span>
               </div>
             </div>
          </div>

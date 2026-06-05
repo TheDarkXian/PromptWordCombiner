@@ -1,6 +1,6 @@
 
 import React, { useState, useLayoutEffect, useRef, useEffect } from 'react';
-import { Template, TemplateInput, TemplateStep } from '../types';
+import { ModelPreset, Template, TemplateInput, TemplateModelRef, TemplateStep } from '../types';
 import { Button } from './Button';
 
 interface TemplateEditorProps {
@@ -8,6 +8,7 @@ interface TemplateEditorProps {
   onSave: (template: Template) => void;
   onCancel: () => void;
   onRequestConfirm: (title: string, message: string, onConfirm: () => void) => void;
+  modelPresets: ModelPreset[];
 }
 
 const AutoResizeTextarea: React.FC<{
@@ -56,8 +57,11 @@ const AutoResizeTextarea: React.FC<{
   );
 };
 
-export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCancel, onRequestConfirm }) => {
-  const [editedTemplate, setEditedTemplate] = useState<Template>(JSON.parse(JSON.stringify(template)));
+export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCancel, onRequestConfirm, modelPresets }) => {
+  const [editedTemplate, setEditedTemplate] = useState<Template>(() => {
+    const cloned = JSON.parse(JSON.stringify(template));
+    return { ...cloned, modelRefs: cloned.modelRefs || [] };
+  });
   const [collapsedSteps, setCollapsedSteps] = useState<Record<number, boolean>>({});
 
   const addInput = () => {
@@ -83,6 +87,43 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
         inputs: prev.inputs.filter((_, i) => i !== idx)
       }));
     });
+  };
+
+  const addModelRef = () => {
+    const newModelRef: TemplateModelRef = {
+      id: `model_ref_${Date.now()}`,
+      label: '主生成模型',
+      modelPresetId: modelPresets[0]?.id,
+    };
+    setEditedTemplate(prev => ({ ...prev, modelRefs: [...(prev.modelRefs || []), newModelRef] }));
+  };
+
+  const updateModelRef = (idx: number, updates: Partial<TemplateModelRef>) => {
+    setEditedTemplate(prev => {
+      const modelRefs = [...(prev.modelRefs || [])];
+      modelRefs[idx] = { ...modelRefs[idx], ...updates };
+      return { ...prev, modelRefs };
+    });
+  };
+
+  const removeModelRef = (idx: number) => {
+    const modelRef = editedTemplate.modelRefs?.[idx];
+    if (!modelRef) return;
+    const isUsed = editedTemplate.steps.some(step => step.execution?.modelRefId === modelRef.id);
+    if (isUsed) {
+      onRequestConfirm('删除模型变量', '有步骤正在使用这个模型变量。删除后这些步骤会变回未绑定状态。', () => {
+        setEditedTemplate(prev => ({
+          ...prev,
+          modelRefs: (prev.modelRefs || []).filter((_, i) => i !== idx),
+          steps: prev.steps.map(step => step.execution?.modelRefId === modelRef.id ? {
+            ...step,
+            execution: { ...step.execution, modelRefId: undefined },
+          } : step),
+        }));
+      });
+      return;
+    }
+    setEditedTemplate(prev => ({ ...prev, modelRefs: (prev.modelRefs || []).filter((_, i) => i !== idx) }));
   };
 
   const addStep = () => {
@@ -184,6 +225,46 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
                 </div>
               ))}
             </div>
+
+            <div className="border-t border-slate-800 mt-6 pt-5">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-bold text-slate-200">模型变量</h3>
+                <Button size="sm" onClick={addModelRef}>+ 添加</Button>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                步骤绑定模型变量，而模型变量再绑定全局模型预设。多个步骤共用同一个模型变量时，只需要在这里改一次。
+              </p>
+              <div className="space-y-3">
+                {(editedTemplate.modelRefs || []).length === 0 && (
+                  <div className="rounded border border-dashed border-slate-800 p-3 text-xs text-slate-600">还没有模型变量。</div>
+                )}
+                {(editedTemplate.modelRefs || []).map((modelRef, idx) => {
+                  const preset = modelPresets.find(item => item.id === modelRef.modelPresetId);
+                  return (
+                    <div key={modelRef.id} className="relative group bg-slate-900 p-3 rounded border border-slate-700 space-y-2">
+                      <input
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm text-slate-200"
+                        value={modelRef.label}
+                        onChange={(e) => updateModelRef(idx, { label: e.target.value })}
+                        placeholder="模型变量名称"
+                      />
+                      <select
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-blue-500"
+                        value={modelRef.modelPresetId || ''}
+                        onChange={(e) => updateModelRef(idx, { modelPresetId: e.target.value || undefined })}
+                      >
+                        <option value="">未绑定模型预设</option>
+                        {modelPresets.map(item => (
+                          <option key={item.id} value={item.id}>{item.label}{!item.enabled ? '（已禁用）' : ''}</option>
+                        ))}
+                      </select>
+                      {modelRef.modelPresetId && !preset && <div className="text-[11px] text-amber-400">绑定的模型预设不存在。</div>}
+                      <button onClick={() => removeModelRef(idx)} className="absolute top-1 right-1 text-slate-600 hover:text-red-400 p-1">✕</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -279,6 +360,122 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
                                placeholder="编写提示词，例如：我想做一个 <0> 风格的游戏..."
                             />
                           </div>
+                        </div>
+
+                        <div className="mt-4 border-t border-slate-800 pt-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <label className="text-xs font-bold text-slate-400 uppercase">AI 文本生成</label>
+                              <p className="text-[11px] text-slate-600 mt-1">启用后，项目运行页会显示“生成文本”。</p>
+                            </div>
+                            <button
+                              onClick={() => updateStep(idx, {
+                                execution: {
+                                  ...(step.execution || {}),
+                                  enabled: !step.execution?.enabled,
+                                }
+                              })}
+                              className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-colors ${step.execution?.enabled ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300' : 'bg-slate-950 border-slate-700 text-slate-500'}`}
+                            >
+                              {step.execution?.enabled ? '已启用' : '手动步骤'}
+                            </button>
+                          </div>
+
+                          {step.execution?.enabled && (
+                            <>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                              <label className="space-y-1">
+                                <span className="text-[11px] font-bold text-slate-500">模型变量</span>
+                                <select
+                                  className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                  value={step.execution?.modelRefId || ''}
+                                  onChange={(e) => updateStep(idx, { execution: { ...(step.execution || { enabled: true }), modelRefId: e.target.value || undefined } })}
+                                >
+                                  <option value="">未绑定</option>
+                                  {(editedTemplate.modelRefs || []).map(modelRef => (
+                                    <option key={modelRef.id} value={modelRef.id}>{modelRef.label}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[11px] font-bold text-slate-500">输出位置</span>
+                                <select
+                                  className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                  value={step.execution?.outputTarget || 'stepOutput'}
+                                  onChange={(e) => updateStep(idx, {
+                                    execution: {
+                                      ...(step.execution || { enabled: true }),
+                                      outputTarget: e.target.value as 'stepOutput' | 'templateInput',
+                                      outputInputId: e.target.value === 'templateInput' ? step.execution?.outputInputId : undefined,
+                                    }
+                                  })}
+                                >
+                                  <option value="stepOutput">步骤输出</option>
+                                  <option value="templateInput">写入模板变量</option>
+                                </select>
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[11px] font-bold text-slate-500">目标变量</span>
+                                <select
+                                  className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500 disabled:opacity-40"
+                                  value={step.execution?.outputInputId || ''}
+                                  disabled={(step.execution?.outputTarget || 'stepOutput') !== 'templateInput'}
+                                  onChange={(e) => updateStep(idx, {
+                                    execution: {
+                                      ...(step.execution || { enabled: true }),
+                                      outputTarget: 'templateInput',
+                                      outputInputId: e.target.value || undefined,
+                                    }
+                                  })}
+                                >
+                                  <option value="">选择变量</option>
+                                  {editedTemplate.inputs.map((input, inputIdx) => (
+                                    <option key={input.id} value={input.id}>{`<${inputIdx}> ${input.label}`}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <label className="space-y-1">
+                                <span className="text-[11px] font-bold text-slate-500">温度</span>
+                                <input
+                                  type="number"
+                                  step="0.1"
+                                  min="0"
+                                  max="2"
+                                  className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                  value={step.execution?.temperature ?? ''}
+                                  onChange={(e) => updateStep(idx, { execution: { ...(step.execution || { enabled: true }), temperature: e.target.value === '' ? undefined : Number(e.target.value) } })}
+                                  placeholder="默认"
+                                />
+                              </label>
+                              <label className="space-y-1">
+                                <span className="text-[11px] font-bold text-slate-500">最大输出</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500"
+                                  value={step.execution?.maxTokens ?? ''}
+                                  onChange={(e) => updateStep(idx, { execution: { ...(step.execution || { enabled: true }), maxTokens: e.target.value === '' ? undefined : Number(e.target.value) } })}
+                                  placeholder="默认"
+                                />
+                              </label>
+                            </div>
+                            </>
+                          )}
+
+                          {step.execution?.enabled && (
+                            <label className="space-y-1 block">
+                              <span className="text-[11px] font-bold text-slate-500">系统提示词（可选）</span>
+                              <textarea
+                                className="w-full min-h-[64px] bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-slate-300 outline-none focus:border-blue-500 resize-y"
+                                value={step.execution?.systemPrompt || ''}
+                                onChange={(e) => updateStep(idx, { execution: { ...(step.execution || { enabled: true }), systemPrompt: e.target.value } })}
+                                placeholder="例如：你是一个专业的小游戏素材提示词策划。"
+                              />
+                            </label>
+                          )}
                         </div>
                       </div>
                     )}

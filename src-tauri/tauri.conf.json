@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "prompt",
+  "productName": "pwcBeta",
   "version": "0.2.4",
-  "identifier": "com.tdksoftware.prompt",
+  "identifier": "com.tdksoftware.pwcbeta",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3004",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "提示词拼接器",
+        "title": "pwcBeta",
         "width": 1280,
         "height": 720,
         "resizable": true,

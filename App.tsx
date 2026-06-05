@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Project, Template, TemplateInput, SortKey } from './types';
+import { AppSettings, ModelPreset, Project, ProviderConfig, Template, TemplateInput, SortKey } from './types';
 import { DEFAULT_TEMPLATES } from './constants';
 import { ProjectRunner } from './components/ProjectRunner';
 import { TemplateEditor } from './components/TemplateEditor';
@@ -11,6 +11,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { Sidebar } from './components/Sidebar';
 import { TopNav } from './components/TopNav';
 import { ioService, STORAGE_KEYS } from './services/ioService';
+import { createBackupData, DEFAULT_APP_SETTINGS, normalizeAppSettings, normalizeBackupData } from './services/dataCompatibility';
 
 type FontSize = 'text-xs' | 'text-sm' | 'text-base';
 type UiScale = 8 | 11 | 14 | 16 | 18 | 19 | 20 | 22 | 24;
@@ -33,6 +34,7 @@ const App: React.FC = () => {
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [cardScale, setCardScale] = useState<number>(300);
   const [fileLibrarySortBy, setFileLibrarySortBy] = useState<SortKey>('name');
+  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
 
   const [modalConfig, setModalConfig] = useState<{
     isOpen: boolean; title: string; message: string; isAlert: boolean; onConfirm: () => void;
@@ -50,11 +52,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const init = async () => {
       const lp = await ioService.loadFromDisk<Project[]>(STORAGE_KEYS.PROJECTS);
-      if (lp) setProjects(lp.map(p => ({ ...p, customInputs: p.customInputs || [] })));
+      if (lp) setProjects(lp.map(p => normalizeBackupData({ projects: [p], templates: [] }).projects[0]));
       const lt = await ioService.loadFromDisk<Template[]>(STORAGE_KEYS.TEMPLATES);
-      setTemplates(lt || DEFAULT_TEMPLATES);
+      setTemplates(lt ? normalizeBackupData({ projects: [], templates: lt }).templates : DEFAULT_TEMPLATES);
       const settings = await ioService.loadFromDisk<any>(STORAGE_KEYS.SETTINGS);
       if (settings) {
+        setAppSettings(normalizeAppSettings(settings));
         if (settings.uiScale) setUiScale(settings.uiScale);
         if (settings.sidebarWidth) setSidebarWidth(settings.sidebarWidth);
         if (settings.isSidebarOpen !== undefined) setIsSidebarOpen(settings.isSidebarOpen);
@@ -71,9 +74,9 @@ const App: React.FC = () => {
   useEffect(() => { if(templates.length > 0) ioService.saveToDisk(STORAGE_KEYS.TEMPLATES, templates); }, [templates]);
   useEffect(() => { if(projects.length > 0) ioService.saveToDisk(STORAGE_KEYS.PROJECTS, projects); }, [projects]);
   useEffect(() => {
-    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy });
+    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { ...appSettings, uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy });
     document.documentElement.style.fontSize = `${uiScale}px`;
-  }, [uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy]);
+  }, [appSettings, uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy]);
 
   // 侧边栏宽度调整监听
   useEffect(() => {
@@ -191,12 +194,7 @@ const App: React.FC = () => {
   };
      
   const handleDownloadAllData = () => {
-    const backupData = {
-      projects,
-      templates,
-      exportDate: new Date().toISOString(),
-      version: "2.0"
-    };
+    const backupData = createBackupData(projects, templates, appSettings);
     const jsonString = JSON.stringify(backupData, null, 2);
     
     // 生成精确到时分秒的时间戳文件名
@@ -209,7 +207,7 @@ const App: React.FC = () => {
     const ss = now.getSeconds().toString().padStart(2, '0');
     const dateStr = `${YYYY}${MM}${DD}_${HH}${mm}${ss}`;
     
-    ioService.exportFile(`prompt_splicer_backup_${dateStr}.json`, jsonString, 'application/json');
+    ioService.exportFile(`pwcBeta_backup_${dateStr}.json`, jsonString, 'application/json');
   };
 
   const handleMergeData = (newProjects: Project[], newTemplates: Template[]) => {
@@ -235,6 +233,14 @@ const App: React.FC = () => {
     });
   };
 
+  const updateProviderConfigs = (providerConfigs: ProviderConfig[]) => {
+    setAppSettings(prev => ({ ...prev, providerConfigs }));
+  };
+
+  const updateModelPresets = (modelPresets: ModelPreset[]) => {
+    setAppSettings(prev => ({ ...prev, modelPresets }));
+  };
+
   const editingTemplate = templates.find(t => t.id === editingTemplateId);
   const activeProject = activeTabId !== 'library' ? projects.find(p => p.id === activeTabId) : null;
   const activeProjectTemplate = activeProject ? templates.find(t => t.id === activeProject.templateId) : null;
@@ -249,6 +255,7 @@ const App: React.FC = () => {
               onSave={(u) => { setTemplates(prev => prev.map(t => t.id === u.id ? u : t)); setEditingTemplateId(null); }} 
               onCancel={() => setEditingTemplateId(null)} 
               onRequestConfirm={openConfirm} 
+              modelPresets={appSettings.modelPresets}
            />
         </div>
       )}
@@ -298,7 +305,17 @@ const App: React.FC = () => {
                 onDeleteProject={(id) => openConfirm("删除项目", "确定删除？", () => { setProjects(projects.filter(p => p.id !== id)); closeTab(id); })} 
                 onDeleteProjects={(ids) => openConfirm("批量删除", "确定删除？", () => { setProjects(projects.filter(p => !ids.includes(p.id))); ids.forEach(id => closeTab(id)); })}
                 onDeleteTemplate={(id) => openConfirm("删除模版", "确定删除？", () => setTemplates(templates.filter(t => t.id !== id)))} 
-                onImportData={(p, t) => { setProjects(p); setTemplates(t); }} 
+                onImportData={(p, t) => {
+                  const normalized = normalizeBackupData({ projects: p, templates: t });
+                  setProjects(normalized.projects);
+                  setTemplates(normalized.templates);
+                }} 
+                onImportBundle={(bundle) => {
+                  const normalized = normalizeBackupData(bundle);
+                  setProjects(normalized.projects);
+                  setTemplates(normalized.templates);
+                  if (normalized.settings) setAppSettings(normalizeAppSettings(normalized.settings));
+                }}
                 onMergeData={handleMergeData}
                 onOpenExport={() => setIsExportModalOpen(true)} 
                 onRequestAlert={openAlert} 
@@ -314,6 +331,8 @@ const App: React.FC = () => {
                 onUpdateProject={(id, u) => setProjects(prev => prev.map(p => p.id === id ? { ...p, ...u, lastModifiedAt: Date.now() } : p))} 
                 onUpdateTemplate={(id, u) => setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...u } : t))} 
                 onRequestConfirm={openConfirm} 
+                providerConfigs={appSettings.providerConfigs}
+                modelPresets={appSettings.modelPresets}
                 rightPanelWidth={rightPanelWidth} 
                 onRightPanelWidthChange={setRightPanelWidth} 
                 isRightPanelOpen={isRightPanelOpen} 
@@ -323,8 +342,19 @@ const App: React.FC = () => {
         </div>
       </div>
       
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} uiScale={uiScale} setUiScale={setUiScale} fontSize={fontSize} setFontSize={setFontSize} />
-      <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} data={{ projects, templates }} onDownload={handleDownloadAllData} />
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        uiScale={uiScale}
+        setUiScale={setUiScale}
+        fontSize={fontSize}
+        setFontSize={setFontSize}
+        providerConfigs={appSettings.providerConfigs}
+        modelPresets={appSettings.modelPresets}
+        onProviderConfigsChange={updateProviderConfigs}
+        onModelPresetsChange={updateModelPresets}
+      />
+      <ExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} data={createBackupData(projects, templates, appSettings)} onDownload={handleDownloadAllData} />
       <ConfirmationModal isOpen={modalConfig.isOpen} title={modalConfig.title} message={modalConfig.message} isAlert={modalConfig.isAlert} onConfirm={modalConfig.onConfirm} onCancel={closeModal} />
     </div>
   );

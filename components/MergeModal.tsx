@@ -4,6 +4,7 @@ import { Project, Template } from '../types';
 import { Button } from './Button';
 import { ioService } from '../services/ioService';
 import { DataPreviewOverlay } from './DataPreviewOverlay';
+import { normalizeBackupData } from '../services/dataCompatibility';
 
 interface MergeModalProps {
   isOpen: boolean;
@@ -42,7 +43,7 @@ export const MergeModal: React.FC<MergeModalProps> = ({
     try {
       const content = await ioService.selectAndReadFile();
       if (!content) return;
-      const data = JSON.parse(content);
+      const data = normalizeBackupData(JSON.parse(content));
       if (!data.projects || !data.templates) {
         onRequestAlert('格式错误', '该文件不是有效的备份文件。');
         return;

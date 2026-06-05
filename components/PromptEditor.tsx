@@ -68,7 +68,6 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
   onRevert,
   onSaveToTemplate
 }) => {
-  const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(templateContent);
 
@@ -85,28 +84,11 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
     setIsEditing(false);
   };
 
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(interpolatedContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="bg-slate-950 border border-slate-800/80 rounded px-3 py-2 mt-1 group/editor transition-all hover:border-slate-700">
-      <div className="flex items-center justify-between mb-1.5 h-4">
+    <div className="bg-slate-950 border border-slate-800/80 rounded px-2.5 py-2 group/editor transition-all hover:border-slate-700">
+      <div className="flex items-center justify-between mb-1 h-4">
         <div className="flex items-center gap-2">
            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tight select-none">{label}</span>
-           <button 
-              onClick={handleCopy}
-              className={`text-[9px] px-1 py-0.5 rounded border transition-all ${
-                copied 
-                  ? "bg-emerald-900/50 text-emerald-400 border-emerald-700/50" 
-                  : "bg-slate-800 text-slate-400 border-slate-700 hover:text-white"
-              }`}
-            >
-              {copied ? "已复制" : "复制结果"}
-            </button>
         </div>
         
         <div className="flex items-center gap-1">
@@ -123,7 +105,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
 
       <div className="relative min-h-[30px]">
         {isEditing ? (
-          <div className="bg-slate-900/80 rounded p-2.5 border border-blue-500/30 shadow-inner">
+          <div className="bg-slate-900/80 rounded p-2 border border-blue-500/30 shadow-inner">
             <AutoResizeTextarea 
               className="text-[13px] text-slate-200 font-mono leading-relaxed"
               value={editContent}
@@ -134,7 +116,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
           </div>
         ) : (
           <div 
-            className="cursor-text group/preview p-2.5 rounded hover:bg-slate-900/40 transition-colors"
+            className="cursor-text group/preview px-2 py-1.5 rounded hover:bg-slate-900/40 transition-colors"
             onClick={() => setIsEditing(true)}
           >
             <div className="text-[13px] text-slate-300 font-mono whitespace-pre-wrap leading-relaxed break-words">
