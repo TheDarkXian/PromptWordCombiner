@@ -27,6 +27,7 @@ export interface StepOutputMeta {
   modelPresetId?: string;
   modelName?: string;
   providerType?: ProviderType;
+  truncated?: boolean;
 }
 
 export interface StepRunLog {
@@ -39,6 +40,7 @@ export interface StepRunLog {
   prompt: string;
   output?: string;
   error?: string;
+  truncated?: boolean;
 }
 
 export interface ProjectVariable {
@@ -116,6 +118,17 @@ export interface TemplateInput {
   id: string;
   label: string;
   defaultValue?: string;
+  isConst?: boolean;
+  extractionDescription?: string;
+  extractionDisabled?: boolean;
+}
+
+export interface VariableExtractionResult {
+  inputId: string;
+  value: string | null;
+  source: 'rule' | 'ai' | 'unresolved';
+  status: 'ready' | 'conflict' | 'unresolved' | 'error';
+  message?: string;
 }
 
 export interface TemplateStep {

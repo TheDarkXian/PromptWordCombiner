@@ -1,5 +1,5 @@
 {
-  "name": "pwcBeta",
-  "description": "纯净的本地提示词流拼接与管理工具，无 AI 依赖。",
+  "name": "pwcAI Beta",
+  "description": "本地优先、支持手动与 AI 文本生成的提示词流程工作台。",
   "requestFramePermissions": []
 }

@@ -1,16 +1,18 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Project, Template, TemplateInput } from '../types';
+import { ModelPreset, Project, ProviderConfig, Template, TemplateInput } from '../types';
 import { 
   VarsIcon, 
   NavIcon, 
   BuildIcon, 
+  ExtractIcon,
   ChevronDownIcon, 
   DownloadIcon 
 } from './Icons';
 import { Button } from './Button';
+import { VariableExtractionDraft, VariableExtractionTool } from './VariableExtractionTool';
 
-type SidebarTab = 'vars' | 'nav' | 'build';
+type SidebarTab = 'vars' | 'nav' | 'extract' | 'build';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -25,6 +27,9 @@ interface SidebarProps {
   onDeleteLocalVariable: (varId: string) => void;
   onBakeDownload: () => void;
   onRequestAlert: (title: string, message: string) => void;
+  providerConfigs: ProviderConfig[];
+  modelPresets: ModelPreset[];
+  onApplyInputValues: (projectId: string, values: Record<string, string>) => void;
 }
 
 const AutoResizeSidebarTextarea: React.FC<{
@@ -32,7 +37,8 @@ const AutoResizeSidebarTextarea: React.FC<{
   onChange: (val: string) => void;
   placeholder?: string;
   className?: string;
-}> = ({ value, onChange, placeholder, className }) => {
+  readOnly?: boolean;
+}> = ({ value, onChange, placeholder, className, readOnly = false }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const adjustHeight = () => {
     const el = textareaRef.current;
@@ -45,13 +51,21 @@ const AutoResizeSidebarTextarea: React.FC<{
     const timeout = setTimeout(adjustHeight, 0);
     return () => clearTimeout(timeout);
   }, [value]);
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(adjustHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   return (
     <textarea
       ref={textareaRef}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`block w-full resize-none overflow-hidden bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-all ${className}`}
+      readOnly={readOnly}
+      className={`block w-full resize-none overflow-hidden whitespace-pre-wrap break-words border rounded px-2 py-1.5 outline-none transition-all ${readOnly ? 'bg-slate-900/50 border-slate-800 text-slate-500 cursor-default' : 'bg-slate-950 border-slate-700 text-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500'} ${className}`}
       rows={1}
       spellCheck={false}
     />
@@ -70,12 +84,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAddLocalVariable,
   onDeleteLocalVariable,
   onBakeDownload,
-  onRequestAlert
+  onRequestAlert,
+  providerConfigs,
+  modelPresets,
+  onApplyInputValues
 }) => {
   const [activeTab, setActiveTab] = useState<SidebarTab>('vars');
   const [sections, setSections] = useState({ global: true, local: true });
   const [isAddingVariable, setIsAddingVariable] = useState(false);
   const [newVarName, setNewVarName] = useState("");
+  const [extractionDrafts, setExtractionDrafts] = useState<Record<string, VariableExtractionDraft>>({});
   const newVarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -100,12 +118,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setIsAddingVariable(false);
   };
 
+  const createDefaultExtractionDraft = (template: Template): VariableExtractionDraft => {
+    const extractableInputIds = template.inputs
+      .filter(input => !input.isConst && !input.extractionDisabled)
+      .map(input => input.id);
+    const defaultModelRefId = (template.modelRefs || []).find(modelRef => {
+      const preset = modelPresets.find(item => item.id === modelRef.modelPresetId);
+      if (!preset?.enabled) return false;
+      const provider = providerConfigs.find(item => item.id === preset.providerConfigId);
+      return Boolean(provider?.enabled && provider.apiKey.trim());
+    })?.id || '';
+
+    return {
+      sourceText: '',
+      selectedInputIds: extractableInputIds,
+      selectedModelRefId: defaultModelRefId,
+      results: [],
+      checkedInputIds: [],
+      message: '',
+      isExtracting: false,
+    };
+  };
+
   if (!isOpen) return null;
 
   return (
     <div 
-      style={{ width }} 
-      className="bg-slate-900 flex flex-shrink-0 z-20 transition-all duration-75 relative border-r border-slate-800 animate-in slide-in-from-left-2"
+      style={{ width: `var(--pwc-sidebar-live-width, ${width}px)` }}
+      className={`bg-slate-900 flex flex-shrink-0 z-20 relative border-r border-slate-800 animate-in slide-in-from-left-2 ${isResizing ? '' : 'transition-[width] duration-150'}`}
     >
       {/* 左侧窄条图标导航 */}
       <div className="w-12 bg-slate-950 flex flex-col items-center py-6 border-r border-slate-800 gap-6 shrink-0">
@@ -125,7 +165,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <NavIcon className="w-5 h-5" />
             </button>
-            <button 
+            <button
+              onClick={() => setActiveTab('extract')}
+              title="变量提取"
+              className={`p-2 rounded-lg transition-colors ${activeTab === 'extract' ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/30' : 'text-slate-600 hover:text-slate-300'}`}
+            >
+              <ExtractIcon className="w-5 h-5" />
+            </button>
+            <button
               onClick={() => setActiveTab('build')} 
               title="导出烘焙" 
               className={`p-2 rounded-lg transition-colors ${activeTab === 'build' ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'text-slate-600 hover:text-slate-300'}`}
@@ -157,11 +204,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <div className="flex items-center gap-2 mb-1.5">
                           <span className="text-[10px] font-mono text-blue-400 font-bold">&lt;{idx}&gt;</span>
                           <label className="text-[10px] text-slate-500 block truncate font-medium">{input.label}</label>
+                          {input.isConst && <span className="text-[9px] font-bold text-emerald-500/80">CONST</span>}
                         </div>
                         <AutoResizeSidebarTextarea 
-                          value={activeProject.inputValues[input.id] || ''} 
+                          value={input.isConst ? input.defaultValue || '' : activeProject.inputValues[input.id] || ''}
                           onChange={(val) => onInputChange(input.id, val)} 
-                          placeholder="..." 
+                          placeholder={input.isConst ? '未设置常量值' : '...'}
+                          readOnly={input.isConst}
                         />
                       </div>
                     ))}
@@ -246,6 +295,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </button>
                   ))}
                 </div>
+              )}
+
+              {activeTab === 'extract' && (
+                <VariableExtractionTool
+                  key={activeProject.id}
+                  project={activeProject}
+                  template={activeProjectTemplate}
+                  providerConfigs={providerConfigs}
+                  modelPresets={modelPresets}
+                  onApplyValues={onApplyInputValues}
+                  draft={extractionDrafts[activeProject.id] || createDefaultExtractionDraft(activeProjectTemplate)}
+                  onDraftChange={(projectId, updater) => {
+                    setExtractionDrafts(prev => {
+                      const targetProject = projectId === activeProject.id ? activeProject : null;
+                      const targetTemplate = targetProject
+                        ? activeProjectTemplate
+                        : null;
+                      const current = prev[projectId] || (targetTemplate ? createDefaultExtractionDraft(targetTemplate) : {
+                        sourceText: '',
+                        selectedInputIds: [],
+                        selectedModelRefId: '',
+                        results: [],
+                        checkedInputIds: [],
+                        message: '',
+                        isExtracting: false,
+                      });
+                      const next = typeof updater === 'function' ? updater(current) : updater;
+                      return { ...prev, [projectId]: next };
+                    });
+                  }}
+                />
               )}
 
               {activeTab === 'build' && (

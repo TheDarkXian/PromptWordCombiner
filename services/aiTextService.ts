@@ -9,15 +9,28 @@ interface ExecuteTextParams {
   userPrompt: string;
   temperature?: number;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 export interface ExecuteTextResult {
   output: string;
+  finishReason?: string;
+  truncated?: boolean;
   rawResponse?: unknown;
 }
 
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com/v1';
+export const DEFAULT_AI_TEMPERATURE = 0.7;
+export const DEFAULT_AI_MAX_TOKENS = 2000;
+let activeAiRequestCount = 0;
+
+const updateAiActivity = (delta: number) => {
+  activeAiRequestCount = Math.max(0, activeAiRequestCount + delta);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pwc:ai-activity', { detail: activeAiRequestCount }));
+  }
+};
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
@@ -43,6 +56,15 @@ const extractContent = (content: unknown): string => {
     .trim();
 };
 
+const extractResponseOutput = (data: any): string => {
+  const choice = data?.choices?.[0];
+  return (
+    extractContent(choice?.message?.content)
+    || extractContent(choice?.text)
+    || extractContent(data?.output_text)
+  );
+};
+
 export const executeTextGeneration = async ({
   providerType,
   apiKey,
@@ -50,36 +72,48 @@ export const executeTextGeneration = async ({
   modelName,
   systemPrompt = '',
   userPrompt,
-  temperature,
-  maxTokens,
+  temperature = DEFAULT_AI_TEMPERATURE,
+  maxTokens = DEFAULT_AI_MAX_TOKENS,
+  signal,
 }: ExecuteTextParams): Promise<ExecuteTextResult> => {
   const endpoint = `${trimTrailingSlash(getBaseUrl(providerType, baseUrl))}/chat/completions`;
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: modelName,
-      ...(temperature !== undefined ? { temperature } : {}),
-      ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
-      messages: [
-        ...(systemPrompt.trim() ? [{ role: 'system', content: systemPrompt }] : []),
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-  });
+  updateAiActivity(1);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelName,
+        temperature,
+        max_tokens: maxTokens,
+        messages: [
+          ...(systemPrompt.trim() ? [{ role: 'system', content: systemPrompt }] : []),
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+    });
 
-  const data = await response.json();
-  if (!response.ok) {
-    const message = data?.error?.message || data?.message || `请求失败：${response.status}`;
-    throw new Error(message);
+    const data = await response.json();
+    if (!response.ok) {
+      const message = data?.error?.message || data?.message || `请求失败：${response.status}`;
+      throw new Error(message);
+    }
+
+    const output = extractResponseOutput(data);
+    const finishReason = data?.choices?.[0]?.finish_reason;
+    if (!output) {
+      if (finishReason === 'length') {
+        throw new Error('模型未返回正文：输出长度已耗尽，请提高“最大输出长度”后重试。');
+      }
+      throw new Error(`模型请求成功，但没有返回可用正文${finishReason ? `（结束原因：${finishReason}）` : ''}。`);
+    }
+
+    return { output, finishReason, truncated: finishReason === 'length', rawResponse: data };
+  } finally {
+    updateAiActivity(-1);
   }
-
-  const output = extractContent(data?.choices?.[0]?.message?.content);
-  if (!output) throw new Error('模型返回了空结果。');
-
-  return { output, rawResponse: data };
 };
-

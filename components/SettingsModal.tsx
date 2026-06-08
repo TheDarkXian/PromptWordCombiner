@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from './Button';
 import { getVersion } from '@tauri-apps/api/app';
 import { ModelPreset, ProviderConfig, ProviderType } from '../types';
+import { RECOMMENDED_MODEL_PRESETS, RECOMMENDED_PROVIDER_CONFIGS } from '../services/dataCompatibility';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -14,6 +15,7 @@ interface SettingsModalProps {
   modelPresets: ModelPreset[];
   onProviderConfigsChange: (providers: ProviderConfig[]) => void;
   onModelPresetsChange: (models: ModelPreset[]) => void;
+  initialTab?: 'interface' | 'ai';
 }
 
 declare const __APP_VERSION__: string;
@@ -35,12 +37,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   modelPresets,
   onProviderConfigsChange,
   onModelPresetsChange,
+  initialTab = 'interface',
 }) => {
   const [appVersion, setAppVersion] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'interface' | 'ai'>('interface');
 
   useEffect(() => {
     if (isOpen) {
+      setActiveTab(initialTab);
       try {
         setAppVersion(__APP_VERSION__);
       } catch (e) {
@@ -49,7 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           .catch(() => setAppVersion('Unknown'));
       }
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -63,13 +67,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         providerType: 'deepseek',
         apiKey: '',
         baseUrl: '',
-        enabled: true,
+        enabled: false,
       },
     ]);
   };
 
   const updateProvider = (id: string, updates: Partial<ProviderConfig>) => {
-    onProviderConfigsChange(providerConfigs.map(provider => provider.id === id ? { ...provider, ...updates } : provider));
+    onProviderConfigsChange(providerConfigs.map(provider => {
+      if (provider.id !== id) return provider;
+      const next = { ...provider, ...updates };
+      if ('apiKey' in updates && !next.apiKey.trim()) next.enabled = false;
+      return next;
+    }));
   };
 
   const deleteProvider = (id: string) => {
@@ -93,6 +102,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const updateModelPreset = (id: string, updates: Partial<ModelPreset>) => {
     onModelPresetsChange(modelPresets.map(model => model.id === id ? { ...model, ...updates } : model));
+  };
+
+  const addRecommendedPresets = () => {
+    const existingProviderIds = new Set(providerConfigs.map(provider => provider.id));
+    const existingModelIds = new Set(modelPresets.map(model => model.id));
+    const existingModels = new Set(modelPresets.map(model => `${model.providerConfigId}:${model.modelName}`));
+
+    onProviderConfigsChange([
+      ...providerConfigs.map(provider => {
+        const recommended = RECOMMENDED_PROVIDER_CONFIGS.find(item => item.id === provider.id);
+        return recommended && !provider.baseUrl?.trim()
+          ? { ...provider, baseUrl: recommended.baseUrl }
+          : provider;
+      }),
+      ...RECOMMENDED_PROVIDER_CONFIGS
+        .filter(provider => !existingProviderIds.has(provider.id))
+        .map(provider => ({ ...provider })),
+    ]);
+    onModelPresetsChange([
+      ...modelPresets,
+      ...RECOMMENDED_MODEL_PRESETS
+        .filter(model => !existingModelIds.has(model.id) && !existingModels.has(`${model.providerConfigId}:${model.modelName}`))
+        .map(model => ({ ...model })),
+    ]);
   };
 
   return (
@@ -175,6 +208,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <div className="space-y-4">
                   {providerConfigs.map(provider => {
                     const inUse = modelPresets.some(model => model.providerConfigId === provider.id);
+                    const hasApiKey = Boolean(provider.apiKey.trim());
                     return (
                       <div key={provider.id} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
                         <div className="flex gap-2">
@@ -185,8 +219,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                           <select value={provider.providerType} onChange={e => updateProvider(provider.id, { providerType: e.target.value as ProviderType })} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500">
                             {PROVIDER_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
                           </select>
-                          <button onClick={() => updateProvider(provider.id, { enabled: !provider.enabled })} className={`rounded-lg border px-3 py-2 text-sm font-bold ${provider.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-950 text-slate-400'}`}>
-                            {provider.enabled ? '已启用' : '已禁用'}
+                          <button
+                            onClick={() => updateProvider(provider.id, { enabled: !provider.enabled })}
+                            disabled={!hasApiKey}
+                            title={hasApiKey ? '切换提供商启用状态' : '填写 API Key 后才能启用'}
+                            className={`rounded-lg border px-3 py-2 text-sm font-bold ${!hasApiKey ? 'border-slate-800 bg-slate-950 text-slate-600 cursor-not-allowed' : provider.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-950 text-slate-400'}`}
+                          >
+                            {!hasApiKey ? '缺少 API Key' : provider.enabled ? '已启用' : '已禁用'}
                           </button>
                         </div>
                         <input type="password" autoComplete="off" value={provider.apiKey} onChange={e => updateProvider(provider.id, { apiKey: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500" placeholder="API Key" />
@@ -203,12 +242,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <h4 className="text-sm font-bold text-slate-200">模型预设</h4>
                     <p className="mt-1 text-xs text-slate-500">模板模型变量会绑定到这里的具体模型。</p>
                   </div>
-                  <Button size="sm" onClick={addModelPreset} disabled={providerConfigs.length === 0}>新增</Button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={addRecommendedPresets} className="px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 text-[11px] font-bold text-blue-300 hover:bg-blue-600 hover:text-white transition-colors">
+                      添加推荐预设
+                    </button>
+                    <Button size="sm" onClick={addModelPreset} disabled={providerConfigs.length === 0}>新增</Button>
+                  </div>
                 </div>
 
                 {modelPresets.length === 0 && <div className="rounded-xl border border-dashed border-slate-800 p-4 text-xs text-slate-600">还没有模型预设。</div>}
                 <div className="space-y-4">
-                  {modelPresets.map(model => (
+                  {modelPresets.map(model => {
+                    const provider = providerConfigs.find(item => item.id === model.providerConfigId);
+                    const providerAvailable = Boolean(provider?.enabled && provider.apiKey.trim());
+                    return (
                     <div key={model.id} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 space-y-3">
                       <div className="flex gap-2">
                         <input value={model.label} onChange={e => updateModelPreset(model.id, { label: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500" placeholder="模型预设名称" />
@@ -218,13 +265,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <select value={model.providerConfigId} onChange={e => updateModelPreset(model.id, { providerConfigId: e.target.value })} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500">
                           {providerConfigs.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
                         </select>
-                        <button onClick={() => updateModelPreset(model.id, { enabled: !model.enabled })} className={`rounded-lg border px-3 py-2 text-sm font-bold ${model.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-950 text-slate-400'}`}>
-                          {model.enabled ? '已启用' : '已禁用'}
+                        <button
+                          onClick={() => updateModelPreset(model.id, { enabled: !model.enabled })}
+                          disabled={!providerAvailable}
+                          title={providerAvailable ? '切换模型启用状态' : '先配置并启用所属提供商'}
+                          className={`rounded-lg border px-3 py-2 text-sm font-bold ${!providerAvailable ? 'border-slate-800 bg-slate-950 text-slate-600 cursor-not-allowed' : model.enabled ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-slate-700 bg-slate-950 text-slate-400'}`}
+                        >
+                          {!providerAvailable ? '提供商不可用' : model.enabled ? '已启用' : '已禁用'}
                         </button>
                       </div>
                       <input value={model.modelName} onChange={e => updateModelPreset(model.id, { modelName: e.target.value })} className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 outline-none focus:border-blue-500" placeholder="模型名称，例如 deepseek-chat / gpt-4.1-mini" />
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             </div>

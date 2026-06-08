@@ -69,6 +69,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
   onSaveToTemplate
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isPreviewHidden, setIsPreviewHidden] = useState(false);
   const [editContent, setEditContent] = useState(templateContent);
 
   useEffect(() => {
@@ -86,12 +87,20 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
 
   return (
     <div className="bg-slate-950 border border-slate-800/80 rounded px-2.5 py-2 group/editor transition-all hover:border-slate-700">
-      <div className="flex items-center justify-between mb-1 h-4">
+      <div className={`flex items-center justify-between h-4 ${isPreviewHidden ? '' : 'mb-1'}`}>
         <div className="flex items-center gap-2">
            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tight select-none">{label}</span>
         </div>
         
         <div className="flex items-center gap-1">
+          {!isEditing && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsPreviewHidden(current => !current); }}
+              className="text-[9px] text-slate-500 hover:text-blue-300 px-1"
+            >
+              {isPreviewHidden ? '显示提示词' : '隐藏提示词'}
+            </button>
+          )}
           {!isEditing && hasChanges && (
             <div className="flex items-center gap-1 animate-in fade-in duration-200">
               <span className="text-[9px] text-amber-500 font-bold">局部修改</span>
@@ -103,7 +112,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
         </div>
       </div>
 
-      <div className="relative min-h-[30px]">
+      {!isPreviewHidden && <div className="relative min-h-[30px]">
         {isEditing ? (
           <div className="bg-slate-900/80 rounded p-2 border border-blue-500/30 shadow-inner">
             <AutoResizeTextarea 
@@ -127,7 +136,7 @@ export const PromptEditor: React.FC<PromptEditorProps> = ({
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 };

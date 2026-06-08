@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "pwcBeta",
-  "version": "0.2.4",
+  "productName": "pwcAI Beta",
+  "version": "0.3.2",
   "identifier": "com.tdksoftware.pwcbeta",
   "build": {
     "frontendDist": "../dist",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "pwcBeta",
+        "title": "pwcAI Beta",
         "width": 1280,
         "height": 720,
         "resizable": true,

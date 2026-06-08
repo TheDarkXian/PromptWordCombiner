@@ -59,3 +59,9 @@ export const ProjectEmptyIcon: React.FC<IconProps> = ({ className, ...props }) =
     <path d="M2 3a1 1 0 0 1 1-1h5.25a.75.75 0 0 1 .53.22L10.03 3.5H13a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3Z" />
   </svg>
 );
+
+export const ExtractIcon: React.FC<IconProps> = ({ className, ...props }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className={className} {...props}>
+    <path d="M2.75 2A.75.75 0 0 0 2 2.75v2.5a.75.75 0 0 0 1.5 0V3.5h1.75a.75.75 0 0 0 0-1.5h-2.5ZM10 2.75a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0V3.5h-1.75a.75.75 0 0 1-.75-.75ZM2.75 10a.75.75 0 0 1 .75.75v1.75h1.75a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75v-2.5a.75.75 0 0 1 .75-.75ZM13.25 10a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-1.75a.75.75 0 0 1 .75-.75ZM5 6.25A.75.75 0 0 1 5.75 5h4.5a.75.75 0 0 1 .75.75v.5a.75.75 0 0 1-.75.75H8.75v3.25a.75.75 0 0 1-1.5 0V7H5.75A.75.75 0 0 1 5 6.25Z" />
+  </svg>
+);

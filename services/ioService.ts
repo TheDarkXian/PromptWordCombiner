@@ -22,8 +22,24 @@
 import { load } from "@tauri-apps/plugin-store";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+import { publishNotification } from "./notificationService";
 
 const IS_TAURI = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ !== undefined;
+let activeSaveCount = 0;
+let hasSaveError = false;
+
+const beginSave = () => {
+  activeSaveCount += 1;
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('pwc:save-status', { detail: 'saving' }));
+};
+
+const finishSave = (hasError = false) => {
+  activeSaveCount = Math.max(0, activeSaveCount - 1);
+  hasSaveError = hasSaveError || hasError;
+  if (typeof window === 'undefined' || activeSaveCount > 0) return;
+  window.dispatchEvent(new CustomEvent('pwc:save-status', { detail: hasSaveError ? 'error' : 'saved' }));
+  hasSaveError = false;
+};
 
 export const STORAGE_KEYS = {
   PROJECTS: 'prompt-splicer-projects-v2',
@@ -35,6 +51,7 @@ export const ioService = {
   // --- 数据持久化 ---
   
   async saveToDisk(key: string, data: any): Promise<void> {
+    beginSave();
     if (IS_TAURI) {
 
       try {
@@ -42,14 +59,20 @@ export const ioService = {
         await store.set(key, data);
         await store.save();
         console.log('Tauri Save Triggered:', key);
+        finishSave();
       } catch (e) {
         console.error('Tauri Save Error:', e);
+        finishSave(true);
+        publishNotification({ level: 'error', title: '保存失败', message: `无法保存 ${key}。`, source: 'storage' });
       }
     } else {
       try {
         localStorage.setItem(key, JSON.stringify(data));
+        finishSave();
       } catch (e) {
         console.error(`Failed to save data for key: ${key}`, e);
+        finishSave(true);
+        publishNotification({ level: 'error', title: '保存失败', message: `无法保存 ${key}。`, source: 'storage' });
       }
     }
   },

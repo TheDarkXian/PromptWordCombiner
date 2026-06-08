@@ -1,18 +1,19 @@
 ---
-name: pwcbeta-project-guide
-description: 在 E:\Project\VS\pwcAI 这个 pwcBeta 仓库工作时使用，尤其是修改 UI、项目/模板数据结构、导入导出、Tauri 打包配置，或需要解释“应该改哪里”时。开始前先读 docs/PROJECT_STRUCTURE.md；新的项目文档统一放到 docs/。
+name: pwcai-beta-project-guide
+description: 在 E:\Project\VS\pwcAI 这个 pwcAI Beta 仓库工作时使用，尤其是修改 UI、项目/模板数据结构、导入导出、Tauri 打包配置，或需要解释“应该改哪里”时。开始前先读 docs/PROJECT_STRUCTURE.md；新的项目文档统一放到 docs/。
 ---
 
-# pwcBeta 项目工作约定
+# pwcAI Beta 项目工作约定
 
 在这个仓库工作时遵守这些约定：
 
 1. 做非小型改动前，先读 `docs/PROJECT_STRUCTURE.md`。
-2. 把 pwcBeta 当作本地优先、全手动的提示词流程工作台。除非用户明确要求，不要加入 AI 自动执行。
+2. 把 pwcAI Beta 当作本地优先的提示词流程工作台，保持手动复制与 AI 文本生成两种工作方式都可用。
 3. 新的项目文档统一放到 `docs/`。
 4. 保留 v2.1 备份字段兼容性，除非用户明确批准数据迁移。
 5. 优先做小而聚焦的改动，贴合当前 React/Tauri 结构。
 6. 回答项目结构、术语、修改入口时，默认使用中文。
+7. 实现或修改变量提取工具前，必须阅读并遵守 `docs/VARIABLE_EXTRACTION_SPEC.md`。
 
 关键文件：
 
@@ -30,4 +31,3 @@ description: 在 E:\Project\VS\pwcAI 这个 pwcBeta 仓库工作时使用，尤�
 
 - 代码改动后运行 `npm run build`。
 - 打包信息、窗口标题、Tauri 配置变化后运行 `npx tauri build`。
-

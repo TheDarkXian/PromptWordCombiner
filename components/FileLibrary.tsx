@@ -110,6 +110,17 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     return groups;
   }, [projects, sortBy, isGrouped, templates]);
 
+  const displayedProjects = useMemo(() => {
+    return Object.entries(groupedData).flatMap(([groupName, groupProjects]) => {
+      if (isGrouped && collapsedGroups.has(groupName)) return [];
+      return groupProjects;
+    });
+  }, [groupedData, isGrouped, collapsedGroups]);
+
+  const openAllDisplayedProjects = () => {
+    displayedProjects.forEach(project => onOpenProject(project.id));
+  };
+
   const toggleGroup = (groupName: string) => {
     const next = new Set(collapsedGroups);
     if (next.has(groupName)) next.delete(groupName);
@@ -233,6 +244,18 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-4 md:gap-6">
+                  <button
+                    onClick={openAllDisplayedProjects}
+                    disabled={displayedProjects.length === 0}
+                    className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 transition-all"
+                    title="按当前排序打开所有实际显示的项目"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                      <path d="M2.5 3.5A1.5 1.5 0 0 1 4 2h3.25a.75.75 0 0 1 .53.22L9.06 3.5H12A1.5 1.5 0 0 1 13.5 5v6.5A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5v-8Z" />
+                      <path d="M8.75 6.25a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5v1.5a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5v-1.5Z" />
+                    </svg>
+                    打开显示项目 ({displayedProjects.length})
+                  </button>
                   <button 
                     onClick={() => { setIsSelectionMode(!isSelectionMode); setSelectedIds(new Set()); }}
                     className={`flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold rounded-lg border transition-all ${

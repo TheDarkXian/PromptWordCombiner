@@ -42,7 +42,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
       {/* 标题与设置 */}
       <div className="px-5 font-bold text-slate-400 text-sm flex items-center gap-3 shrink-0">
-        <span className="tracking-tight whitespace-nowrap">pwcBeta</span>
+        <span className="tracking-tight whitespace-nowrap">pwcAI Beta</span>
         <button 
           onClick={onOpenSettings} 
           className="p-1.5 text-slate-600 hover:text-blue-400 transition-colors"
