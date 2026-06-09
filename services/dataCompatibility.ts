@@ -55,6 +55,7 @@ export const RECOMMENDED_MODEL_PRESETS: ModelPreset[] = [
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   providerConfigs: RECOMMENDED_PROVIDER_CONFIGS.map(provider => ({ ...provider })),
   modelPresets: RECOMMENDED_MODEL_PRESETS.map(model => ({ ...model })),
+  templateGroups: [],
 };
 
 const asRecord = (value: unknown): Record<string, any> => {
@@ -195,6 +196,10 @@ export const normalizeTemplate = (template: any): Template => {
     ...template,
     id: String(template.id || `tmpl_${now}`),
     name: String(template.name || '未命名模版'),
+    groupId: template.groupId ? String(template.groupId) : undefined,
+    order: Number.isFinite(template.order) ? Number(template.order) : undefined,
+    createdAt: Number(template.createdAt || template.lastModifiedAt || now),
+    lastModifiedAt: Number(template.lastModifiedAt || template.createdAt || now),
     inputs,
     modelRefs: asArray(template.modelRefs),
     steps,
@@ -251,7 +256,14 @@ export const normalizeAppSettings = (settings: any): AppSettings => {
     enabled: model.enabled !== false,
   }));
 
-  return { providerConfigs, modelPresets };
+  const templateGroups = asArray(settings?.templateGroups).map((group: any, index) => ({
+    id: String(group?.id || `template_group_${Date.now()}_${index}`),
+    name: String(group?.name || `模板分组 ${index + 1}`),
+    order: Number.isFinite(group?.order) ? Number(group.order) : index,
+    parentId: group?.parentId ? String(group.parentId) : undefined,
+  }));
+
+  return { providerConfigs, modelPresets, templateGroups };
 };
 
 export const normalizeBackupData = (data: any): BackupData => {
@@ -275,6 +287,7 @@ const stripSecretsFromSettings = (settings?: AppSettings): AppSettings | undefin
   return {
     providerConfigs: settings.providerConfigs.map(provider => ({ ...provider, apiKey: '' })),
     modelPresets: settings.modelPresets,
+    templateGroups: settings.templateGroups,
   };
 };
 

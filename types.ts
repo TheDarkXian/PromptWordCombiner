@@ -101,17 +101,40 @@ export interface StepExecutionConfig {
 export interface AppSettings {
   providerConfigs: ProviderConfig[];
   modelPresets: ModelPreset[];
+  templateGroups: TemplateGroup[];
 }
 
 export type SortKey = 'lastModified' | 'createdAt' | 'name';
+export type TemplateSortKey = 'name' | 'lastModified' | 'createdAt' | 'projectCount' | 'stepCount';
+export interface TemplateTableColumnWidths {
+  visibility: number;
+  name: number;
+  stats: number;
+  projectCount: number;
+  createdAt: number;
+  lastModifiedAt: number;
+  actions: number;
+}
+export type LibrarySelection = 'all-projects' | 'recent-projects' | 'all-templates' | 'ungrouped-templates' | `group:${string}` | `template:${string}`;
+
+export interface TemplateGroup {
+  id: string;
+  name: string;
+  order: number;
+  parentId?: string;
+}
 
 export interface Template {
   id: string;
   name: string;
+  groupId?: string;
+  order?: number;
+  createdAt?: number;
+  lastModifiedAt?: number;
   inputs: TemplateInput[];
   modelRefs?: TemplateModelRef[];
   steps: TemplateStep[];
-  hideProjects?: boolean; // 新增：用于在库中隐藏此模版下的项目
+  hideProjects?: boolean; // 文件库项目可见性；true 时隐藏该模板下的项目
 }
 
 export interface TemplateInput {

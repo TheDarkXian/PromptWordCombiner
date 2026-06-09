@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AppSettings, ModelPreset, Project, ProviderConfig, Template, TemplateInput, SortKey } from './types';
+import { AppSettings, LibrarySelection, ModelPreset, Project, ProviderConfig, Template, TemplateGroup, TemplateInput, SortKey, TemplateSortKey, TemplateTableColumnWidths } from './types';
 import { DEFAULT_TEMPLATES } from './constants';
 import { ProjectRunner } from './components/ProjectRunner';
 import { TemplateEditor } from './components/TemplateEditor';
@@ -36,6 +36,11 @@ const App: React.FC = () => {
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [cardScale, setCardScale] = useState<number>(300);
   const [fileLibrarySortBy, setFileLibrarySortBy] = useState<SortKey>('name');
+  const [librarySelection, setLibrarySelection] = useState<LibrarySelection>('all-projects');
+  const [templateSortBy, setTemplateSortBy] = useState<TemplateSortKey>('lastModified');
+  const [templateColumnWidths, setTemplateColumnWidths] = useState<TemplateTableColumnWidths>({ visibility: 48, name: 240, stats: 110, projectCount: 80, createdAt: 150, lastModifiedAt: 150, actions: 260 });
+  const [collapsedProjectTemplateIds, setCollapsedProjectTemplateIds] = useState<string[]>([]);
+  const [collapsedTemplateGroupIds, setCollapsedTemplateGroupIds] = useState<string[]>([]);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isStorageHydrated, setIsStorageHydrated] = useState(false);
   const sidebarDragWidthRef = useRef(sidebarWidth);
@@ -79,6 +84,11 @@ const App: React.FC = () => {
           if (settings.isRightPanelOpen !== undefined) setIsRightPanelOpen(settings.isRightPanelOpen);
           if (settings.cardScale) setCardScale(settings.cardScale);
           if (settings.fileLibrarySortBy) setFileLibrarySortBy(settings.fileLibrarySortBy);
+          if (settings.librarySelection) setLibrarySelection(settings.librarySelection);
+          if (settings.templateSortBy) setTemplateSortBy(settings.templateSortBy);
+          if (settings.templateColumnWidths) setTemplateColumnWidths(current => ({ ...current, ...settings.templateColumnWidths }));
+          if (Array.isArray(settings.collapsedProjectTemplateIds)) setCollapsedProjectTemplateIds(settings.collapsedProjectTemplateIds);
+          if (Array.isArray(settings.collapsedTemplateGroupIds)) setCollapsedTemplateGroupIds(settings.collapsedTemplateGroupIds);
         }
       } finally {
         setIsStorageHydrated(true);
@@ -96,9 +106,9 @@ const App: React.FC = () => {
   }, [isStorageHydrated, projects]);
   useEffect(() => {
     if (!isStorageHydrated) return;
-    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { ...appSettings, uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy });
+    ioService.saveToDisk(STORAGE_KEYS.SETTINGS, { ...appSettings, uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy, librarySelection, templateSortBy, templateColumnWidths, collapsedProjectTemplateIds, collapsedTemplateGroupIds });
     document.documentElement.style.fontSize = `${uiScale}px`;
-  }, [isStorageHydrated, appSettings, uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy]);
+  }, [isStorageHydrated, appSettings, uiScale, sidebarWidth, isSidebarOpen, rightPanelWidth, isRightPanelOpen, fontSize, cardScale, fileLibrarySortBy, librarySelection, templateSortBy, templateColumnWidths, collapsedProjectTemplateIds, collapsedTemplateGroupIds]);
 
   useEffect(() => {
     document.documentElement.style.fontSize = `${uiScale}px`;
@@ -152,12 +162,15 @@ const App: React.FC = () => {
     openTab(newProject.id);
   };
 
-  const createTemplate = () => {
+  const createTemplate = (groupId?: string) => {
     const now = Date.now();
     const newId = `tmpl_${now}`;
     const newTemplate: Template = {
       id: newId,
       name: `新模版`,
+      groupId,
+      createdAt: now,
+      lastModifiedAt: now,
       inputs: [{ id: `input_${now}_0`, label: '核心变量' }],
       steps: [{ id: `step_${now}_0`, name: '步骤1', content: '在此处输入模板内容...' }]
     };
@@ -189,7 +202,8 @@ const App: React.FC = () => {
   };
 
   const handleUpdateTemplate = (id: string, updates: Partial<Template>) => {
-    setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+    const organizationalOnly = Object.keys(updates).every(key => key === 'groupId' || key === 'hideProjects');
+    setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...updates, ...(!organizationalOnly ? { lastModifiedAt: Date.now() } : {}) } : t));
   };
 
   const handleAddLocalVariable = (name: string) => {
@@ -264,9 +278,12 @@ const App: React.FC = () => {
     setTemplates(prev => {
       const merged = [...prev];
       newTemplates.forEach(nt => {
-        const idx = merged.findIndex(t => t.id === nt.id);
-        if (idx !== -1) merged[idx] = nt; // 覆盖已有的ID（如果是overwrite操作）
-        else merged.push(nt); // 否则新增
+        const safeTemplate = nt.groupId && !appSettings.templateGroups.some(group => group.id === nt.groupId)
+          ? { ...nt, groupId: undefined }
+          : nt;
+        const idx = merged.findIndex(t => t.id === safeTemplate.id);
+        if (idx !== -1) merged[idx] = safeTemplate; // 覆盖已有的ID（如果是overwrite操作）
+        else merged.push(safeTemplate); // 否则新增
       });
       return merged;
     });
@@ -303,6 +320,60 @@ const App: React.FC = () => {
     setAppSettings(prev => ({ ...prev, modelPresets }));
   };
 
+  const createTemplateGroup = (name: string, parentId?: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const siblingCount = appSettings.templateGroups.filter(group => group.parentId === parentId).length;
+    const group: TemplateGroup = { id: `template_group_${Date.now()}`, name: trimmed, order: siblingCount, parentId };
+    setAppSettings(prev => ({ ...prev, templateGroups: [...prev.templateGroups, group] }));
+    setLibrarySelection(`group:${group.id}`);
+  };
+
+  const renameTemplateGroup = (groupId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setAppSettings(prev => ({ ...prev, templateGroups: prev.templateGroups.map(group => group.id === groupId ? { ...group, name: trimmed } : group) }));
+  };
+
+  const deleteTemplateGroup = (groupId: string) => {
+    const deletedGroup = appSettings.templateGroups.find(group => group.id === groupId);
+    setAppSettings(prev => ({ ...prev, templateGroups: prev.templateGroups.filter(group => group.id !== groupId).map(group => group.parentId === groupId ? { ...group, parentId: deletedGroup?.parentId } : group) }));
+    setTemplates(prev => prev.map(template => template.groupId === groupId ? { ...template, groupId: deletedGroup?.parentId } : template));
+    setLibrarySelection('ungrouped-templates');
+  };
+
+  const moveTemplate = (templateId: string, groupId?: string, beforeTemplateId?: string) => {
+    setTemplates(prev => {
+      const moving = prev.find(template => template.id === templateId);
+      if (!moving) return prev;
+      const siblings = prev.filter(template => template.id !== templateId && template.groupId === groupId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      const beforeIndex = beforeTemplateId ? siblings.findIndex(template => template.id === beforeTemplateId) : -1;
+      siblings.splice(beforeIndex >= 0 ? beforeIndex : siblings.length, 0, { ...moving, groupId });
+      const orderById = new Map(siblings.map((template, index) => [template.id, index]));
+      return prev.map(template => orderById.has(template.id) ? { ...template, groupId, order: orderById.get(template.id) } : template);
+    });
+  };
+
+  const moveTemplateGroup = (groupId: string, parentId?: string, beforeGroupId?: string) => {
+    setAppSettings(prev => {
+      const groups = prev.templateGroups;
+      const descendants = new Set<string>();
+      const collect = (id: string) => groups.filter(group => group.parentId === id).forEach(group => { descendants.add(group.id); collect(group.id); });
+      collect(groupId);
+      if (parentId === groupId || (parentId && descendants.has(parentId))) return prev;
+      const moving = groups.find(group => group.id === groupId);
+      if (!moving) return prev;
+      const siblings = groups.filter(group => group.id !== groupId && group.parentId === parentId).sort((a, b) => a.order - b.order);
+      const beforeIndex = beforeGroupId ? siblings.findIndex(group => group.id === beforeGroupId) : -1;
+      siblings.splice(beforeIndex >= 0 ? beforeIndex : siblings.length, 0, { ...moving, parentId });
+      const orderById = new Map(siblings.map((group, index) => [group.id, index]));
+      return {
+        ...prev,
+        templateGroups: groups.map(group => orderById.has(group.id) ? { ...group, parentId, order: orderById.get(group.id)! } : group),
+      };
+    });
+  };
+
   const editingTemplate = templates.find(t => t.id === editingTemplateId);
   const activeProject = activeTabId !== 'library' ? projects.find(p => p.id === activeTabId) : null;
   const activeProjectTemplate = activeProject ? templates.find(t => t.id === activeProject.templateId) : null;
@@ -327,7 +398,7 @@ const App: React.FC = () => {
         <div className="fixed inset-x-0 top-0 bottom-6 bg-slate-950 z-[100] animate-in fade-in zoom-in-95 duration-200">
            <TemplateEditor 
               template={editingTemplate} 
-              onSave={(u) => { setTemplates(prev => prev.map(t => t.id === u.id ? u : t)); setEditingTemplateId(null); }} 
+              onSave={(u) => { setTemplates(prev => prev.map(t => t.id === u.id ? { ...u, lastModifiedAt: Date.now() } : t)); setEditingTemplateId(null); }}
               onCancel={() => setEditingTemplateId(null)} 
               onRequestConfirm={openConfirm} 
               modelPresets={appSettings.modelPresets}
@@ -347,6 +418,11 @@ const App: React.FC = () => {
         projects={projects}
         onOpenTab={openTab}
         onCloseTab={closeTab}
+        onCloseOtherTabs={(id) => {
+          setOpenTabIds(id === 'library' ? [] : [id]);
+          setActiveTabId(id);
+        }}
+        onCloseAllTabs={() => { setOpenTabIds([]); setActiveTabId('library'); }}
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -367,6 +443,17 @@ const App: React.FC = () => {
           providerConfigs={appSettings.providerConfigs}
           modelPresets={appSettings.modelPresets}
           onApplyInputValues={handleApplyInputValues}
+          templates={templates}
+          templateGroups={appSettings.templateGroups}
+          librarySelection={librarySelection}
+          onLibrarySelectionChange={setLibrarySelection}
+          onCreateTemplateGroup={createTemplateGroup}
+          onRenameTemplateGroup={renameTemplateGroup}
+          onDeleteTemplateGroup={(groupId) => openConfirm('删除模板分组', '删除分组后，直属模板与子分组会上移一级。模板和项目不会被删除。', () => deleteTemplateGroup(groupId))}
+          onMoveTemplate={moveTemplate}
+          onMoveTemplateGroup={moveTemplateGroup}
+          collapsedTemplateGroupIds={collapsedTemplateGroupIds}
+          onCollapsedTemplateGroupIdsChange={setCollapsedTemplateGroupIds}
         />
 
         {/* 主内容区域 */}
@@ -375,26 +462,28 @@ const App: React.FC = () => {
              <FileLibrary 
                 projects={projects} 
                 templates={templates} 
+                templateGroups={appSettings.templateGroups}
+                selection={librarySelection}
+                onSelectionChange={setLibrarySelection}
                 onOpenProject={openTab} 
                 onCreateProject={createProject} 
                 onCreateTemplate={createTemplate} 
                 onEditTemplate={setEditingTemplateId} 
                 onUpdateTemplate={handleUpdateTemplate}
-                onDuplicateTemplate={(id) => { const t = templates.find(x => x.id === id); if(t) { const nid = `tmpl_${Date.now()}`; setTemplates([...templates, {...t, id: nid, name: t.name+' (副本)'}]); setEditingTemplateId(nid); } }} 
-                onCreateTemplateFromProject={(id) => { const p = projects.find(x => x.id === id); const t = templates.find(x => x.id === p?.templateId); if(t) { const nid = `tmpl_${Date.now()}`; setTemplates([...templates, {...t, id: nid, name: p?.name+' 提取'}]); setEditingTemplateId(nid); } }} 
+                onDuplicateTemplate={(id) => { const t = templates.find(x => x.id === id); if(t) { const now = Date.now(); const nid = `tmpl_${now}`; setTemplates([...templates, {...t, id: nid, name: t.name+' (副本)', createdAt: now, lastModifiedAt: now}]); setEditingTemplateId(nid); } }}
+                onCreateTemplateFromProject={(id) => { const p = projects.find(x => x.id === id); const t = templates.find(x => x.id === p?.templateId); if(t) { const now = Date.now(); const nid = `tmpl_${now}`; setTemplates([...templates, {...t, id: nid, name: p?.name+' 提取', createdAt: now, lastModifiedAt: now}]); setEditingTemplateId(nid); } }}
                 onDeleteProject={(id) => openConfirm("删除项目", "确定删除？", () => { setProjects(projects.filter(p => p.id !== id)); closeTab(id); })} 
                 onDeleteProjects={(ids) => openConfirm("批量删除", "确定删除？", () => { setProjects(projects.filter(p => !ids.includes(p.id))); ids.forEach(id => closeTab(id)); })}
-                onDeleteTemplate={(id) => openConfirm("删除模版", "确定删除？", () => setTemplates(templates.filter(t => t.id !== id)))} 
-                onImportData={(p, t) => {
-                  const normalized = normalizeBackupData({ projects: p, templates: t });
-                  setProjects(normalized.projects);
-                  setTemplates(normalized.templates);
-                }} 
+                onDeleteTemplate={(id) => openConfirm("删除模版", "确定删除？", () => {
+                  setTemplates(templates.filter(t => t.id !== id));
+                  if (librarySelection === `template:${id}`) setLibrarySelection('all-templates');
+                })}
                 onImportBundle={(bundle) => {
                   const normalized = normalizeBackupData(bundle);
                   setProjects(normalized.projects);
                   setTemplates(normalized.templates);
                   if (normalized.settings) setAppSettings(normalizeAppSettings(normalized.settings));
+                  setLibrarySelection('all-projects');
                 }}
                 onMergeData={handleMergeData}
                 onOpenExport={() => setIsExportModalOpen(true)} 
@@ -403,6 +492,12 @@ const App: React.FC = () => {
                 onCardScaleChange={setCardScale}
                 sortBy={fileLibrarySortBy}
                 onSortChange={setFileLibrarySortBy}
+                templateSortBy={templateSortBy}
+                onTemplateSortChange={setTemplateSortBy}
+                templateColumnWidths={templateColumnWidths}
+                onTemplateColumnWidthsChange={setTemplateColumnWidths}
+                collapsedProjectTemplateIds={collapsedProjectTemplateIds}
+                onCollapsedProjectTemplateIdsChange={setCollapsedProjectTemplateIds}
              />
            ) : activeProject && activeProjectTemplate ? (
              <ProjectRunner 
@@ -413,7 +508,7 @@ const App: React.FC = () => {
                   const updates = typeof u === 'function' ? u(p) : u;
                   return { ...p, ...updates, lastModifiedAt: Date.now() };
                 }))}
-                onUpdateTemplate={(id, u) => setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...u } : t))} 
+                onUpdateTemplate={(id, u) => setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...u, lastModifiedAt: Date.now() } : t))}
                 onRequestConfirm={openConfirm} 
                 providerConfigs={appSettings.providerConfigs}
                 modelPresets={appSettings.modelPresets}

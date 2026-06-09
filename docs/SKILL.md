@@ -14,6 +14,7 @@ description: 在 E:\Project\VS\pwcAI 这个 pwcAI Beta 仓库工作时使用，�
 5. 优先做小而聚焦的改动，贴合当前 React/Tauri 结构。
 6. 回答项目结构、术语、修改入口时，默认使用中文。
 7. 实现或修改变量提取工具前，必须阅读并遵守 `docs/VARIABLE_EXTRACTION_SPEC.md`。
+8. 禁止使用浏览器原生 `window.alert`、`window.confirm` 和 `window.prompt`；使用项目内模态框、内联编辑、日志或 Toast。
 
 关键文件：
 

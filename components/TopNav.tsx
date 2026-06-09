@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Project } from '../types';
 import { 
   MenuIcon, 
@@ -16,7 +16,9 @@ interface TopNavProps {
   openTabIds: string[];
   projects: Project[];
   onOpenTab: (id: string) => void;
-  onCloseTab: (id: string, e: React.MouseEvent) => void;
+  onCloseTab: (id: string, e?: React.MouseEvent) => void;
+  onCloseOtherTabs: (id: string) => void;
+  onCloseAllTabs: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -27,8 +29,29 @@ export const TopNav: React.FC<TopNavProps> = ({
   openTabIds,
   projects,
   onOpenTab,
-  onCloseTab
+  onCloseTab,
+  onCloseOtherTabs,
+  onCloseAllTabs
 }) => {
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('blur', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('blur', close);
+    };
+  }, [contextMenu]);
+
+  const openContextMenu = (event: React.MouseEvent, tabId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ x: event.clientX, y: event.clientY, tabId });
+  };
+
   return (
     <div className="flex items-center bg-slate-900 h-14 border-b border-slate-800 shrink-0 pr-4 z-30 relative shadow-sm">
       {/* 侧边栏开关 */}
@@ -57,6 +80,7 @@ export const TopNav: React.FC<TopNavProps> = ({
         {/* 固定标签：文件库 */}
         <div 
           onClick={() => onOpenTab('library')} 
+          onContextMenu={(event) => openContextMenu(event, 'library')}
           className={`group relative flex items-center gap-2 px-4 py-2 min-w-[100px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[85%] ${activeTabId === 'library' ? 'bg-slate-950 border-slate-800 text-white z-10' : 'bg-slate-900 border-transparent text-slate-500'}`}
           style={{ marginBottom: '-1px' }}
         >
@@ -72,6 +96,7 @@ export const TopNav: React.FC<TopNavProps> = ({
             <div 
               key={id} 
               onClick={() => onOpenTab(id)} 
+              onContextMenu={(event) => openContextMenu(event, id)}
               className={`group relative flex items-center gap-2 px-4 py-2 min-w-[120px] max-w-[220px] cursor-pointer border-t border-r border-l rounded-t text-sm transition-colors h-[85%] ${isActive ? 'bg-slate-950 border-slate-800 text-white z-10' : 'bg-slate-900 border-transparent text-slate-500'}`}
               style={{ marginBottom: '-1px' }}
               title={project?.name || '未知项目'}
@@ -87,6 +112,30 @@ export const TopNav: React.FC<TopNavProps> = ({
           );
         })}
       </div>
+      {contextMenu && (
+        <div
+          className="fixed z-[10000] min-w-40 border border-slate-700 bg-slate-900 py-1 shadow-2xl"
+          style={{ left: Math.min(contextMenu.x, window.innerWidth - 180), top: Math.min(contextMenu.y, window.innerHeight - 110) }}
+          onClick={event => event.stopPropagation()}
+        >
+          {contextMenu.tabId !== 'library' && (
+            <>
+              <button
+                onClick={() => { onCloseTab(contextMenu.tabId); setContextMenu(null); }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+              >关闭当前标签</button>
+              <button
+                onClick={() => { onCloseOtherTabs(contextMenu.tabId); setContextMenu(null); }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+              >关闭其他标签</button>
+            </>
+          )}
+          <button
+            onClick={() => { onCloseAllTabs(); setContextMenu(null); }}
+            className="w-full px-3 py-2 text-left text-xs text-slate-300 hover:bg-slate-800"
+          >关闭全部项目标签</button>
+        </div>
+      )}
     </div>
   );
 };
