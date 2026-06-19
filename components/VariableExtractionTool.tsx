@@ -22,7 +22,10 @@ interface VariableExtractionToolProps {
   providerConfigs: ProviderConfig[];
   onApplyValues: (projectId: string, values: Record<string, string>) => void;
   draft: VariableExtractionDraft;
-  onDraftChange: (projectId: string, updater: VariableExtractionDraft | ((draft: VariableExtractionDraft) => VariableExtractionDraft)) => void;
+  draftKey: string;
+  onDraftChange: (projectId: string, draftKey: string, updater: VariableExtractionDraft | ((draft: VariableExtractionDraft) => VariableExtractionDraft)) => void;
+  selectedPresetId: string;
+  onSelectedPresetChange: (presetId: string) => void;
 }
 
 export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
@@ -32,7 +35,10 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
   providerConfigs,
   onApplyValues,
   draft,
+  draftKey,
   onDraftChange,
+  selectedPresetId,
+  onSelectedPresetChange,
 }) => {
   const extractionControllerRef = useRef<AbortController | null>(null);
   const { publish } = useNotifications();
@@ -42,22 +48,27 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
     availability: resolveModelPresetAvailability(modelRef.modelPresetId, modelPresets, providerConfigs),
   })), [template.modelRefs, modelPresets, providerConfigs]);
 
+  const selectedPreset = (template.extractionPresets || []).find(preset => preset.id === selectedPresetId);
   const {
-    sourceText,
-    selectedInputIds,
-    selectedModelRefId,
+    sourceText: draftSourceText,
+    selectedInputIds: draftSelectedInputIds,
+    selectedModelRefId: draftSelectedModelRefId,
     results,
     checkedInputIds,
     message,
     isExtracting,
   } = draft;
+  const sourceText = selectedPreset?.sourceInputId ? project.inputValues[selectedPreset.sourceInputId] || '' : draftSourceText;
+  const selectedInputIds = selectedPreset ? selectedPreset.targetInputIds : draftSelectedInputIds;
+  const selectedModelRefId = selectedPreset ? selectedPreset.modelRefId || '' : draftSelectedModelRefId;
 
   const updateDraft = (updates: Partial<VariableExtractionDraft>) => {
-    onDraftChange(project.id, current => ({ ...current, ...updates }));
+    onDraftChange(project.id, draftKey, current => ({ ...current, ...updates }));
   };
 
   useEffect(() => {
     const extractableIds = new Set(extractableInputs.map(input => input.id));
+    if (selectedPreset) return;
     const nextSelectedInputIds = selectedInputIds.filter(id => extractableIds.has(id));
     const nextResults = results.filter(result => extractableIds.has(result.inputId));
     const nextCheckedInputIds = checkedInputIds.filter(id => extractableIds.has(id));
@@ -72,7 +83,7 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
         checkedInputIds: nextCheckedInputIds,
       });
     }
-  }, [extractableInputs]);
+  }, [extractableInputs, selectedPreset]);
 
   const selectedModelRef = availableModelRefs.find(item => item.modelRef.id === selectedModelRefId);
   const selectedModelAvailability = selectedModelRef?.availability;
@@ -105,7 +116,7 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
     const requestProjectId = project.id;
     const controller = new AbortController();
     extractionControllerRef.current = controller;
-    onDraftChange(requestProjectId, current => ({ ...current, isExtracting: true, message: '' }));
+    onDraftChange(requestProjectId, draftKey, current => ({ ...current, isExtracting: true, message: '' }));
     const ruleResults = runRuleExtraction(sourceText, targets);
     let merged = ruleResults;
     const unresolvedTargets = targets.filter(input => ruleResults.some(result => result.inputId === input.id && result.status !== 'ready'));
@@ -117,31 +128,32 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
           targets: unresolvedTargets,
           modelPreset: selectedModelAvailability.modelPreset,
           providerConfig: selectedModelAvailability.providerConfig,
+          instruction: selectedPreset?.instruction,
           signal: controller.signal,
         });
         merged = mergeExtractionResults(ruleResults, aiResults);
       } catch (error) {
         if (controller.signal.aborted) {
-          onDraftChange(requestProjectId, current => ({ ...current, isExtracting: false, message: '已停止提取。' }));
+          onDraftChange(requestProjectId, draftKey, current => ({ ...current, isExtracting: false, message: '已停止提取。' }));
           publish({ level: 'info', title: '变量提取已停止', message: '当前变量提取请求已停止。', projectId: requestProjectId, projectName: project.name });
           extractionControllerRef.current = null;
           return;
         }
-        onDraftChange(requestProjectId, current => ({
+        onDraftChange(requestProjectId, draftKey, current => ({
           ...current,
           message: `AI 补全失败，已保留规则结果：${error instanceof Error ? error.message : '未知错误'}`,
         }));
         publish({ level: 'error', title: '变量提取失败', message: error instanceof Error ? error.message : '未知错误', projectId: requestProjectId, projectName: project.name });
       }
     } else if (unresolvedTargets.length > 0) {
-      onDraftChange(requestProjectId, current => ({
+      onDraftChange(requestProjectId, draftKey, current => ({
         ...current,
         message: '已完成规则提取；当前没有可用模型，未提取字段未进行 AI 补全。',
       }));
       publish({ level: 'warning', title: '仅完成规则提取', message: '当前没有可用模型，未提取字段未进行 AI 补全。', projectId: requestProjectId, projectName: project.name });
     }
 
-    onDraftChange(requestProjectId, current => ({
+    onDraftChange(requestProjectId, draftKey, current => ({
       ...current,
       results: merged,
       checkedInputIds: merged
@@ -183,10 +195,24 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
   return (
     <div className="h-full overflow-y-auto p-3 space-y-4 no-scrollbar">
       <div>
+        <h3 className="text-xs font-bold text-slate-200 mb-2">提取方式</h3>
+        <select
+          value={selectedPresetId}
+          onChange={event => onSelectedPresetChange(event.target.value)}
+          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-cyan-500"
+        >
+          <option value="">临时提取</option>
+          {(template.extractionPresets || []).map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+        </select>
+        {selectedPreset && <p className="mt-1 text-[10px] leading-relaxed text-cyan-700">{selectedPreset.instruction || '使用模板预设的原始文本、目标变量和模型。'}</p>}
+      </div>
+
+      <div>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-bold text-slate-200">原始文本</h3>
           <button
             onClick={() => updateDraft({ sourceText: '', results: [], checkedInputIds: [], message: '' })}
+            disabled={Boolean(selectedPreset)}
             className="text-[10px] text-slate-600 hover:text-slate-300"
           >
             清空
@@ -195,8 +221,9 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
         <textarea
           value={sourceText}
           onChange={(event) => updateDraft({ sourceText: event.target.value })}
+          readOnly={Boolean(selectedPreset)}
           className="w-full min-h-[150px] resize-y rounded border border-slate-700 bg-slate-950 p-2 text-xs leading-relaxed text-slate-300 outline-none focus:border-cyan-500"
-          placeholder="粘贴需要提取信息的文本..."
+          placeholder={selectedPreset ? '请先填写预设绑定的原始文本变量。' : '粘贴需要提取信息的文本...'}
           spellCheck={false}
         />
       </div>
@@ -205,8 +232,8 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-bold text-slate-200">目标变量</h3>
           <div className="flex gap-2 text-[10px]">
-            <button onClick={() => updateDraft({ selectedInputIds: extractableInputs.map(input => input.id) })} className="text-cyan-500 hover:text-cyan-300">全选</button>
-            <button onClick={() => updateDraft({ selectedInputIds: [] })} className="text-slate-600 hover:text-slate-300">清空</button>
+            {!selectedPreset && <button onClick={() => updateDraft({ selectedInputIds: extractableInputs.map(input => input.id) })} className="text-cyan-500 hover:text-cyan-300">全选</button>}
+            {!selectedPreset && <button onClick={() => updateDraft({ selectedInputIds: [] })} className="text-slate-600 hover:text-slate-300">清空</button>}
           </div>
         </div>
         <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
@@ -214,7 +241,7 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
             const hasValue = Boolean((project.inputValues[input.id] || '').trim());
             return (
               <label key={input.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-slate-800/70 cursor-pointer">
-                <input type="checkbox" checked={selectedInputIds.includes(input.id)} onChange={() => toggleTarget(input.id)} className="accent-cyan-500" />
+                <input type="checkbox" checked={selectedInputIds.includes(input.id)} disabled={Boolean(selectedPreset)} onChange={() => toggleTarget(input.id)} className="accent-cyan-500" />
                 <span className="min-w-0 flex-1 truncate text-xs text-slate-300">{input.label}</span>
                 {hasValue && <span className="shrink-0 text-[9px] text-amber-500">已有内容</span>}
               </label>
@@ -228,6 +255,7 @@ export const VariableExtractionTool: React.FC<VariableExtractionToolProps> = ({
         <select
           value={selectedModelRefId}
           onChange={(event) => updateDraft({ selectedModelRefId: event.target.value })}
+          disabled={Boolean(selectedPreset)}
           className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-cyan-500"
         >
           <option value="">仅使用规则提取</option>

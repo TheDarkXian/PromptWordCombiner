@@ -88,6 +88,15 @@ export interface TemplateModelRef {
   modelPresetId?: string;
 }
 
+export interface VariableExtractionPreset {
+  id: string;
+  name: string;
+  sourceInputId?: string;
+  targetInputIds: string[];
+  modelRefId?: string;
+  instruction?: string;
+}
+
 export interface StepExecutionConfig {
   enabled: boolean;
   modelRefId?: string;
@@ -96,6 +105,7 @@ export interface StepExecutionConfig {
   maxTokens?: number;
   outputTarget?: 'stepOutput' | 'templateInput';
   outputInputId?: string;
+  skipBatchWhenOutputExists?: boolean;
 }
 
 export interface AppSettings {
@@ -131,10 +141,17 @@ export interface Template {
   order?: number;
   createdAt?: number;
   lastModifiedAt?: number;
+  projectNameRule?: TemplateProjectNameRule;
   inputs: TemplateInput[];
   modelRefs?: TemplateModelRef[];
+  extractionPresets?: VariableExtractionPreset[];
   steps: TemplateStep[];
   hideProjects?: boolean; // 文件库项目可见性；true 时隐藏该模板下的项目
+}
+
+export interface TemplateProjectNameRule {
+  inputId: string;
+  prefix?: string;
 }
 
 export interface TemplateInput {
@@ -159,5 +176,6 @@ export interface TemplateStep {
   name: string;
   description?: string;
   content: string;
+  showInPromptOverview?: boolean;
   execution?: StepExecutionConfig;
 }

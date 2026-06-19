@@ -1,6 +1,6 @@
 
 import React, { useState, useLayoutEffect, useRef, useEffect } from 'react';
-import { ModelPreset, ProviderConfig, Template, TemplateInput, TemplateModelRef, TemplateStep } from '../types';
+import { ModelPreset, ProviderConfig, Template, TemplateInput, TemplateModelRef, TemplateStep, VariableExtractionPreset } from '../types';
 import { Button } from './Button';
 import { DEFAULT_AI_MAX_TOKENS, DEFAULT_AI_TEMPERATURE } from '../services/aiTextService';
 import { resolveModelPresetAvailability } from '../services/aiAvailabilityService';
@@ -82,10 +82,16 @@ const rewriteNumericInputRefs = (content: string, indexMap: Record<number, numbe
 export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCancel, onRequestConfirm, modelPresets, providerConfigs, onOpenModelSettings }) => {
   const [editedTemplate, setEditedTemplate] = useState<Template>(() => {
     const cloned = JSON.parse(JSON.stringify(template));
-    return { ...cloned, modelRefs: cloned.modelRefs || [] };
+    return { ...cloned, modelRefs: cloned.modelRefs || [], extractionPresets: cloned.extractionPresets || [] };
   });
+  const [activeLeftTab, setActiveLeftTab] = useState<'inputs' | 'models' | 'extraction'>('inputs');
   const [collapsedSteps, setCollapsedSteps] = useState<Record<number, boolean>>({});
   const [stepContextMenu, setStepContextMenu] = useState<{ x: number; y: number; stepIndex: number } | null>(null);
+  const projectNameInputs = editedTemplate.inputs.filter(input => !input.isConst);
+  const projectNameInput = editedTemplate.projectNameRule?.inputId
+    ? editedTemplate.inputs.find(input => input.id === editedTemplate.projectNameRule?.inputId)
+    : undefined;
+  const projectNamePreviewValue = projectNameInput?.defaultValue || projectNameInput?.label || '变量内容';
 
   const addInput = () => {
     const newInput: TemplateInput = {
@@ -107,7 +113,13 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
     onRequestConfirm('删除变量', '确认删除此输入项？使用此输入的步骤将会显示错误。', () => {
       setEditedTemplate(prev => ({
         ...prev,
-        inputs: prev.inputs.filter((_, i) => i !== idx)
+        inputs: prev.inputs.filter((_, i) => i !== idx),
+        projectNameRule: prev.projectNameRule?.inputId === prev.inputs[idx].id ? undefined : prev.projectNameRule,
+        extractionPresets: (prev.extractionPresets || []).map(preset => ({
+          ...preset,
+          sourceInputId: preset.sourceInputId === prev.inputs[idx].id ? undefined : preset.sourceInputId,
+          targetInputIds: preset.targetInputIds.filter(id => id !== prev.inputs[idx].id),
+        })),
       }));
     });
   };
@@ -138,6 +150,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
       return {
         ...prev,
         inputs,
+        projectNameRule: isConst && prev.projectNameRule?.inputId === input.id ? undefined : prev.projectNameRule,
         steps: isConst
           ? prev.steps.map(step => step.execution?.outputInputId === input.id ? {
               ...step,
@@ -185,6 +198,10 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
         setEditedTemplate(prev => ({
           ...prev,
           modelRefs: (prev.modelRefs || []).filter((_, i) => i !== idx),
+          extractionPresets: (prev.extractionPresets || []).map(preset => preset.modelRefId === modelRef.id ? {
+            ...preset,
+            modelRefId: undefined,
+          } : preset),
           steps: prev.steps.map(step => step.execution?.modelRefId === modelRef.id ? {
             ...step,
             execution: { ...step.execution, modelRefId: undefined },
@@ -193,7 +210,40 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
       });
       return;
     }
-    setEditedTemplate(prev => ({ ...prev, modelRefs: (prev.modelRefs || []).filter((_, i) => i !== idx) }));
+    setEditedTemplate(prev => ({
+      ...prev,
+      modelRefs: (prev.modelRefs || []).filter((_, i) => i !== idx),
+      extractionPresets: (prev.extractionPresets || []).map(preset => preset.modelRefId === modelRef.id ? {
+        ...preset,
+        modelRefId: undefined,
+      } : preset),
+    }));
+  };
+
+  const addExtractionPreset = () => {
+    const preset: VariableExtractionPreset = {
+      id: `extraction_preset_${Date.now()}`,
+      name: '新提取预设',
+      sourceInputId: editedTemplate.inputs.find(input => !input.isConst)?.id,
+      targetInputIds: [],
+      modelRefId: editedTemplate.modelRefs?.[0]?.id,
+    };
+    setEditedTemplate(prev => ({ ...prev, extractionPresets: [...(prev.extractionPresets || []), preset] }));
+  };
+
+  const updateExtractionPreset = (idx: number, updates: Partial<VariableExtractionPreset>) => {
+    setEditedTemplate(prev => {
+      const extractionPresets = [...(prev.extractionPresets || [])];
+      extractionPresets[idx] = { ...extractionPresets[idx], ...updates };
+      return { ...prev, extractionPresets };
+    });
+  };
+
+  const removeExtractionPreset = (idx: number) => {
+    setEditedTemplate(prev => ({
+      ...prev,
+      extractionPresets: (prev.extractionPresets || []).filter((_, presetIndex) => presetIndex !== idx),
+    }));
   };
 
   const addStep = () => {
@@ -281,7 +331,25 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
 
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 overflow-y-auto lg:overflow-hidden">
         <aside className="lg:col-span-4 min-h-0 lg:border-r border-slate-800 bg-slate-950/40">
-           <div className="p-4 md:p-5 lg:h-full lg:overflow-y-auto lg:overscroll-contain">
+          <div className="flex border-b border-slate-800 bg-slate-950/60">
+            {([
+              ['inputs', '变量'],
+              ['models', '模型变量'],
+              ['extraction', '提取预设'],
+            ] as const).map(([tabId, label]) => (
+              <button
+                key={tabId}
+                onClick={() => setActiveLeftTab(tabId)}
+                className={`flex-1 px-2 py-2.5 text-xs font-bold border-b-2 transition-colors ${
+                  activeLeftTab === tabId ? 'border-blue-500 text-blue-300 bg-blue-500/5' : 'border-transparent text-slate-600 hover:text-slate-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+           <div className="p-4 md:p-5 lg:h-[calc(100%-42px)] lg:overflow-y-auto lg:overscroll-contain">
+            {activeLeftTab === 'inputs' && <>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-slate-200">输入变量</h3>
               <Button size="sm" onClick={addInput}>+ 添加</Button>
@@ -289,6 +357,65 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
             <p className="text-xs text-slate-500 mb-4 leading-relaxed">
               推荐使用 <span className="text-emerald-400 font-mono">&lt;变量名&gt;</span> 引用；移动变量时会自动维护 <span className="text-emerald-400 font-mono">&lt;0&gt;</span> 这类数字引用。
             </p>
+            <div className="mb-4 rounded border border-slate-700 bg-slate-900 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-slate-200">项目名称规则</div>
+                  <div className="mt-1 text-[10px] text-slate-500">跟随变量时，项目名称由前缀和变量值生成。</div>
+                </div>
+                <select
+                  value={editedTemplate.projectNameRule ? 'input' : 'manual'}
+                  onChange={event => {
+                    if (event.target.value === 'manual') {
+                      setEditedTemplate(prev => ({ ...prev, projectNameRule: undefined }));
+                      return;
+                    }
+                    const inputId = editedTemplate.projectNameRule?.inputId || projectNameInputs[0]?.id;
+                    if (inputId) setEditedTemplate(prev => ({ ...prev, projectNameRule: { inputId, prefix: prev.projectNameRule?.prefix || '' } }));
+                  }}
+                  className="shrink-0 bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-blue-500"
+                  disabled={projectNameInputs.length === 0}
+                >
+                  <option value="manual">手动命名</option>
+                  <option value="input">跟随变量</option>
+                </select>
+              </div>
+              {editedTemplate.projectNameRule && (
+                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500">绑定变量</span>
+                    <select
+                      value={editedTemplate.projectNameRule.inputId}
+                      onChange={event => setEditedTemplate(prev => ({
+                        ...prev,
+                        projectNameRule: { inputId: event.target.value, prefix: prev.projectNameRule?.prefix || '' },
+                      }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-blue-500"
+                    >
+                      {projectNameInputs.map(input => <option key={input.id} value={input.id}>{input.label}</option>)}
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold text-slate-500">名称前缀</span>
+                    <input
+                      value={editedTemplate.projectNameRule.prefix || ''}
+                      onChange={event => setEditedTemplate(prev => ({
+                        ...prev,
+                        projectNameRule: prev.projectNameRule ? { ...prev.projectNameRule, prefix: event.target.value } : undefined,
+                      }))}
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-blue-500"
+                      placeholder="例如：项目:"
+                    />
+                  </label>
+                  <div className="md:col-span-2 rounded border border-slate-800 bg-slate-950 px-2 py-1.5 text-[11px] text-slate-500">
+                    预览：<span className="font-mono text-slate-300">{editedTemplate.projectNameRule.prefix || ''}{projectNamePreviewValue}</span>
+                  </div>
+                </div>
+              )}
+              {projectNameInputs.length === 0 && (
+                <div className="mt-2 text-[10px] text-amber-400">需要至少一个非只读变量才能启用项目名称跟随。</div>
+              )}
+            </div>
             <div className="space-y-3">
               {editedTemplate.inputs.map((input, idx) => (
                 <div key={input.id} className="relative group bg-slate-900 p-3 rounded border border-slate-700">
@@ -371,10 +498,11 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
                 </div>
               ))}
             </div>
+            </>}
 
-            <div className="border-t border-slate-800 mt-6 pt-5">
+            {activeLeftTab === 'models' && <div>
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-bold text-slate-200">模型变量</h3>
+                <h3 className="text-sm font-bold text-slate-200">模型变量</h3>
                 <Button size="sm" onClick={addModelRef}>+ 添加</Button>
               </div>
               <p className="text-xs text-slate-500 mb-4">
@@ -415,7 +543,95 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
                   );
                 })}
               </div>
-            </div>
+            </div>}
+
+            {activeLeftTab === 'extraction' && <div>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-sm font-bold text-slate-200">提取预设</h3>
+                <Button size="sm" onClick={addExtractionPreset}>+ 添加</Button>
+              </div>
+              <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                预设从一个变量读取原始文本，并提取到指定目标变量。项目中可从原始文本变量旁直接打开。
+              </p>
+              <div className="space-y-3">
+                {(editedTemplate.extractionPresets || []).length === 0 && (
+                  <div className="rounded border border-dashed border-slate-800 p-3 text-xs text-slate-600">还没有提取预设。</div>
+                )}
+                {(editedTemplate.extractionPresets || []).map((preset, presetIdx) => {
+                  const eligibleTargets = editedTemplate.inputs.filter(input =>
+                    !input.isConst && !input.extractionDisabled && input.id !== preset.sourceInputId
+                  );
+                  return (
+                    <div key={preset.id} className="relative rounded border border-slate-700 bg-slate-900 p-3 space-y-3">
+                      <input
+                        value={preset.name}
+                        onChange={event => updateExtractionPreset(presetIdx, { name: event.target.value })}
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 pr-7 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                        placeholder="预设名称"
+                      />
+                      <button onClick={() => removeExtractionPreset(presetIdx)} className="absolute top-2 right-2 text-slate-600 hover:text-red-400 p-1">✕</button>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-bold text-slate-500">原始文本变量</span>
+                        <select
+                          value={preset.sourceInputId || ''}
+                          onChange={event => updateExtractionPreset(presetIdx, {
+                            sourceInputId: event.target.value || undefined,
+                            targetInputIds: preset.targetInputIds.filter(id => id !== event.target.value),
+                          })}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-cyan-500"
+                        >
+                          <option value="">未选择</option>
+                          {editedTemplate.inputs.filter(input => !input.isConst).map(input => <option key={input.id} value={input.id}>{input.label}</option>)}
+                        </select>
+                      </label>
+                      <div>
+                        <span className="block mb-1 text-[10px] font-bold text-slate-500">目标变量</span>
+                        <div className="max-h-36 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-1">
+                          {eligibleTargets.map(input => (
+                            <label key={input.id} className="flex items-center gap-2 px-2 py-1 text-xs text-slate-300 hover:bg-slate-900 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={preset.targetInputIds.includes(input.id)}
+                                onChange={() => updateExtractionPreset(presetIdx, {
+                                  targetInputIds: preset.targetInputIds.includes(input.id)
+                                    ? preset.targetInputIds.filter(id => id !== input.id)
+                                    : [...preset.targetInputIds, input.id],
+                                })}
+                                className="accent-cyan-500"
+                              />
+                              <span className="truncate">{input.label}</span>
+                            </label>
+                          ))}
+                          {eligibleTargets.length === 0 && <div className="px-2 py-2 text-[10px] text-slate-600">没有可作为目标的变量。</div>}
+                        </div>
+                      </div>
+                      <label className="block space-y-1">
+                        <span className="text-[10px] font-bold text-slate-500">AI 补全模型变量</span>
+                        <select
+                          value={preset.modelRefId || ''}
+                          onChange={event => updateExtractionPreset(presetIdx, { modelRefId: event.target.value || undefined })}
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-cyan-500"
+                        >
+                          <option value="">仅规则提取</option>
+                          {(editedTemplate.modelRefs || []).map(modelRef => <option key={modelRef.id} value={modelRef.id}>{modelRef.label}</option>)}
+                        </select>
+                      </label>
+                      <textarea
+                        value={preset.instruction || ''}
+                        onChange={event => updateExtractionPreset(presetIdx, { instruction: event.target.value || undefined })}
+                        className="w-full min-h-[54px] resize-y bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-[11px] text-slate-300 outline-none focus:border-cyan-500"
+                        placeholder="整体提取说明（可选）"
+                      />
+                      {(!preset.sourceInputId || preset.targetInputIds.length === 0) && (
+                        <div className="text-[10px] text-amber-400">
+                          {!preset.sourceInputId ? '请选择原始文本变量。' : '请至少选择一个目标变量。'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>}
           </div>
         </aside>
 
@@ -450,6 +666,20 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
                           {referenceWarnings > 0 && <span className="text-[10px] font-bold text-amber-400">{referenceWarnings} 个引用待确认</span>}
                        </div>
                        <div className="flex items-center gap-3">
+                           <label
+                             className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 hover:text-slate-300 cursor-pointer"
+                             title="控制此步骤是否显示在项目右侧的拼接结果实时全览中；不影响步骤执行、复制和引用。"
+                             onClick={(event) => event.stopPropagation()}
+                           >
+                             <input
+                               type="checkbox"
+                               checked={step.showInPromptOverview !== false}
+                               onChange={(event) => updateStep(idx, { showInPromptOverview: event.target.checked })}
+                               className="h-3.5 w-3.5 accent-blue-500"
+                             />
+                             拼接全览
+                           </label>
+
                            <div className="flex items-center bg-slate-950/40 rounded-md border border-slate-700/50 overflow-hidden">
                               <button 
                                 onClick={(e) => { e.stopPropagation(); moveStep(idx, 'up'); }}
@@ -599,6 +829,18 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave
 
                           {step.execution?.modelRefId && (
                             <>
+                            <label className="flex items-start justify-between gap-3 rounded border border-slate-800 bg-slate-950 px-3 py-2">
+                              <span>
+                                <span className="block text-[11px] font-bold text-slate-400">一键生成时保留已有输出</span>
+                                <span className="mt-0.5 block text-[10px] text-slate-600">目标位置已有内容时跳过此步骤；手动生成不受影响。</span>
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={Boolean(step.execution?.skipBatchWhenOutputExists)}
+                                onChange={(e) => updateStep(idx, { execution: { ...(step.execution || { enabled: true }), skipBatchWhenOutputExists: e.target.checked } })}
+                                className="mt-1 h-4 w-4 shrink-0 accent-blue-500"
+                              />
+                            </label>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                               <label className="space-y-1">
                                 <span className="text-[11px] font-bold text-slate-500">创造性（温度）</span>

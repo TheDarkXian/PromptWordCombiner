@@ -8,6 +8,7 @@ import { countReferenceErrors, validateStepReferences } from '../services/refere
 import { StepContextMenu } from './StepContextMenu';
 import { useNotifications } from './NotificationCenter';
 import type { NotificationLevel } from '../services/notificationService';
+import { getProjectNameRule, writeProjectNameValue } from '../services/projectNamingService';
 
 interface ProjectRunnerProps {
   project: Project;
@@ -22,6 +23,10 @@ interface ProjectRunnerProps {
   onRightPanelWidthChange: (width: number) => void;
   isRightPanelOpen: boolean;
   onRightPanelOpenChange: (isOpen: boolean) => void;
+  collapsedSteps: Record<string, boolean>;
+  setCollapsedSteps: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  copiedPromptSteps: Record<string, boolean>;
+  onPromptCopied: (projectId: string, stepId: string) => void;
 }
 
 const AutoResizeTextarea: React.FC<{
@@ -42,9 +47,8 @@ const AutoResizeTextarea: React.FC<{
 };
 
 export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
-  project, template, onUpdateProject, onUpdateTemplate, onRequestConfirm, providerConfigs, modelPresets, fontSizeClass = 'text-sm', rightPanelWidth, onRightPanelWidthChange, isRightPanelOpen, onRightPanelOpenChange
+  project, template, onUpdateProject, onUpdateTemplate, onRequestConfirm, providerConfigs, modelPresets, fontSizeClass = 'text-sm', rightPanelWidth, onRightPanelWidthChange, isRightPanelOpen, onRightPanelOpenChange, collapsedSteps, setCollapsedSteps, copiedPromptSteps, onPromptCopied
 }) => {
-  const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const [visibleStepOutputs, setVisibleStepOutputs] = useState<Record<string, boolean>>({});
   const [isResizingRight, setIsResizingRight] = useState(false);
   const [runningStepIds, setRunningStepIds] = useState<Record<string, boolean>>({});
@@ -53,6 +57,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   const [stepContextMenu, setStepContextMenu] = useState<{ x: number; y: number; stepId: string } | null>(null);
   const requestControllersRef = useRef<Record<string, AbortController>>({});
   const stoppedBatchProjectsRef = useRef<Set<string>>(new Set());
+  const rightPanelDragWidthRef = useRef(rightPanelWidth);
   const { publish } = useNotifications();
   const showToast = (message: string, _x: number, _y: number, level: NotificationLevel = 'info', title = '项目提示', stepName?: string) => {
     publish({ level, title, message, source: 'project_runner', projectId: project.id, projectName: project.name, stepName });
@@ -97,26 +102,55 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
   };
 
   const interpolate = (templateStr: string): string => interpolateForProject(templateStr, project);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizingRight) return;
-      const newWidth = window.innerWidth - e.clientX;
-      if (newWidth > 250 && newWidth < 1000) onRightPanelWidthChange(newWidth);
-    };
-    const handleMouseUp = () => { setIsResizingRight(false); document.body.style.cursor = 'default'; };
-    if (isResizingRight) { window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp); document.body.style.cursor = 'col-resize'; }
-    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
-  }, [isResizingRight, onRightPanelWidthChange]);
-
-  const copyPrompt = (content: string, e: React.MouseEvent, referenceErrorCount = 0) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(content);
-    showToast(referenceErrorCount > 0 ? `包含 ${referenceErrorCount} 个失效引用，已继续复制` : '复制成功', e.clientX, e.clientY, referenceErrorCount > 0 ? 'warning' : 'success', '复制提示词');
+  const projectNameRule = getProjectNameRule(template);
+  const projectNameInput = projectNameRule ? template.inputs.find(input => input.id === projectNameRule.inputId) : undefined;
+  const projectNameValue = projectNameRule ? project.inputValues[projectNameRule.inputId] || '' : project.name;
+  const updateProjectName = (value: string) => {
+    onUpdateProject(project.id, currentProject => writeProjectNameValue(currentProject, template, value));
   };
 
-  const handleDoubleClickCopy = (content: string, e: React.MouseEvent) => {
-    copyPrompt(content, e);
+  useEffect(() => {
+    if (!isResizingRight) return;
+    const root = document.documentElement;
+    rightPanelDragWidthRef.current = rightPanelWidth;
+    root.style.setProperty('--pwc-right-panel-live-width', `${rightPanelWidth}px`);
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      if (newWidth > 250 && newWidth < 1000) {
+        rightPanelDragWidthRef.current = newWidth;
+        root.style.setProperty('--pwc-right-panel-live-width', `${newWidth}px`);
+      }
+    };
+    const handleMouseUp = () => {
+      onRightPanelWidthChange(rightPanelDragWidthRef.current);
+      setIsResizingRight(false);
+      document.body.style.cursor = 'default';
+      requestAnimationFrame(() => root.style.removeProperty('--pwc-right-panel-live-width'));
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingRight, onRightPanelWidthChange, rightPanelWidth]);
+
+  const copyPrompt = async (content: string, e: React.MouseEvent, referenceErrorCount = 0, stepId?: string) => {
+    e.stopPropagation();
+    const { clientX, clientY } = e;
+    try {
+      await navigator.clipboard.writeText(content);
+      if (stepId) onPromptCopied(project.id, stepId);
+      showToast(referenceErrorCount > 0 ? `包含 ${referenceErrorCount} 个失效引用，已继续复制` : '复制成功', clientX, clientY, referenceErrorCount > 0 ? 'warning' : 'success', '复制提示词');
+    } catch {
+      showToast('无法写入剪贴板，请检查系统权限后重试', clientX, clientY, 'error', '复制失败');
+    }
+  };
+
+  const handleDoubleClickCopy = (stepId: string, content: string, e: React.MouseEvent) => {
+    copyPrompt(content, e, 0, stepId);
   };
 
   const writeStepOutput = (stepId: string, value: string, source: 'manual' | 'ai', meta?: {
@@ -163,6 +197,16 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
     }
 
     writeStepOutput(stepId, value, 'ai', meta);
+  };
+
+  const hasStepOutputValue = (step: Template['steps'][number], targetProject: Project) => {
+    const outputInput = step.execution?.outputInputId
+      ? template.inputs.find(input => input.id === step.execution?.outputInputId)
+      : undefined;
+    if (step.execution?.outputTarget === 'templateInput' && outputInput && !outputInput.isConst) {
+      return Boolean((targetProject.inputValues[outputInput.id] || '').trim());
+    }
+    return Boolean((targetProject.stepOutputs[step.id] || '').trim());
   };
 
   const appendRunLog = (stepId: string, log: StepRunLog) => {
@@ -311,6 +355,11 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
       if (!availability.isRunnable || !availability.modelPreset || !availability.providerConfig) {
         skipped += 1;
         skippedReasons.push(`${step.name}：${availability.message}`);
+        continue;
+      }
+      if (step.execution?.skipBatchWhenOutputExists && hasStepOutputValue(step, runtimeProject)) {
+        skipped += 1;
+        skippedReasons.push(`${step.name}：已有输出`);
         continue;
       }
       if (blockingIssues.length > 0) {
@@ -466,14 +515,22 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                   <div className="p-1.5 bg-blue-600/10 rounded-lg text-blue-500 group-hover/title:bg-blue-600 group-hover/title:text-white transition-all duration-300">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5"><path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z" /></svg>
                   </div>
-                  <input 
-                    type="text"
-                    value={project.name}
-                    onChange={(e) => onUpdateProject(project.id, { name: e.target.value })}
-                    className="bg-transparent text-xl font-black text-white outline-none border-b-2 border-transparent focus:border-blue-500/50 hover:bg-white/5 px-2 py-1 rounded-lg transition-all w-full max-w-2xl tracking-tight"
-                    placeholder="未命名项目"
-                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                  />
+                  <div className="flex w-full max-w-2xl items-center overflow-hidden rounded-lg border-b-2 border-transparent hover:bg-white/5 focus-within:border-blue-500/50 transition-all">
+                    {projectNameRule?.prefix && (
+                      <span className="shrink-0 px-2 py-1 text-xl font-black text-blue-300/80 tracking-tight">
+                        {projectNameRule.prefix}
+                      </span>
+                    )}
+                    <input
+                      type="text"
+                      value={projectNameValue}
+                      onChange={(e) => updateProjectName(e.target.value)}
+                      className="min-w-0 flex-1 bg-transparent px-2 py-1 text-xl font-black text-white outline-none tracking-tight"
+                      placeholder={projectNameInput ? projectNameInput.label : '未命名项目'}
+                      title={projectNameInput ? `项目名称跟随变量：${projectNameInput.label}` : '项目名称'}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                    />
+                  </div>
                   <button
                     onClick={generateAllAiSteps}
                     className={`shrink-0 rounded border px-3 py-1.5 text-xs font-bold text-white transition-colors ${
@@ -516,6 +573,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                 const referenceIssues = validateStepReferences(rawContent, step, template, project);
                 const referenceErrors = countReferenceErrors(referenceIssues);
                 const referenceWarnings = referenceIssues.length - referenceErrors;
+                const hasCopiedPrompt = Boolean(copiedPromptSteps[`${project.id}:${step.id}`]);
 
                 return (
                     <div key={step.id} id={step.id} className={`border border-slate-800 rounded-lg bg-slate-900/40 shadow-sm scroll-mt-4 overflow-hidden transition-all duration-300`}>
@@ -536,15 +594,19 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                         </div>
                         <div className="flex items-center gap-3">
                            <button
-                             onClick={(e) => copyPrompt(interpolated, e, referenceErrors)}
-                             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-blue-500/20 bg-blue-500/10 text-[10px] font-black text-blue-300 hover:bg-blue-600 hover:border-blue-500 hover:text-white transition-all shadow-sm shadow-blue-950/20"
-                             title="复制当前步骤渲染后的提示词"
+                             onClick={(e) => copyPrompt(interpolated, e, referenceErrors, step.id)}
+                             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[10px] font-black transition-all shadow-sm ${
+                               hasCopiedPrompt
+                                 ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-600 hover:border-emerald-500 hover:text-white shadow-emerald-950/20'
+                                 : 'border-blue-500/20 bg-blue-500/10 text-blue-300 hover:bg-blue-600 hover:border-blue-500 hover:text-white shadow-blue-950/20'
+                             }`}
+                             title={hasCopiedPrompt ? '已复制过，点击可再次复制' : '复制当前步骤渲染后的提示词'}
                            >
                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
                                <path d="M4 4.75A2.75 2.75 0 0 1 6.75 2h3.5A2.75 2.75 0 0 1 13 4.75v3.5A2.75 2.75 0 0 1 10.25 11h-3.5A2.75 2.75 0 0 1 4 8.25v-3.5Z" />
                                <path d="M3 5.25c0-.43.09-.84.25-1.21A2.75 2.75 0 0 0 2 6.35v4.4A2.75 2.75 0 0 0 4.75 13h4.4c.98 0 1.84-.51 2.33-1.27-.38.17-.8.27-1.23.27h-3.5A3.75 3.75 0 0 1 3 8.25v-3Z" />
                              </svg>
-                             复制提示词
+                             {hasCopiedPrompt ? '已复制' : '复制提示词'}
                            </button>
                            {step.execution?.modelRefId && (
                              <>
@@ -624,14 +686,18 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
 
       {isRightPanelOpen && <div className="w-1.5 bg-slate-800 hover:bg-blue-600 cursor-col-resize z-30 flex-shrink-0 transition-colors" onMouseDown={(e) => { e.preventDefault(); setIsResizingRight(true); }} />}
 
-      <div style={{ width: isRightPanelOpen ? rightPanelWidth : '40px' }} className="bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 transition-all duration-75 relative">
+      <div
+        style={{ width: isRightPanelOpen ? `var(--pwc-right-panel-live-width, ${rightPanelWidth}px)` : '40px' }}
+        className={`bg-slate-900 border-l border-slate-800 flex flex-col flex-shrink-0 relative ${isResizingRight ? '' : 'transition-[width] duration-75'}`}
+      >
          <div className="flex items-center justify-between p-3 border-b border-slate-800 bg-slate-900 h-12 shrink-0">
              {isRightPanelOpen && <span className="font-bold text-[10px] text-slate-500 uppercase tracking-widest pl-3 truncate">拼接结果实时全览</span>}
              <button onClick={() => onRightPanelOpenChange(!isRightPanelOpen)} className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-white transition-colors">{isRightPanelOpen ? "»" : "«"}</button>
          </div>
          {isRightPanelOpen && (
            <div className="flex-1 overflow-y-auto p-6 bg-slate-950/30 space-y-8 no-scrollbar">
-             {template.steps.map((step, idx) => {
+             {template.steps.filter(step => step.showInPromptOverview !== false).map((step) => {
+                const idx = template.steps.findIndex(item => item.id === step.id);
                 const override = project.stepOverrides[step.id];
                 const content = interpolate(override?.content !== undefined ? override.content : (step.content || ""));
                 return (
@@ -641,7 +707,7 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                       <span className="text-xs font-black text-slate-500 uppercase truncate tracking-tight">{step.name}</span>
                     </div>
                     <div 
-                      onDoubleClick={(e) => handleDoubleClickCopy(content, e)}
+                      onDoubleClick={(e) => handleDoubleClickCopy(step.id, content, e)}
                       className="text-slate-300 font-mono text-sm leading-relaxed whitespace-pre-wrap break-words pl-4 py-2 border-l-2 border-slate-800 group-hover:border-blue-500/30 transition-colors relative cursor-copy select-none active:bg-blue-500/5"
                       title="双击复制内容"
                     >
@@ -650,6 +716,11 @@ export const ProjectRunner: React.FC<ProjectRunnerProps> = ({
                   </div>
                 );
              })}
+             {template.steps.every(step => step.showInPromptOverview === false) && (
+               <div className="py-10 text-center text-xs text-slate-600">
+                 此模板没有启用拼接全览的步骤
+               </div>
+             )}
            </div>
          )}
       </div>

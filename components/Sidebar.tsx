@@ -127,6 +127,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const longPressStartRef = useRef({ x: 0, y: 0 });
   const suppressClickRef = useRef(false);
   const [extractionDrafts, setExtractionDrafts] = useState<Record<string, VariableExtractionDraft>>({});
+  const [selectedExtractionPresetByProject, setSelectedExtractionPresetByProject] = useState<Record<string, string>>({});
+  const [extractionPresetMenuInputId, setExtractionPresetMenuInputId] = useState<string | null>(null);
   const newVarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -134,6 +136,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       newVarInputRef.current.focus();
     }
   }, [isAddingVariable]);
+
+  useEffect(() => {
+    if (!activeProject || !activeProjectTemplate) return;
+    const selectedPresetId = selectedExtractionPresetByProject[activeProject.id];
+    if (selectedPresetId && !(activeProjectTemplate.extractionPresets || []).some(preset => preset.id === selectedPresetId)) {
+      setSelectedExtractionPresetByProject(current => ({ ...current, [activeProject.id]: '' }));
+    }
+  }, [activeProject, activeProjectTemplate, selectedExtractionPresetByProject]);
 
   useEffect(() => {
     if (!groupContextMenu) return;
@@ -192,6 +202,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       message: '',
       isExtracting: false,
     };
+  };
+
+  const openExtractionPreset = (presetId: string) => {
+    if (!activeProject) return;
+    setSelectedExtractionPresetByProject(current => ({ ...current, [activeProject.id]: presetId }));
+    setExtractionPresetMenuInputId(null);
+    setActiveTab('extract');
   };
 
   const openGroupCreateDialog = (parentId?: string) => {
@@ -450,12 +467,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">全局变量</span>
                       <ChevronDownIcon className={`w-3.5 h-3.5 text-slate-600 transition-transform ${sections.global ? 'rotate-180' : ''}`} />
                     </div>
-                    {sections.global && activeProjectTemplate.inputs.map((input, idx) => (
-                      <div key={input.id}>
+                    {sections.global && activeProjectTemplate.inputs.map((input, idx) => {
+                      const sourcePresets = (activeProjectTemplate.extractionPresets || []).filter(preset => preset.sourceInputId === input.id);
+                      return (
+                      <div key={input.id} className="relative">
                         <div className="flex items-center gap-2 mb-1.5">
                           <span className="text-[10px] font-mono text-blue-400 font-bold">&lt;{idx}&gt;</span>
                           <label className="text-[10px] text-slate-500 block truncate font-medium">{input.label}</label>
                           {input.isConst && <span className="text-[9px] font-bold text-emerald-500/80">CONST</span>}
+                          {sourcePresets.length > 0 && (
+                            <button
+                              onClick={() => sourcePresets.length === 1 ? openExtractionPreset(sourcePresets[0].id) : setExtractionPresetMenuInputId(current => current === input.id ? null : input.id)}
+                              className="ml-auto shrink-0 rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[9px] font-bold text-cyan-400 hover:bg-cyan-600 hover:text-white"
+                              title={sourcePresets.length === 1 ? `打开提取预设：${sourcePresets[0].name}` : '选择使用此变量作为原始文本的提取预设'}
+                            >
+                              提取{sourcePresets.length > 1 ? ` ${sourcePresets.length}` : ''}
+                            </button>
+                          )}
                         </div>
                         <AutoResizeSidebarTextarea 
                           value={input.isConst ? input.defaultValue || '' : activeProject.inputValues[input.id] || ''}
@@ -463,8 +491,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           placeholder={input.isConst ? '未设置常量值' : '...'}
                           readOnly={input.isConst}
                         />
+                        {extractionPresetMenuInputId === input.id && sourcePresets.length > 1 && (
+                          <div className="absolute right-0 top-6 z-50 min-w-36 border border-slate-700 bg-slate-900 py-1 shadow-xl">
+                            {sourcePresets.map(preset => (
+                              <button key={preset.id} onClick={() => openExtractionPreset(preset.id)} className="block w-full px-3 py-1.5 text-left text-[10px] text-slate-300 hover:bg-slate-800">
+                                {preset.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ))}
+                    )})}
                   </div>
 
                   {/* 本地变量 */}
@@ -550,20 +587,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               {activeTab === 'extract' && (
                 <VariableExtractionTool
-                  key={activeProject.id}
+                  key={`${activeProject.id}:${selectedExtractionPresetByProject[activeProject.id] || 'manual'}`}
                   project={activeProject}
                   template={activeProjectTemplate}
                   providerConfigs={providerConfigs}
                   modelPresets={modelPresets}
                   onApplyValues={onApplyInputValues}
-                  draft={extractionDrafts[activeProject.id] || createDefaultExtractionDraft(activeProjectTemplate)}
-                  onDraftChange={(projectId, updater) => {
+                  selectedPresetId={selectedExtractionPresetByProject[activeProject.id] || ''}
+                  onSelectedPresetChange={(presetId) => setSelectedExtractionPresetByProject(current => ({ ...current, [activeProject.id]: presetId }))}
+                  draftKey={`${activeProject.id}:${selectedExtractionPresetByProject[activeProject.id] || 'manual'}`}
+                  draft={extractionDrafts[`${activeProject.id}:${selectedExtractionPresetByProject[activeProject.id] || 'manual'}`] || createDefaultExtractionDraft(activeProjectTemplate)}
+                  onDraftChange={(projectId, draftKey, updater) => {
                     setExtractionDrafts(prev => {
                       const targetProject = projectId === activeProject.id ? activeProject : null;
                       const targetTemplate = targetProject
                         ? activeProjectTemplate
                         : null;
-                      const current = prev[projectId] || (targetTemplate ? createDefaultExtractionDraft(targetTemplate) : {
+                      const current = prev[draftKey] || (targetTemplate ? createDefaultExtractionDraft(targetTemplate) : {
                         sourceText: '',
                         selectedInputIds: [],
                         selectedModelRefId: '',
@@ -573,7 +613,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         isExtracting: false,
                       });
                       const next = typeof updater === 'function' ? updater(current) : updater;
-                      return { ...prev, [projectId]: next };
+                      return { ...prev, [draftKey]: next };
                     });
                   }}
                 />

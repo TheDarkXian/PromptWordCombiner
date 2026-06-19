@@ -11,6 +11,7 @@ export interface RunAiExtractionParams {
   targets: TemplateInput[];
   modelPreset: ModelPreset;
   providerConfig: ProviderConfig;
+  instruction?: string;
   signal?: AbortSignal;
 }
 
@@ -149,7 +150,7 @@ export const buildExtractionSystemPrompt = () => `你是一个结构化信息提
 6. 无法确定的字段返回 null。
 7. 只返回符合指定结构的 JSON，不要添加解释、Markdown 或其他内容。`;
 
-export const buildExtractionUserPrompt = (sourceText: string, targets: TemplateInput[]) => {
+export const buildExtractionUserPrompt = (sourceText: string, targets: TemplateInput[], instruction?: string) => {
   const fields = targets.map(input => ({
     id: input.id,
     name: input.label,
@@ -158,6 +159,8 @@ export const buildExtractionUserPrompt = (sourceText: string, targets: TemplateI
   const shape = Object.fromEntries(targets.map(input => [input.id, '提取结果或 null']));
 
   return `请从下面的原始文本中提取目标字段。
+
+${instruction?.trim() ? `本次提取要求：\n${instruction.trim()}\n` : ''}
 
 目标字段：
 ${JSON.stringify(fields, null, 2)}
@@ -190,6 +193,7 @@ export const runAiExtraction = async ({
   targets,
   modelPreset,
   providerConfig,
+  instruction,
   signal,
 }: RunAiExtractionParams): Promise<VariableExtractionResult[]> => {
   if (targets.length === 0) return [];
@@ -200,7 +204,7 @@ export const runAiExtraction = async ({
     baseUrl: providerConfig.baseUrl,
     modelName: modelPreset.modelName,
     systemPrompt: buildExtractionSystemPrompt(),
-    userPrompt: buildExtractionUserPrompt(sourceText, targets),
+    userPrompt: buildExtractionUserPrompt(sourceText, targets, instruction),
     temperature: 0.2,
     maxTokens: 1200,
     signal,

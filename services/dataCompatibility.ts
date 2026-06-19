@@ -1,4 +1,5 @@
 import { AppSettings, BackupData, ModelPreset, Project, ProjectVariable, ProviderConfig, Template, TemplateInput, TemplateStep } from '../types';
+import { syncProjectNameWithTemplate } from './projectNamingService';
 
 const BACKUP_VERSION = '2.1';
 
@@ -179,6 +180,7 @@ export const normalizeTemplate = (template: any): Template => {
     name: String(step?.name || `步骤${index + 1}`),
     description: step?.description ? String(step.description) : undefined,
     content: String(step?.content || ''),
+    showInPromptOverview: step?.showInPromptOverview !== false,
     execution: step?.execution && typeof step.execution === 'object'
       ? {
           ...step.execution,
@@ -188,9 +190,28 @@ export const normalizeTemplate = (template: any): Template => {
             ? 'templateInput'
             : 'stepOutput',
           outputInputId: step.execution.outputInputId || undefined,
+          skipBatchWhenOutputExists: Boolean(step.execution.skipBatchWhenOutputExists),
         }
       : undefined,
   }));
+  const modelRefs = asArray(template.modelRefs);
+  const validInputIds = new Set(inputs.map(input => input.id));
+  const extractableInputIds = new Set(inputs.filter(input => !input.isConst && !input.extractionDisabled).map(input => input.id));
+  const modelRefIds = new Set(modelRefs.map((modelRef: any) => modelRef.id));
+  const extractionPresets = asArray<any>(template.extractionPresets).map((preset, index) => {
+    const sourceInputId = validInputIds.has(String(preset?.sourceInputId || '')) ? String(preset.sourceInputId) : undefined;
+    return {
+      ...preset,
+      id: String(preset?.id || `extraction_preset_${now}_${index}`),
+      name: String(preset?.name || `提取预设${index + 1}`),
+      sourceInputId,
+      targetInputIds: asArray<string>(preset?.targetInputIds)
+        .map(String)
+        .filter(inputId => inputId !== sourceInputId && extractableInputIds.has(inputId)),
+      modelRefId: modelRefIds.has(preset?.modelRefId) ? String(preset.modelRefId) : undefined,
+      instruction: preset?.instruction ? String(preset.instruction) : undefined,
+    };
+  });
 
   return {
     ...template,
@@ -200,8 +221,15 @@ export const normalizeTemplate = (template: any): Template => {
     order: Number.isFinite(template.order) ? Number(template.order) : undefined,
     createdAt: Number(template.createdAt || template.lastModifiedAt || now),
     lastModifiedAt: Number(template.lastModifiedAt || template.createdAt || now),
+    projectNameRule: template.projectNameRule?.inputId && validInputIds.has(String(template.projectNameRule.inputId))
+      ? {
+          inputId: String(template.projectNameRule.inputId),
+          prefix: template.projectNameRule.prefix ? String(template.projectNameRule.prefix) : undefined,
+        }
+      : undefined,
     inputs,
-    modelRefs: asArray(template.modelRefs),
+    modelRefs,
+    extractionPresets,
     steps,
   };
 };
@@ -271,7 +299,7 @@ export const normalizeBackupData = (data: any): BackupData => {
   const projects = syncProjectVariablesWithTemplates(
     repairProjectTemplateLinks(asArray(data?.projects).map(normalizeProject), templates),
     templates
-  );
+  ).map(project => syncProjectNameWithTemplate(project, templates.find(template => template.id === project.templateId)));
 
   return {
     ...data,
@@ -293,7 +321,8 @@ const stripSecretsFromSettings = (settings?: AppSettings): AppSettings | undefin
 
 export const createBackupData = (projects: Project[], templates: Template[], settings?: AppSettings): BackupData => {
   const normalizedTemplates = templates.map(normalizeTemplate);
-  const normalizedProjects = syncProjectVariablesWithTemplates(projects.map(normalizeProject), normalizedTemplates);
+  const normalizedProjects = syncProjectVariablesWithTemplates(projects.map(normalizeProject), normalizedTemplates)
+    .map(project => syncProjectNameWithTemplate(project, normalizedTemplates.find(template => template.id === project.templateId)));
   return {
     projects: normalizedProjects,
     templates: normalizedTemplates,

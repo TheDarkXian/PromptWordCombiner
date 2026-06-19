@@ -13,6 +13,8 @@ import { TopNav } from './components/TopNav';
 import { StatusBar } from './components/StatusBar';
 import { ioService, STORAGE_KEYS } from './services/ioService';
 import { createBackupData, DEFAULT_APP_SETTINGS, normalizeAppSettings, normalizeBackupData } from './services/dataCompatibility';
+import { buildProjectName, syncProjectNameWithTemplate, writeProjectNameValue } from './services/projectNamingService';
+import { importTemplatesFromJson } from './services/templateJsonService';
 
 type FontSize = 'text-xs' | 'text-sm' | 'text-base';
 type UiScale = 8 | 11 | 14 | 16 | 18 | 19 | 20 | 22 | 24;
@@ -41,6 +43,8 @@ const App: React.FC = () => {
   const [templateColumnWidths, setTemplateColumnWidths] = useState<TemplateTableColumnWidths>({ visibility: 48, name: 240, stats: 110, projectCount: 80, createdAt: 150, lastModifiedAt: 150, actions: 260 });
   const [collapsedProjectTemplateIds, setCollapsedProjectTemplateIds] = useState<string[]>([]);
   const [collapsedTemplateGroupIds, setCollapsedTemplateGroupIds] = useState<string[]>([]);
+  const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
+  const [copiedPromptSteps, setCopiedPromptSteps] = useState<Record<string, boolean>>({});
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isStorageHydrated, setIsStorageHydrated] = useState(false);
   const sidebarDragWidthRef = useRef(sidebarWidth);
@@ -154,9 +158,16 @@ const App: React.FC = () => {
         .filter(input => !input.isConst && input.defaultValue !== undefined && input.defaultValue !== '')
         .map(input => [input.id, input.defaultValue as string])
     );
+    const baseProject: Project = {
+      id: `proj_${now}`, templateId, name: name || `新项目`, createdAt: now, lastModifiedAt: now, lastOpenedAt: now,
+      inputValues, customInputs: [], stepOutputs: {}, stepOverrides: {}
+    };
+    const nameUpdates = writeProjectNameValue(baseProject, template, name || '新项目');
+    const finalInputValues = nameUpdates.inputValues || inputValues;
     const newProject: Project = { 
-        id: `proj_${now}`, templateId, name: name || `新项目`, createdAt: now, lastModifiedAt: now, lastOpenedAt: now,
-        inputValues, customInputs: [], stepOutputs: {}, stepOverrides: {}
+        ...baseProject,
+        name: nameUpdates.name || buildProjectName(template, finalInputValues, name || '新项目'),
+        inputValues: finalInputValues,
     };
     setProjects(prev => [...prev, newProject]);
     openTab(newProject.id);
@@ -187,8 +198,12 @@ const App: React.FC = () => {
   const closeTab = (id: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setOpenTabIds(prev => {
+        const closedIndex = prev.indexOf(id);
         const next = prev.filter(tid => tid !== id);
-        if (activeTabId === id) setActiveTabId(next.length > 0 ? next[next.length - 1] : 'library');
+        if (activeTabId === id) {
+          const adjacentTabId = next[closedIndex] ?? next[closedIndex - 1] ?? 'library';
+          setActiveTabId(adjacentTabId);
+        }
         return next;
     });
   };
@@ -198,12 +213,21 @@ const App: React.FC = () => {
     const activeProject = projects.find(project => project.id === activeTabId);
     const activeTemplate = activeProject ? templates.find(template => template.id === activeProject.templateId) : undefined;
     if (activeTemplate?.inputs.some(input => input.id === inputId && input.isConst)) return;
-    setProjects(prev => prev.map(p => p.id === activeTabId ? { ...p, lastModifiedAt: Date.now(), inputValues: { ...p.inputValues, [inputId]: value } } : p));
+    setProjects(prev => prev.map(p => {
+      if (p.id !== activeTabId) return p;
+      const inputValues = { ...p.inputValues, [inputId]: value };
+      return syncProjectNameWithTemplate({ ...p, lastModifiedAt: Date.now(), inputValues }, activeTemplate);
+    }));
   };
 
   const handleUpdateTemplate = (id: string, updates: Partial<Template>) => {
     const organizationalOnly = Object.keys(updates).every(key => key === 'groupId' || key === 'hideProjects');
-    setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...updates, ...(!organizationalOnly ? { lastModifiedAt: Date.now() } : {}) } : t));
+    const currentTemplate = templates.find(template => template.id === id);
+    const nextTemplate = currentTemplate ? { ...currentTemplate, ...updates, ...(!organizationalOnly ? { lastModifiedAt: Date.now() } : {}) } : undefined;
+    setTemplates(prev => prev.map(t => t.id === id && nextTemplate ? nextTemplate : t));
+    if (nextTemplate) {
+      setProjects(prev => prev.map(project => project.templateId === id ? syncProjectNameWithTemplate(project, nextTemplate) : project));
+    }
   };
 
   const handleAddLocalVariable = (name: string) => {
@@ -305,11 +329,14 @@ const App: React.FC = () => {
     const writableInputIds = new Set(activeTemplate?.inputs.filter(input => !input.isConst && !input.extractionDisabled).map(input => input.id) || []);
     const safeValues = Object.fromEntries(Object.entries(values).filter(([inputId]) => writableInputIds.has(inputId)));
     if (Object.keys(safeValues).length === 0) return;
-    setProjects(prev => prev.map(project => project.id === projectId ? {
-      ...project,
-      lastModifiedAt: Date.now(),
-      inputValues: { ...project.inputValues, ...safeValues },
-    } : project));
+    setProjects(prev => prev.map(project => {
+      if (project.id !== projectId) return project;
+      return syncProjectNameWithTemplate({
+        ...project,
+        lastModifiedAt: Date.now(),
+        inputValues: { ...project.inputValues, ...safeValues },
+      }, activeTemplate);
+    }));
   };
 
   const updateProviderConfigs = (providerConfigs: ProviderConfig[]) => {
@@ -398,7 +425,7 @@ const App: React.FC = () => {
         <div className="fixed inset-x-0 top-0 bottom-6 bg-slate-950 z-[100] animate-in fade-in zoom-in-95 duration-200">
            <TemplateEditor 
               template={editingTemplate} 
-              onSave={(u) => { setTemplates(prev => prev.map(t => t.id === u.id ? { ...u, lastModifiedAt: Date.now() } : t)); setEditingTemplateId(null); }}
+              onSave={(u) => { handleUpdateTemplate(u.id, u); setEditingTemplateId(null); }}
               onCancel={() => setEditingTemplateId(null)} 
               onRequestConfirm={openConfirm} 
               modelPresets={appSettings.modelPresets}
@@ -485,6 +512,12 @@ const App: React.FC = () => {
                   if (normalized.settings) setAppSettings(normalizeAppSettings(normalized.settings));
                   setLibrarySelection('all-projects');
                 }}
+                onImportTemplates={(data) => {
+                  const imported = importTemplatesFromJson(data, new Set(templates.map(template => template.id)));
+                  setTemplates(prev => [...prev, ...imported]);
+                  setLibrarySelection('all-templates');
+                  return imported.length;
+                }}
                 onMergeData={handleMergeData}
                 onOpenExport={() => setIsExportModalOpen(true)} 
                 onRequestAlert={openAlert} 
@@ -506,7 +539,8 @@ const App: React.FC = () => {
                 onUpdateProject={(id, u) => setProjects(prev => prev.map(p => {
                   if (p.id !== id) return p;
                   const updates = typeof u === 'function' ? u(p) : u;
-                  return { ...p, ...updates, lastModifiedAt: Date.now() };
+                  const targetTemplate = templates.find(template => template.id === p.templateId);
+                  return syncProjectNameWithTemplate({ ...p, ...updates, lastModifiedAt: Date.now() }, targetTemplate);
                 }))}
                 onUpdateTemplate={(id, u) => setTemplates(prev => prev.map(t => t.id === id ? { ...t, ...u, lastModifiedAt: Date.now() } : t))}
                 onRequestConfirm={openConfirm} 
@@ -516,6 +550,13 @@ const App: React.FC = () => {
                 onRightPanelWidthChange={setRightPanelWidth} 
                 isRightPanelOpen={isRightPanelOpen} 
                 onRightPanelOpenChange={setIsRightPanelOpen} 
+                collapsedSteps={collapsedSteps}
+                setCollapsedSteps={setCollapsedSteps}
+                copiedPromptSteps={copiedPromptSteps}
+                onPromptCopied={(projectId, stepId) => setCopiedPromptSteps(current => ({
+                  ...current,
+                  [`${projectId}:${stepId}`]: true,
+                }))}
              />
            ) : <div className="flex items-center justify-center h-full text-slate-700">请从文件库打开项目</div>}
         </div>

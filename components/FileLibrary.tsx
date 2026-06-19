@@ -4,6 +4,8 @@ import { Button } from './Button';
 import { CreateProjectModal } from './CreateProjectModal';
 import { MergeModal } from './MergeModal';
 import { ioService } from '../services/ioService';
+import { getProjectNameRule } from '../services/projectNamingService';
+import { createTemplateJson } from '../services/templateJsonService';
 
 interface FileLibraryProps {
   projects: Project[];
@@ -22,6 +24,7 @@ interface FileLibraryProps {
   onDeleteProjects: (ids: string[]) => void;
   onDeleteTemplate: (id: string) => void;
   onImportBundle: (bundle: any) => void;
+  onImportTemplates: (data: unknown) => number;
   onMergeData: (projects: Project[], templates: Template[]) => void;
   onOpenExport: () => void;
   onRequestAlert: (title: string, message: string) => void;
@@ -59,6 +62,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onDeleteProjects,
   onDeleteTemplate,
   onImportBundle,
+  onImportTemplates,
   onMergeData,
   onOpenExport,
   onRequestAlert,
@@ -74,6 +78,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   onCollapsedProjectTemplateIdsChange,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const templateInputRef = useRef<HTMLInputElement>(null);
   const templateTableRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
@@ -83,11 +88,15 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [liveColumnWidths, setLiveColumnWidths] = useState(templateColumnWidths);
   const [templateTableWidth, setTemplateTableWidth] = useState(0);
+  const [projectNamesModal, setProjectNamesModal] = useState<{ templateName: string; names: string[] } | null>(null);
   const selectedTemplateId = selection.startsWith('template:') ? selection.slice('template:'.length) : undefined;
   const selectedGroupId = selection.startsWith('group:') ? selection.slice('group:'.length) : undefined;
   const isTemplateView = selection === 'all-templates' || selection === 'ungrouped-templates';
   const selectedTemplate = selectedTemplateId ? templates.find(template => template.id === selectedTemplateId) : undefined;
   const selectedGroup = selectedGroupId ? templateGroups.find(group => group.id === selectedGroupId) : undefined;
+  const createTemplate = createTemplateId ? templates.find(template => template.id === createTemplateId) : undefined;
+  const createProjectNameRule = getProjectNameRule(createTemplate);
+  const createProjectNameInput = createProjectNameRule ? createTemplate?.inputs.find(input => input.id === createProjectNameRule.inputId) : undefined;
 
   useEffect(() => setLiveColumnWidths(templateColumnWidths), [templateColumnWidths]);
 
@@ -194,6 +203,24 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
     event.target.value = '';
   };
 
+  const handleImportTemplateFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const content = await ioService.readFileAsText(file);
+      const count = onImportTemplates(JSON.parse(content));
+      onRequestAlert('模板导入完成', `已导入 ${count} 个模板。`);
+    } catch (error) {
+      onRequestAlert('模板导入失败', error instanceof Error ? error.message : '文件为空、格式不匹配或无法解析。');
+    }
+    event.target.value = '';
+  };
+
+  const exportTemplateJson = (template: Template) => {
+    const safeName = template.name.replace(/[\\/:*?"<>|]/g, '_');
+    ioService.exportFile(`${safeName || 'template'}.pwc-template.json`, JSON.stringify(createTemplateJson(template), null, 2), 'application/json');
+  };
+
   const toggleProject = (id: string) => {
     setSelectedIds(current => {
       const next = new Set(current);
@@ -208,6 +235,15 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
         ? collapsedProjectTemplateIds.filter(id => id !== templateId)
         : [...collapsedProjectTemplateIds, templateId]
     );
+  };
+
+  const openProjectNamesModal = (template: Template, templateProjects: Project[]) => {
+    const names = templateProjects.map(project => project.name.trim()).filter(Boolean);
+    if (names.length === 0) {
+      onRequestAlert('没有项目名称', '该模板下暂无可复制的项目名称。');
+      return;
+    }
+    setProjectNamesModal({ templateName: template.name, names });
   };
 
   const fittedTemplateColumnWidths = useMemo(() => {
@@ -287,6 +323,8 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                 className="px-2 py-1.5 text-[10px] border border-slate-700 text-slate-400 rounded hover:bg-slate-800 hover:text-white"
               >隐藏所有模板项目</button>
               <button onClick={() => onTemplateColumnWidthsChange(DEFAULT_TEMPLATE_COLUMN_WIDTHS)} className="px-2 py-1.5 text-[10px] border border-slate-700 rounded text-slate-400 hover:text-white">重置列宽</button>
+              <input type="file" ref={templateInputRef} onChange={handleImportTemplateFile} className="hidden" accept=".json" />
+              <button onClick={() => templateInputRef.current?.click()} className="px-2 py-1.5 text-[10px] border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 rounded hover:bg-cyan-600 hover:text-white">导入模板 JSON</button>
               <Button size="sm" onClick={() => onCreateTemplate(selection === 'ungrouped-templates' ? undefined : selectedGroupId)}>新建模板</Button>
             </>
           ) : (
@@ -366,7 +404,9 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                 <span className="px-2 py-3 text-slate-400 truncate" title={formatDate(template.lastModifiedAt)}>{formatDate(template.lastModifiedAt)}</span>
                 <div className="flex flex-wrap items-center gap-1 px-2 py-2">
                   <button onClick={() => { setCreateTemplateId(template.id); }} className="px-2 py-1.5 border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 rounded hover:bg-emerald-600 hover:text-white">新建项目</button>
+                  <button onClick={() => openProjectNamesModal(template, projects.filter(project => project.templateId === template.id))} className="px-2 py-1.5 border border-cyan-500/40 bg-cyan-500/10 text-cyan-300 rounded hover:bg-cyan-600 hover:text-white">项目名称</button>
                   <button onClick={() => onEditTemplate(template.id)} className="px-2 py-1.5 border border-blue-500/40 bg-blue-500/10 text-blue-300 rounded hover:bg-blue-600 hover:text-white">编辑</button>
+                  <button onClick={() => exportTemplateJson(template)} className="px-2 py-1.5 border border-slate-600 text-slate-300 rounded hover:bg-slate-700">导出 JSON</button>
                   <button onClick={() => onDuplicateTemplate(template.id)} className="px-2 py-1.5 border border-slate-600 text-slate-300 rounded hover:bg-slate-700">复制</button>
                   <button onClick={() => onDeleteTemplate(template.id)} className="px-2 py-1.5 border border-red-500/30 text-red-400 rounded hover:bg-red-600 hover:text-white">删除</button>
                 </div>
@@ -389,6 +429,7 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
                     {group.template.id !== '__missing__' && (
                       <div className="flex items-center gap-2">
                         <button onClick={() => setCreateTemplateId(group.template.id)} className="px-2 py-1 text-[10px] border border-emerald-500/30 text-emerald-400 rounded hover:bg-emerald-600 hover:text-white">新建项目</button>
+                        <button onClick={() => openProjectNamesModal(group.template, group.projects)} className="px-2 py-1 text-[10px] border border-cyan-500/30 text-cyan-400 rounded hover:bg-cyan-600 hover:text-white">项目名称</button>
                         <button onClick={() => group.projects.forEach(project => onOpenProject(project.id))} className="px-2 py-1 text-[10px] border border-slate-700 text-slate-400 rounded hover:text-white">打开此模板的所有项目</button>
                         <button onClick={() => onSelectionChange(`template:${group.template.id}`)} className="px-2 py-1 text-[10px] border border-slate-700 text-slate-400 rounded hover:text-white">查看模板项目</button>
                       </div>
@@ -424,10 +465,61 @@ export const FileLibrary: React.FC<FileLibraryProps> = ({
       />
       <CreateProjectModal
         isOpen={Boolean(createTemplateId)}
+        nameLabel={createProjectNameInput ? createProjectNameInput.label : '项目名称'}
+        namePrefix={createProjectNameRule?.prefix}
         onConfirm={name => { if (createTemplateId) onCreateProject(createTemplateId, name); setCreateTemplateId(null); }}
         onCancel={() => setCreateTemplateId(null)}
       />
       <MergeModal isOpen={isMergeModalOpen} onClose={() => setIsMergeModalOpen(false)} currentProjects={projects} currentTemplates={templates} onConfirmMerge={onMergeData} onRequestAlert={onRequestAlert} />
+      <ProjectNamesModal
+        data={projectNamesModal}
+        onClose={() => setProjectNamesModal(null)}
+        onRequestAlert={onRequestAlert}
+      />
+    </div>
+  );
+};
+
+const ProjectNamesModal: React.FC<{
+  data: { templateName: string; names: string[] } | null;
+  onClose: () => void;
+  onRequestAlert: (title: string, message: string) => void;
+}> = ({ data, onClose, onRequestAlert }) => {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (data) setCopied(false);
+  }, [data]);
+
+  if (!data) return null;
+
+  const text = data.names.join('\n');
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+    } catch {
+      onRequestAlert('复制失败', '无法写入剪贴板，请检查系统权限后重试。');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70">
+      <div className="w-[520px] max-w-[90vw] max-h-[78vh] flex flex-col bg-slate-900 border border-slate-700 rounded shadow-2xl">
+        <div className="p-4 border-b border-slate-800">
+          <h3 className="text-sm font-bold text-white truncate">{data.templateName}</h3>
+          <p className="mt-1 text-[10px] text-slate-500">{data.names.length} 个项目名称</p>
+        </div>
+        <textarea
+          readOnly
+          value={text}
+          className="m-4 min-h-[220px] resize-none rounded border border-slate-700 bg-slate-950 p-3 font-mono text-sm leading-6 text-slate-200 outline-none"
+        />
+        <div className="flex justify-end gap-2 border-t border-slate-800 p-3">
+          <Button variant="secondary" size="sm" onClick={onClose}>关闭</Button>
+          <Button size="sm" onClick={handleCopy}>{copied ? '已复制' : '复制'}</Button>
+        </div>
+      </div>
     </div>
   );
 };

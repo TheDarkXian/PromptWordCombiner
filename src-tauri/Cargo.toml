@@ -1,6 +1,6 @@
 [package]
 name = "pwcai-beta"
-version = "0.3.2"
+version = "0.3.7"
 description = "pwcAI Beta"
 authors = ["you"]
 license = ""

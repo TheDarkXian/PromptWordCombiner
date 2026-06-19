@@ -21,12 +21,39 @@ const AutoResizeTextarea: React.FC<{
 }> = ({ value, onChange, onBlur, placeholder, className, autoFocus }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const findScrollParent = (element: HTMLElement): HTMLElement | null => {
+    let parent = element.parentElement;
+    while (parent) {
+      const { overflowY } = window.getComputedStyle(parent);
+      if (/(auto|scroll)/.test(overflowY) && parent.scrollHeight > parent.clientHeight) {
+        return parent;
+      }
+      parent = parent.parentElement;
+    }
+    return null;
+  };
+
   const adjustHeight = () => {
     const el = textareaRef.current;
     if (el) {
-      el.style.height = '0px';
-      const scrollHeight = el.scrollHeight;
-      el.style.height = `${scrollHeight}px`;
+      const scrollParent = findScrollParent(el);
+      const previousScrollTop = scrollParent?.scrollTop;
+
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+
+      // Resizing a long focused textarea can make the browser lose its scroll
+      // anchor and jump upward. Preserve upward position changes while still
+      // allowing the browser to scroll down naturally to keep the caret visible.
+      if (scrollParent && previousScrollTop !== undefined) {
+        const restoreUnexpectedUpwardScroll = () => {
+          if (scrollParent.scrollTop < previousScrollTop) {
+            scrollParent.scrollTop = previousScrollTop;
+          }
+        };
+        restoreUnexpectedUpwardScroll();
+        requestAnimationFrame(restoreUnexpectedUpwardScroll);
+      }
     }
   };
 
